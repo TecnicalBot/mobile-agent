@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display:
+    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
+    Segoe UI Symbol, Noto Color Emoji;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+  --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --radius: 16px;
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #f0f0f3;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #e0e1e6;
+  --secondary-foreground: #000000;
+  --muted: #e0e1e6;
+  --muted-foreground: #60646c;
+  --accent: #e0e1e6;
+  --accent-foreground: #000000;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #d4d7de;
+  --input: #ffffff;
+  --ring: #94a3b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --foreground: #ffffff;
+    --card: #212225;
+    --card-foreground: #ffffff;
+    --popover: #181a1d;
+    --popover-foreground: #ffffff;
+    --primary: #ffffff;
+    --primary-foreground: #000000;
+    --secondary: #2e3135;
+    --secondary-foreground: #ffffff;
+    --muted: #2e3135;
+    --muted-foreground: #b0b4ba;
+    --accent: #2e3135;
+    --accent-foreground: #ffffff;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #3a3f46;
+    --input: #181a1d;
+    --ring: #64748b;
+  }
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #212225;
+  --card-foreground: #ffffff;
+  --popover: #181a1d;
+  --popover-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: #2e3135;
+  --secondary-foreground: #ffffff;
+  --muted: #2e3135;
+  --muted-foreground: #b0b4ba;
+  --accent: #2e3135;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #3a3f46;
+  --input: #181a1d;
+  --ring: #64748b;
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-display);
+  }
+}

@@ -1,0 +1,114 @@
+name: Android APK Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if app version changed
+        id: version
+        shell: bash
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            PREVIOUS_VERSION=$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          else
+            PREVIOUS_VERSION=""
+          fi
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "Previous version: $PREVIOUS_VERSION"
+
+          echo "VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
+
+          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged. Skipping release."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version changed. Creating release."
+          fi
+
+      - name: Set up pnpm
+        if: steps.version.outputs.changed == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.2
+
+      - name: Set up Node.js
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EAS CLI
+        if: steps.version.outputs.changed == 'true'
+        run: npm install -g eas-cli
+
+      - name: Build Android APK
+        if: steps.version.outputs.changed == 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas build \
+            --platform android \
+            --profile production \
+            --non-interactive \
+            --wait \
+            --json > build.json
+
+      - name: Resolve APK URL
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          cat build.json
+
+          APK_URL=$(jq -r 'if type == "array" then .[0].artifacts.buildUrl else .artifacts.buildUrl end' build.json)
+
+          if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
+            echo "Failed to resolve APK URL from build.json"
+            exit 1
+          fi
+
+          echo "APK_URL=$APK_URL" >> "$GITHUB_ENV"
+
+      - name: Download APK
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          curl -fL "$APK_URL" -o mobile-agent-${{ env.VERSION }}.apk
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Mobile Agent v${{ env.VERSION }}
+          files: mobile-agent-${{ env.VERSION }}.apk
+          generate_release_notes: true
+          prerelease: ${{ contains(env.VERSION, 'alpha') || contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc') || contains(env.VERSION, 'pre') }}
+
+      - name: Skip release
+        if: steps.version.outputs.changed == 'false'
+        run: echo "Version unchanged. APK build and GitHub release skipped."

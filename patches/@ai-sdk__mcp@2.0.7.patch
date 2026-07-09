@@ -1,0 +1,22 @@
+diff --git a/dist/index.js b/dist/index.js
+index 8bf76f638cbdefad0c0922082688710e8af4a783566a85abee243d51ed5675d6..ac12c8446fc047d19455504e43855fea0dd3f4ac 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2299,7 +2299,7 @@
+       }
+       this.assertCapability(request.method);
+       const signal = options == null ? void 0 : options.signal;
+-      signal == null ? void 0 : signal.throwIfAborted();
++      signal == null ? void 0 : typeof signal.throwIfAborted === "function" && signal.throwIfAborted();
+       const messageId = this.requestMessageId++;
+       const jsonrpcRequest = {
+         ...request,
+@@ -2520,7 +2520,7 @@
+       };
+       const execute = async (args, options) => {
+         var _a4;
+-        (_a4 = options == null ? void 0 : options.abortSignal) == null ? void 0 : _a4.throwIfAborted();
++        (_a4 = options == null ? void 0 : options.abortSignal) == null ? void 0 : typeof _a4.throwIfAborted === "function" && _a4.throwIfAborted();
+         const result = await self.callTool({
+           name: name3,
+           arguments: args,

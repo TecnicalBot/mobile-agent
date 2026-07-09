@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Mobile Agent",
+    "slug": "mobile-agent",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobile-agent",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.tecnicalbot.mobileagent"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundImage": "./assets/images/icon.png",
+        "monochromeImage": "./assets/images/icon.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.tecnicalbot.mobileagent"
+    },
+    "web": {
+      "output": "server",
+      "bundler": "metro",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0b1545",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 240
+        }
+      ],
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "agent-runs"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7944daea-4e83-4c42-8bb5-604ac6ec6ea8"
+      }
+    },
+    "owner": "tecnicalbot"
+  }
+}

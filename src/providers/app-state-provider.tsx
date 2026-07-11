@@ -258,6 +258,7 @@ type AppStateContextValue = {
   updateToolApprovalMode: (
     mode: AppSettings["toolApprovalMode"],
   ) => Promise<void>;
+  updateMaxToolSteps: (maxToolSteps: number) => Promise<void>;
   updateProvider: (
     providerId: string,
     input: {
@@ -295,6 +296,7 @@ const EMPTY_SETTINGS: AppSettings = {
   databaseMode: "local",
   databaseUrl: null,
   memoryEnabled: true,
+  maxToolSteps: 50,
   toolApprovalMode: "ask",
 };
 
@@ -853,7 +855,14 @@ async function resolveConfig(input: {
 
   const suggestedModelsByProvider = Object.fromEntries(
     input.providers.map((provider) => {
-      const builtInModels: CuratedModelDefinition[] = [];
+      const builtInModels: CuratedModelDefinition[] =
+        provider.family === "openai" && provider.authType === "oauth"
+          ? [
+              { id: "gpt-5.5", kind: "chat", label: "GPT-5.5", capabilities: { tools: true } },
+              { id: "gpt-5.4", kind: "chat", label: "GPT-5.4", capabilities: { tools: true } },
+              { id: "gpt-5.4-mini", kind: "small", label: "GPT-5.4 mini", capabilities: { tools: true } },
+            ]
+          : [];
       const discoveredModels = [
         ...getCatalogModelDefinitionsForProvider(liveCatalog, provider),
         ...getModelsDevDefinitionsForProvider(modelsDevCatalog, provider),
@@ -1137,7 +1146,8 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       const agentRuns = await repositories.agentRunRepository.list();
       const staleRuns = agentRuns.filter(
         (run) =>
-          run.status === "running" || run.status === "waiting_for_approval",
+          (run.status === "running" || run.status === "waiting_for_approval") &&
+          !runRegistryRef.current.owns(run.id),
       );
 
       for (const run of staleRuns) {
@@ -1197,8 +1207,29 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         settings,
       } satisfies AppStateSnapshot;
 
-      snapshotRef.current = nextSnapshot;
-      setSnapshot(nextSnapshot);
+      setSnapshot((current) => {
+        const hasLocallyOwnedRuns = current.agentRuns.some((run) =>
+          runRegistryRef.current.owns(run.id),
+        );
+        const reconciledSnapshot = hasLocallyOwnedRuns
+          ? {
+              ...nextSnapshot,
+              agentRuns: current.agentRuns.reduce(
+                (runs, run) =>
+                  runRegistryRef.current.owns(run.id)
+                    ? upsertAgentRun(runs, run)
+                    : runs,
+                nextSnapshot.agentRuns,
+              ),
+              messages:
+                current.currentConversation?.id === currentConversation?.id
+                  ? upsertMessages(nextSnapshot.messages, current.messages)
+                  : nextSnapshot.messages,
+            }
+          : nextSnapshot;
+        snapshotRef.current = reconciledSnapshot;
+        return reconciledSnapshot;
+      });
       setReady(true);
     } catch (hydrateError) {
       setError(
@@ -1599,6 +1630,11 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     await hydrate();
   }
 
+  async function updateMaxToolSteps(maxToolSteps: number) {
+    await repositoriesRef.current.configRepository.setMaxToolSteps(maxToolSteps);
+    await hydrate();
+  }
+
   async function updateMemoryEnabled(enabled: boolean) {
     await repositoriesRef.current.configRepository.setMemoryEnabled(enabled);
     await hydrate();
@@ -1930,9 +1966,19 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
   }
 
   async function executeAgentRun(runId: string) {
-    if (runRegistryRef.current.getAbortController(runId)) {
+    if (!runRegistryRef.current.claim(runId)) {
       return;
     }
+
+    try {
+      await executeClaimedAgentRun(runId);
+    } catch (error) {
+      runRegistryRef.current.clear(runId);
+      throw error;
+    }
+  }
+
+  async function executeClaimedAgentRun(runId: string) {
 
     const repositories = repositoriesRef.current;
     const run =
@@ -1940,6 +1986,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       (await repositories.agentRunRepository.getById(runId));
 
     if (!run || !shouldAutoResumeRun(run.status)) {
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -1955,6 +2002,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         lastError: "Chat not found.",
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -1968,6 +2016,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         lastError: `Provider ${run.providerId} is unavailable.`,
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -1991,6 +2040,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         lastError: `Model ${run.modelId} is unavailable for ${provider.label}.`,
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -2047,6 +2097,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         lastError: "Assistant message not found.",
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -2111,6 +2162,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           "The current model does not support image input. Switch to a vision-capable model to send images.",
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -2121,6 +2173,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           "Binary file attachments require a tool-capable model for this chat.",
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -2139,6 +2192,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           "This conversation includes image attachments, but the current model cannot read images.",
         status: "failed",
       });
+      runRegistryRef.current.clear(runId);
       return;
     }
 
@@ -2678,6 +2732,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
       const runtimeResult = await modelRuntime.generateTextStream({
         abortSignal: abortController.signal,
+        maxToolSteps: snapshotRef.current.settings.maxToolSteps,
         messages: runtimeMessages,
         model: resolvedModel,
         onDelta: (delta) => {
@@ -2685,6 +2740,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           assistantText += delta;
           schedulePersist("streaming");
           syncAssistantSnapshot("streaming");
+        },
+        onEvent: () => {
+          markActivity();
         },
         provider,
         secretStore: secureSecretStore,
@@ -2704,7 +2762,11 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       }
 
       if (!assistantText.trim()) {
-        assistantText = buildAssistantTextFromToolExecutions(toolExecutions);
+        assistantText = runtimeResult.stepLimitReached
+          ? `Stopped after ${snapshotRef.current.settings.maxToolSteps} tool steps. You can raise the limit in Tool settings or ask me to continue.`
+          : toolExecutions.length > 0
+            ? "The requested tool actions completed, but the model did not provide a final response. Please ask me to continue."
+            : "The model completed without returning text.";
       }
 
       if (generatedImages.length > 0) {
@@ -2938,9 +3000,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       return;
     }
 
-    runRegistryRef.current.stopRun(targetRun.id);
+    const ownedLocally = runRegistryRef.current.stopRun(targetRun.id);
 
-    if (!runRegistryRef.current.getAbortController(targetRun.id)) {
+    if (!ownedLocally) {
       await updateRunRecord(targetRun.id, {
         completedAt: new Date().toISOString(),
         lastError: null,
@@ -3258,7 +3320,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       };
     });
 
-    void executeAgentRun(agentRun.id);
+    void executeAgentRun(agentRun.id).catch((runError) => {
+      setError(runError instanceof Error ? runError.message : "Failed to start run.");
+    });
   }
 
   const sending = snapshot.agentRuns.some((run) =>
@@ -3348,6 +3412,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         updateMemoryEnabled,
         updateSkill,
         updateToolApprovalMode,
+        updateMaxToolSteps,
         updateProvider,
         workspaceFiles: snapshot.workspaceFiles,
       }}
@@ -3428,6 +3493,8 @@ export function useConfig() {
     updateMemoryEnabled: context.updateMemoryEnabled,
     updateSkill: context.updateSkill,
     updateToolApprovalMode: context.updateToolApprovalMode,
+    updateMaxToolSteps: context.updateMaxToolSteps,
+    maxToolSteps: context.settings.maxToolSteps,
     updateProvider: context.updateProvider,
   };
 }

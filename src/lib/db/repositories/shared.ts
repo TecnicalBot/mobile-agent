@@ -17,6 +17,7 @@ export function createDrizzleDb(sqliteDb: SQLiteDatabase) {
 
 export function buildSettings(rows: AppSettingRow[]): AppSettings {
   const settingsMap = new Map(rows.map((row) => [row.key, row.value]));
+  const parsedMaxToolSteps = Number(settingsMap.get("max_tool_steps"));
 
   return {
     activeConversationId: settingsMap.get("active_conversation_id") ?? null,
@@ -42,6 +43,10 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       (settingsMap.get("database_mode") as DatabaseMode | null) ?? "local",
     databaseUrl: settingsMap.get("database_url") ?? null,
     memoryEnabled: settingsMap.get("memory_enabled") !== "false",
+    maxToolSteps:
+      Number.isInteger(parsedMaxToolSteps) && parsedMaxToolSteps >= 1
+        ? Math.min(parsedMaxToolSteps, 100)
+        : 50,
     toolApprovalMode:
       (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ?? "ask",
   };

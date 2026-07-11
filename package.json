@@ -10,7 +10,6 @@
     "@ai-sdk/openai": "^4.0.5",
     "@expo/metro-runtime": "^57.0.3",
     "@expo/ui": "~57.0.3",
-    "@openai/codex-sdk": "^0.142.5",
     "@tanstack/react-query": "^5.101.2",
     "ai": "^7.0.9",
     "class-variance-authority": "^0.7.1",

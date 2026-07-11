@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,14 @@ export default function SettingsToolsScreen() {
   const theme = useTheme();
   const {
     toolApprovalMode,
+    maxToolSteps,
     toolSettings,
     updateBuiltInToolSettings,
     updateToolApprovalMode,
+    updateMaxToolSteps,
   } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [stepDraft, setStepDraft] = useState(String(maxToolSteps));
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
@@ -94,6 +97,43 @@ export default function SettingsToolsScreen() {
                 }).catch(console.error);
               }}
             />
+          </View>
+        </View>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <View className="gap-sp-2 px-sp-4 py-sp-4">
+          <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+            Maximum tool steps
+          </Text>
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            Stop an agent loop after this many model steps (1–100).
+          </Text>
+          <View className="flex-row items-center gap-sp-2">
+            <TextInput
+              className="min-h-10 flex-1 rounded-md border border-border px-sp-3 text-foreground dark:border-border-dark dark:text-foreground-dark"
+              keyboardType="number-pad"
+              onChangeText={setStepDraft}
+              value={stepDraft}
+            />
+            <Button
+              disabled={busyKey === "max-tool-steps"}
+              onPress={() => {
+                const value = Number(stepDraft);
+                if (!Number.isFinite(value)) {
+                  setStepDraft(String(maxToolSteps));
+                  return;
+                }
+                runAction("max-tool-steps", async () => {
+                  const normalized = Math.max(1, Math.min(100, Math.round(value)));
+                  await updateMaxToolSteps(normalized);
+                  setStepDraft(String(normalized));
+                }).catch(console.error);
+              }}
+              variant="outline"
+            >
+              Save
+            </Button>
           </View>
         </View>
       </Card>

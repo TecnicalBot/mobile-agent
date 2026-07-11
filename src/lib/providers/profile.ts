@@ -10,12 +10,6 @@ export type ModelProfile = {
   transport: ModelTransport;
 };
 
-const CODEX_ALLOWED_MODELS = new Set([
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.5",
-]);
-
 const OPENAI_CHAT_ONLY_MODELS = new Set(["gpt-5-chat-latest"]);
 
 const FAMILY_DEFAULT_CAPABILITIES: Record<ProviderFamily, ModelCapabilities> = {
@@ -64,16 +58,14 @@ export function resolveModelProfile(input: {
   const { authType, family, hintCapabilities, hintTransport, modelId } = input;
 
   if (family === "openai" && authType === "oauth") {
-    const allowed = CODEX_ALLOWED_MODELS.has(modelId);
-
     return {
       transport: "codexResponses",
       capabilities: {
         ...FAMILY_DEFAULT_CAPABILITIES.openai,
         ...hintCapabilities,
-        tools: false,
+        tools: hintCapabilities?.tools ?? true,
         imageGeneration: false,
-        imageInput: allowed,
+        imageInput: hintCapabilities?.imageInput ?? false,
       },
     };
   }
@@ -99,8 +91,4 @@ export function resolveModelProfile(input: {
       ...hintCapabilities,
     },
   };
-}
-
-export function isCodexPermittedModel(modelId: string) {
-  return CODEX_ALLOWED_MODELS.has(modelId);
 }

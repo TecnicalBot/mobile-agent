@@ -12,22 +12,30 @@ export function shouldUseStreamingAISDK() {
   );
 }
 
+function shouldFallbackToNonStreaming(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /readablestream|streaming is not supported|async iterator/i.test(
+    message,
+  );
+}
+
 export async function generateViaAISDK(
   providerModel: ProviderLanguageModel,
   params: GenerateModelTextStreamParams,
 ) {
+  let finalText = "";
+
   try {
     const result = streamText({
       abortSignal: params.abortSignal,
       model: providerModel,
       messages: params.messages,
       providerOptions: params.providerOptions as any,
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(params.maxToolSteps),
       system: params.system,
       tools: params.tools,
     });
-
-    let finalText = "";
 
     for await (const delta of result.textStream) {
       finalText += delta;
@@ -35,10 +43,11 @@ export async function generateViaAISDK(
     }
 
     await result.text;
-    const [files, toolResults, usage] = await Promise.all([
+    const [files, toolResults, usage, steps] = await Promise.all([
       result.files,
       result.toolResults,
       result.usage,
+      result.steps,
     ]);
 
     return {
@@ -46,9 +55,16 @@ export async function generateViaAISDK(
       text: finalText,
       toolResults,
       usage,
+      stepLimitReached:
+        steps.length >= params.maxToolSteps &&
+        steps.at(-1)?.finishReason === "tool-calls",
     };
   } catch (error) {
-    if (params.abortSignal?.aborted) {
+    if (
+      params.abortSignal?.aborted ||
+      finalText.length > 0 ||
+      !shouldFallbackToNonStreaming(error)
+    ) {
       throw error;
     }
 
@@ -87,7 +103,7 @@ export async function generateViaAISDKNonStreaming(
     model: providerModel,
     messages: params.messages,
     providerOptions: params.providerOptions as any,
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(params.maxToolSteps),
     system: params.system,
     tools: params.tools,
   });
@@ -107,5 +123,8 @@ export async function generateViaAISDKNonStreaming(
     text: result.text,
     toolResults: result.toolResults,
     usage: result.usage,
+    stepLimitReached:
+      result.steps.length >= params.maxToolSteps &&
+      result.steps.at(-1)?.finishReason === "tool-calls",
   };
 }

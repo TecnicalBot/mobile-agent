@@ -281,6 +281,7 @@ export type AppSettings = {
   databaseMode: DatabaseMode;
   databaseUrl: string | null;
   memoryEnabled: boolean;
+  maxToolSteps: number;
   toolApprovalMode: ToolApprovalMode;
 };
 

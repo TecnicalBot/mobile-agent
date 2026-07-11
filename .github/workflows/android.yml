@@ -106,7 +106,7 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: Mobile Agent v${{ env.VERSION }}
           files: mobile-agent-${{ env.VERSION }}.apk
-          generate_release_notes: true
+          body_path: .release-notes.md
           prerelease: ${{ contains(env.VERSION, 'alpha') || contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc') || contains(env.VERSION, 'pre') }}
 
       - name: Skip release

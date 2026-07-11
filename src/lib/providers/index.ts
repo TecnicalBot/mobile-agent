@@ -3,4 +3,4 @@ export {
   getSupportedProviderDefinition,
   resolveConfiguredModel,
 } from "@/lib/providers/catalog";
-export { isCodexPermittedModel, resolveModelProfile } from "@/lib/providers/profile";
+export { resolveModelProfile } from "@/lib/providers/profile";

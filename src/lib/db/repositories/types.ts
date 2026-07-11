@@ -265,6 +265,7 @@ export interface ConfigRepository {
   setBuiltInToolSettings(input: Partial<BuiltInToolSettings>): Promise<void>;
   setMemoryEnabled(enabled: boolean): Promise<void>;
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
+  setMaxToolSteps(maxToolSteps: number): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;
   updateProvider(
     providerId: string,

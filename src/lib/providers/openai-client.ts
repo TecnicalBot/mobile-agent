@@ -2,6 +2,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 
 import {
   getValidOpenAiTokenInfo,
+  refreshOpenAIToken,
+  setOpenAiTokens,
 } from "@/lib/openai-oauth";
 import type { ModelRuntime } from "@/lib/runtime/providers/types";
 import type { SecretStore } from "@/lib/secrets";
@@ -50,11 +52,31 @@ function shouldRouteToCodex(url: URL) {
   );
 }
 
+function buildCodexRequestInit(init?: RequestInit): RequestInit | undefined {
+  if (typeof init?.body !== "string") {
+    return init;
+  }
+
+  try {
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+
+    return {
+      ...init,
+      body: JSON.stringify({
+        ...body,
+        store: false,
+      }),
+    };
+  } catch {
+    return init;
+  }
+}
+
 async function fetchWithCodexOAuth(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {
-  const session = await getValidOpenAiTokenInfo();
+  let session = await getValidOpenAiTokenInfo();
 
   if (!session.accessToken) {
     throw new Error("Missing OpenAI access token. Please connect ChatGPT first.");
@@ -67,21 +89,56 @@ async function fetchWithCodexOAuth(
   const requestUrl = shouldRouteToCodex(originalUrl)
     ? new URL(CODEX_RESPONSES_URL)
     : originalUrl;
-  const headers = copyHeaders(init?.headers);
+  const requestInit = shouldRouteToCodex(originalUrl)
+    ? buildCodexRequestInit(init)
+    : init;
+  const send = (accessToken: string, accountId: string | null) => {
+    const headers = copyHeaders(
+      requestInit?.headers ??
+        (typeof input === "string" || input instanceof URL
+          ? undefined
+          : input.headers),
+    );
 
-  headers.delete("authorization");
-  headers.delete("Authorization");
-  headers.set("authorization", `Bearer ${session.accessToken}`);
-  headers.set("openai-originator", "opencode");
+    headers.delete("authorization");
+    headers.set("authorization", `Bearer ${accessToken}`);
+    headers.set("openai-originator", "opencode");
 
-  if (session.accountId) {
-    headers.set("ChatGPT-Account-Id", session.accountId);
+    if (accountId) {
+      headers.set("ChatGPT-Account-Id", accountId);
+    } else {
+      headers.delete("ChatGPT-Account-Id");
+    }
+
+    return fetch(requestUrl, {
+      ...requestInit,
+      headers,
+    });
+  };
+
+  let response = await send(session.accessToken, session.accountId);
+
+  if (response.status === 401 && session.refreshToken) {
+    const refreshed = await refreshOpenAIToken(session.refreshToken);
+
+    await setOpenAiTokens({
+      accessToken: refreshed.access_token,
+      accountId: session.accountId,
+      email: session.email,
+      expiresIn: refreshed.expires_in ?? null,
+      idToken: refreshed.id_token ?? null,
+      refreshToken: refreshed.refresh_token ?? session.refreshToken,
+    });
+    session = await getValidOpenAiTokenInfo();
+
+    if (!session.accessToken) {
+      throw new Error("Session expired. Please connect ChatGPT again.");
+    }
+
+    response = await send(session.accessToken, session.accountId);
   }
 
-  return fetch(requestUrl, {
-    ...init,
-    headers,
-  });
+  return response;
 }
 
 export async function createOpenAIClient(input: {

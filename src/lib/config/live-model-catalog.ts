@@ -4,7 +4,6 @@ import type {
   ProviderConfig,
   ProviderFamily,
 } from "@/types/app-state";
-import { isCodexPermittedModel } from "@/lib/providers/profile";
 
 const LIVE_MODEL_CATALOG_URL = "https://ai-gateway.vercel.sh/v1/models";
 const LIVE_MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -193,12 +192,17 @@ export async function fetchLiveModelCatalogCached() {
     return cachedCatalog.models;
   }
 
-  const models = await fetchLiveModelCatalog();
-  cachedCatalog = {
-    expiresAt: Date.now() + LIVE_MODEL_CATALOG_TTL_MS,
-    models,
-  };
-  return models;
+  try {
+    const models = await fetchLiveModelCatalog();
+    cachedCatalog = {
+      expiresAt: Date.now() + LIVE_MODEL_CATALOG_TTL_MS,
+      models,
+    };
+    return models;
+  } catch (error) {
+    if (cachedCatalog) return cachedCatalog.models;
+    throw error;
+  }
 }
 
 export function invalidateLiveModelCatalog() {
@@ -222,10 +226,6 @@ export function getCatalogModelDefinitionsForProvider(
   return getLiveModelsForProvider(models, provider).flatMap((model) => {
     const imageGeneration = model.tags.includes("image-generation");
     const id = getProviderModelId(model, provider);
-
-    if (provider.authType === "oauth" && !isCodexPermittedModel(id)) {
-      return [];
-    }
 
     return [
       {

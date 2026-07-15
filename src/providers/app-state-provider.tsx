@@ -29,6 +29,7 @@ import {
   fetchModelsDevCatalogCached,
   getModelsDevDefinitionsForProvider,
 } from "@/lib/config/models-dev-catalog";
+import { fetchOllamaModels } from "@/lib/providers/ollama-models";
 import { resolveConfiguredModel } from "@/lib/config/registry";
 import { createRepositories } from "@/lib/db/database";
 import { createExternalFolderService } from "@/lib/external-folder/external-folder-service";
@@ -332,6 +333,7 @@ const EMPTY_RESOLVED_CONFIG: ResolvedConfig = {
   providers: [],
   modelPresets: [],
   suggestedModelsByProvider: {},
+  providerModelDiscovery: {},
   availableModels: [],
   activeModels: [],
   currentModel: null,
@@ -926,6 +928,8 @@ async function resolveConfig(input: {
     .map((provider) => provider.id);
   let liveCatalog: LiveCatalogModel[] = [];
   let modelsDevCatalog = {};
+  const ollamaModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
+  const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
   const needsModelsDevCatalog = input.providers.some(
     (provider) =>
       activeProviderIds.includes(provider.id) &&
@@ -950,6 +954,33 @@ async function resolveConfig(input: {
             console.warn("Failed to load the models.dev catalog.", error);
           })
       : Promise.resolve(),
+    ...input.providers
+      .filter(
+        (provider) =>
+          provider.family === "ollama" &&
+          activeProviderIds.includes(provider.id),
+      )
+      .map(async (provider) => {
+        try {
+          ollamaModelsByProvider[provider.id] =
+            await fetchOllamaModels(provider);
+          providerModelDiscovery[provider.id] = {
+            error: null,
+            status: "connected",
+          };
+        } catch (error) {
+          console.warn("Failed to discover Ollama models.", error);
+          providerModelDiscovery[provider.id] = {
+            error:
+              error instanceof Error && error.name === "AbortError"
+                ? "Connection timed out. Check the server address and network access."
+                : error instanceof Error
+                  ? error.message
+                  : "Could not connect to Ollama.",
+            status: "failed",
+          };
+        }
+      }),
   ]);
 
   const suggestedModelsByProvider = Object.fromEntries(
@@ -978,6 +1009,7 @@ async function resolveConfig(input: {
             ]
           : [];
       const discoveredModels = [
+        ...(ollamaModelsByProvider[provider.id] ?? []),
         ...getCatalogModelDefinitionsForProvider(liveCatalog, provider),
         ...getModelsDevDefinitionsForProvider(modelsDevCatalog, provider),
       ]
@@ -1061,6 +1093,7 @@ async function resolveConfig(input: {
     providers: input.providers,
     modelPresets: input.modelPresets,
     suggestedModelsByProvider,
+    providerModelDiscovery,
     availableModels,
     activeModels,
     currentModel,

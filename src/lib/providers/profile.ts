@@ -37,8 +37,14 @@ const FAMILY_DEFAULT_CAPABILITIES: Record<ProviderFamily, ModelCapabilities> = {
     imageGeneration: false,
     reasoning: false,
   },
+  ollama: {
+    tools: true,
+    imageInput: false,
+    imageGeneration: false,
+    reasoning: false,
+  },
   "openai-compatible": {
-    tools: false,
+    tools: true,
     imageInput: false,
     imageGeneration: false,
     reasoning: false,
@@ -56,6 +62,7 @@ const FAMILY_DEFAULT_TRANSPORT: Record<ProviderFamily, ModelTransport> = {
   anthropic: "anthropic",
   google: "google",
   openrouter: "openaiChat",
+  ollama: "openaiCompatible",
   "openai-compatible": "openaiCompatible",
 };
 

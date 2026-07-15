@@ -3,9 +3,10 @@ export type ProviderFamily =
   | "anthropic"
   | "google"
   | "openrouter"
+  | "ollama"
   | "openai-compatible";
 
-export type ProviderAuthType = "oauth" | "apiKey";
+export type ProviderAuthType = "oauth" | "apiKey" | "none";
 export type DatabaseMode = "local" | "remote";
 export type FileContextSource = "workspace" | "external-folder";
 export type MessageRole = "system" | "user" | "assistant";
@@ -332,6 +333,10 @@ export type ResolvedConfig = {
   providers: ProviderConfig[];
   modelPresets: ModelPreset[];
   suggestedModelsByProvider: Record<string, CuratedModelDefinition[]>;
+  providerModelDiscovery: Record<
+    string,
+    { error: string | null; status: "connected" | "failed" }
+  >;
   availableModels: ResolvedModel[];
   activeModels: ResolvedModel[];
   currentModel: ResolvedModel | null;

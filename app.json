@@ -9,7 +9,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.tecnicalbot.mobileagent"
+      "bundleIdentifier": "com.tecnicalbot.mobileagent",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Connect to Ollama servers on your local network."
+      }
     },
     "android": {
       "permissions": [
@@ -22,6 +28,7 @@
         "monochromeImage": "./assets/images/icon.png"
       },
       "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true,
       "package": "com.tecnicalbot.mobileagent"
     },
     "web": {

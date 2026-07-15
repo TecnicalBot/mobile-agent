@@ -6,6 +6,7 @@ import {
   refreshOpenAIToken,
   setOpenAiTokens,
 } from "@/lib/openai-oauth";
+import { getOllamaOpenAIBaseUrl } from "@/lib/providers/ollama-models";
 import type { ModelRuntime } from "@/lib/runtime/providers/types";
 import type { SecretStore } from "@/lib/secrets";
 import type { ProviderConfig, ResolvedModel } from "@/types/app-state";
@@ -157,7 +158,10 @@ export async function createOpenAIClient(input: {
     });
   }
 
-  const apiKey = await input.secretStore.getProviderApiKey(input.provider.id);
+  const apiKey =
+    input.provider.authType === "none"
+      ? "ollama"
+      : await input.secretStore.getProviderApiKey(input.provider.id);
 
   if (!apiKey) {
     throw new Error(`Missing API key for provider ${input.provider.label}.`);
@@ -166,7 +170,9 @@ export async function createOpenAIClient(input: {
   return createOpenAI({
     apiKey,
     baseURL:
-      input.provider.baseUrl ||
+      input.provider.family === "ollama"
+        ? getOllamaOpenAIBaseUrl(input.provider.baseUrl)
+        : input.provider.baseUrl ||
       (input.provider.family === "openai"
         ? "https://api.openai.com/v1"
         : undefined),
@@ -182,6 +188,8 @@ export async function createOpenAIClient(input: {
         ? "openrouter"
         : input.provider.family === "openai-compatible"
           ? input.provider.id
+          : input.provider.family === "ollama"
+            ? "ollama"
           : undefined,
   });
 }

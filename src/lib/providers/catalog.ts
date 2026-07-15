@@ -9,6 +9,7 @@ import {
   OPENAI_OAUTH_PROVIDER,
 } from "@/lib/providers/openai";
 import { OPENROUTER_PROVIDER } from "@/lib/providers/openrouter";
+import { OLLAMA_PROVIDER } from "@/lib/providers/ollama";
 import { resolveModelProfile } from "@/lib/providers/profile";
 import type { SupportedProviderDefinition } from "@/lib/providers/types";
 import type {
@@ -25,6 +26,7 @@ const SUPPORTED_PROVIDERS = [
   ANTHROPIC_PROVIDER,
   GOOGLE_PROVIDER,
   OPENROUTER_PROVIDER,
+  OLLAMA_PROVIDER,
   OPENAI_COMPATIBLE_PROVIDER,
   ...OPENAI_COMPATIBLE_PROFILE_PROVIDERS,
 ] satisfies SupportedProviderDefinition[];

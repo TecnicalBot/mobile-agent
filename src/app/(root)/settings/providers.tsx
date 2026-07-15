@@ -49,6 +49,7 @@ export default function SettingsProvidersScreen() {
     disconnectOpenAIOAuth,
     modelPresets,
     providers,
+    providerModelDiscovery,
     refresh,
     saveProviderApiKey,
     selectModel,
@@ -70,6 +71,10 @@ export default function SettingsProvidersScreen() {
         const isActive = activeProviderIds.includes(provider.id);
         const models =
           suggestedModelsByProvider[provider.id] ?? [];
+        const discovery = providerModelDiscovery[provider.id];
+        const pulledModelCount = models.filter(
+          (model) => model.options?.ollama,
+        ).length;
 
         return {
           key: `provider:${provider.id}`,
@@ -78,7 +83,12 @@ export default function SettingsProvidersScreen() {
           provider,
           value: isCurrent
             ? "Current"
-            : isActive
+            : provider.family === "ollama" && discovery?.status === "failed"
+              ? "Connection failed"
+              : provider.family === "ollama" &&
+                  discovery?.status === "connected"
+                ? `${pulledModelCount} pulled`
+                : isActive
               ? `${models.length} available`
               : provider.authType === "oauth"
                 ? "Connect"
@@ -90,6 +100,7 @@ export default function SettingsProvidersScreen() {
     currentModel,
     modelPresets,
     providers,
+    providerModelDiscovery,
     suggestedModelsByProvider,
   ]);
 
@@ -100,6 +111,9 @@ export default function SettingsProvidersScreen() {
   const selectedProviderActive = selectedProviderId
     ? activeProviderIds.includes(selectedProviderId)
     : false;
+  const selectedProviderDiscovery = selectedProviderId
+    ? providerModelDiscovery[selectedProviderId]
+    : undefined;
   const selectedProviderPresets = useMemo(() => {
     if (!selectedProviderId) {
       return [];
@@ -182,7 +196,9 @@ export default function SettingsProvidersScreen() {
     }
   };
 
-  const selectedProviderNeedsBaseUrl = selectedProvider?.family === "openai-compatible";
+  const selectedProviderNeedsBaseUrl =
+    selectedProvider?.family === "openai-compatible" ||
+    selectedProvider?.family === "ollama";
 
   return (
     <Container
@@ -247,7 +263,19 @@ export default function SettingsProvidersScreen() {
                 <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
                   <StatusRow
                     label="Status"
-                    value={selectedProviderActive ? "Ready" : "Not set up"}
+                    value={
+                      selectedProvider?.family === "ollama"
+                        ? selectedProviderDiscovery?.status === "connected"
+                          ? "Connected"
+                          : selectedProviderDiscovery?.status === "failed"
+                            ? "Connection failed"
+                            : selectedProviderActive
+                              ? "Checking"
+                              : "Not set up"
+                        : selectedProviderActive
+                          ? "Ready"
+                          : "Not set up"
+                    }
                   />
                   <Separator />
                   <StatusRow label="Family" value={selectedProvider.family} />
@@ -258,6 +286,13 @@ export default function SettingsProvidersScreen() {
                     </>
                   ) : null}
                 </View>
+
+                {selectedProvider.family === "ollama" &&
+                selectedProviderDiscovery?.error ? (
+                  <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                    {selectedProviderDiscovery.error}
+                  </Text>
+                ) : null}
 
                 {selectedProvider.authType === "oauth" ? (
                   <View className="gap-sp-3">
@@ -287,6 +322,61 @@ export default function SettingsProvidersScreen() {
                           runAction(
                             `disconnect:${selectedProvider.id}`,
                             disconnectOpenAIOAuth,
+                          ).catch(console.error);
+                        }}
+                        variant="outline"
+                      >
+                        Disconnect
+                      </Button>
+                    </View>
+                  </View>
+                ) : selectedProvider.authType === "none" ? (
+                  <View className="gap-sp-3">
+                    <Input
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      onChangeText={setBaseUrlInput}
+                      placeholder="Ollama server URL"
+                      value={baseUrlInput}
+                    />
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      On a physical phone, use your computer’s LAN address, for
+                      example http://192.168.1.10:11434.
+                    </Text>
+                    <View className="flex-row gap-sp-2">
+                      <Button
+                        className="flex-1"
+                        disabled={!baseUrlInput.trim()}
+                        loading={busyKey === `connect:${selectedProvider.id}`}
+                        onPress={() => {
+                          runAction(
+                            `connect:${selectedProvider.id}`,
+                            async () => {
+                              await updateProvider(selectedProvider.id, {
+                                baseUrl: baseUrlInput.trim(),
+                                enabled: true,
+                              });
+                            },
+                          ).catch(console.error);
+                        }}
+                        variant="secondary"
+                      >
+                        Connect
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        loading={
+                          busyKey === `disconnect:${selectedProvider.id}`
+                        }
+                        onPress={() => {
+                          runAction(
+                            `disconnect:${selectedProvider.id}`,
+                            async () => {
+                              await updateProvider(selectedProvider.id, {
+                                enabled: false,
+                              });
+                            },
                           ).catch(console.error);
                         }}
                         variant="outline"
@@ -370,7 +460,8 @@ export default function SettingsProvidersScreen() {
                         ? "Models supported by ChatGPT OAuth"
                         : "Models from live provider catalogs"}
                     </Text>
-                    {selectedProvider.authType === "apiKey" ? (
+                    {selectedProvider.authType === "apiKey" ||
+                    selectedProvider.family === "ollama" ? (
                       <Button
                         loading={
                           busyKey === `refresh-models:${selectedProvider.id}`
@@ -466,6 +557,11 @@ export default function SettingsProvidersScreen() {
                                   <ProviderModelRow
                                     capabilityBadges={buildCapabilityBadges(
                                       resolvedModel ?? model,
+                                    ).concat(
+                                      selectedProvider.family === "ollama" &&
+                                        model.options?.ollama
+                                        ? ["Pulled"]
+                                        : [],
                                     )}
                                     checkColor={theme.text}
                                     current={current}
@@ -530,7 +626,12 @@ export default function SettingsProvidersScreen() {
                     )
                   ) : (
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      No models found
+                      {selectedProvider.family === "ollama" &&
+                      selectedProviderDiscovery?.status === "connected"
+                        ? "Connected, but no pulled models were found. Pull a model in Ollama, then tap Refresh."
+                        : selectedProvider.family === "ollama"
+                          ? "Connect to Ollama to load pulled models."
+                          : "No models found"}
                     </Text>
                   )}
                 </View>

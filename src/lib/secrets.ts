@@ -187,6 +187,10 @@ export const secureSecretStore: SecretStore = {
     return SecureStore.getItemAsync(getProviderApiKeyKey(providerId));
   },
   async hasProviderCredential(provider) {
+    if (provider.authType === "none") {
+      return provider.enabled;
+    }
+
     if (provider.authType === "oauth") {
       const [accessToken, refreshToken] = await Promise.all([
         getOpenAiAccessToken(),

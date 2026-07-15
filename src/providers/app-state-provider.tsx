@@ -963,7 +963,10 @@ async function resolveConfig(input: {
       .map(async (provider) => {
         try {
           ollamaModelsByProvider[provider.id] =
-            await fetchOllamaModels(provider);
+            await fetchOllamaModels(
+              provider,
+              await secureSecretStore.getProviderApiKey(provider.id),
+            );
           providerModelDiscovery[provider.id] = {
             error: null,
             status: "connected",

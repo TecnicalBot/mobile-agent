@@ -23,9 +23,14 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
 
 export async function fetchOllamaModels(
   provider: Pick<ProviderConfig, "baseUrl">,
+  apiKey?: string | null,
 ): Promise<CuratedModelDefinition[]> {
+  const headers = apiKey?.trim()
+    ? { Authorization: `Bearer ${apiKey.trim()}` }
+    : undefined;
   const response = await fetchWithTimeout(
     `${normalizeOllamaBaseUrl(provider.baseUrl)}/api/tags`,
+    { headers },
   );
 
   if (!response.ok) {
@@ -64,7 +69,10 @@ export async function fetchOllamaModels(
           `${normalizeOllamaBaseUrl(provider.baseUrl)}/api/show`,
           {
             body: JSON.stringify({ model: modelId, verbose: false }),
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(headers ?? {}),
+            },
             method: "POST",
           },
         );

@@ -158,10 +158,11 @@ export async function createOpenAIClient(input: {
     });
   }
 
+  const storedApiKey = await input.secretStore.getProviderApiKey(
+    input.provider.id,
+  );
   const apiKey =
-    input.provider.authType === "none"
-      ? "ollama"
-      : await input.secretStore.getProviderApiKey(input.provider.id);
+    input.provider.authType === "none" ? storedApiKey || "ollama" : storedApiKey;
 
   if (!apiKey) {
     throw new Error(`Missing API key for provider ${input.provider.label}.`);

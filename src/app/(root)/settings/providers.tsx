@@ -7,12 +7,12 @@ import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
+    Drawer,
+    DrawerBody,
+    DrawerContent,
+    DrawerFooter,
+    DrawerHeader,
+    DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -21,777 +21,805 @@ import { useTheme } from "@/hooks/use-theme";
 import { invalidateLiveModelCatalog } from "@/lib/config/live-model-catalog";
 import { cn } from "@/lib/utils";
 import {
-  createModelRef,
-  type CuratedModelDefinition,
-  type ModelRef,
-  type ProviderConfig,
-  type ResolvedModel,
+    createModelRef,
+    type CuratedModelDefinition,
+    type ModelRef,
+    type ProviderConfig,
+    type ResolvedModel,
 } from "@/types/app-state";
 
 type ProviderListItem = {
-  key: string;
-  label: string;
-  models: CuratedModelDefinition[];
-  provider: ProviderConfig;
-  value: string;
+    key: string;
+    label: string;
+    models: CuratedModelDefinition[];
+    provider: ProviderConfig;
+    value: string;
 };
 
 export default function SettingsProvidersScreen() {
-  const router = useRouter();
-  const theme = useTheme();
-  const {
-    activeProviderIds,
-    availableModels,
-    clearProviderApiKey,
-    connectOpenAIOAuth,
-    createModelPreset,
-    currentModel,
-    disconnectOpenAIOAuth,
-    modelPresets,
-    providers,
-    providerModelDiscovery,
-    refresh,
-    saveProviderApiKey,
-    selectModel,
-    suggestedModelsByProvider,
-    updateProvider,
-  } = useConfig();
-  const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [baseUrlInput, setBaseUrlInput] = useState("");
-  const [customModelId, setCustomModelId] = useState("");
-  const [modelQuery, setModelQuery] = useState("");
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+    const router = useRouter();
+    const theme = useTheme();
+    const {
+        activeProviderIds,
+        availableModels,
+        clearProviderApiKey,
+        connectOpenAIOAuth,
+        createModelPreset,
+        currentModel,
+        disconnectOpenAIOAuth,
+        modelPresets,
+        providers,
+        providerModelDiscovery,
+        refresh,
+        saveProviderApiKey,
+        selectModel,
+        suggestedModelsByProvider,
+        updateProvider,
+    } = useConfig();
+    const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
+    const [apiKeyInput, setApiKeyInput] = useState("");
+    const [baseUrlInput, setBaseUrlInput] = useState("");
+    const [customModelId, setCustomModelId] = useState("");
+    const [modelQuery, setModelQuery] = useState("");
+    const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  const providerItems = useMemo<ProviderListItem[]>(() => {
-    return [...providers]
-      .sort((left, right) => left.label.localeCompare(right.label))
-      .map((provider) => {
-        const isCurrent = currentModel?.providerId === provider.id;
-        const isActive = activeProviderIds.includes(provider.id);
-        const models =
-          suggestedModelsByProvider[provider.id] ?? [];
-        const discovery = providerModelDiscovery[provider.id];
-        const pulledModelCount = models.filter(
-          (model) => model.options?.ollama,
-        ).length;
+    const providerItems = useMemo<ProviderListItem[]>(() => {
+        return [...providers]
+            .sort((left, right) => left.label.localeCompare(right.label))
+            .map((provider) => {
+                const isCurrent = currentModel?.providerId === provider.id;
+                const isActive = activeProviderIds.includes(provider.id);
+                const models = suggestedModelsByProvider[provider.id] ?? [];
+                const discovery = providerModelDiscovery[provider.id];
+                const pulledModelCount = models.filter(
+                    (model) => model.options?.ollama,
+                ).length;
 
-        return {
-          key: `provider:${provider.id}`,
-          label: provider.label,
-          models,
-          provider,
-          value: isCurrent
-            ? "Current"
-            : provider.family === "ollama" && discovery?.status === "failed"
-              ? "Connection failed"
-              : provider.family === "ollama" &&
-                  discovery?.status === "connected"
-                ? `${pulledModelCount} pulled`
-                : isActive
-              ? `${models.length} available`
-              : provider.authType === "oauth"
-                ? "Connect"
-                : "Set up",
-        } satisfies ProviderListItem;
-      });
-  }, [
-    activeProviderIds,
-    currentModel,
-    modelPresets,
-    providers,
-    providerModelDiscovery,
-    suggestedModelsByProvider,
-  ]);
-
-  const selectedItem =
-    providerItems.find((item) => item.key === selectedItemKey) ?? null;
-  const selectedProvider = selectedItem?.provider ?? null;
-  const selectedProviderId = selectedProvider?.id ?? null;
-  const selectedProviderActive = selectedProviderId
-    ? activeProviderIds.includes(selectedProviderId)
-    : false;
-  const selectedProviderDiscovery = selectedProviderId
-    ? providerModelDiscovery[selectedProviderId]
-    : undefined;
-  const selectedProviderPresets = useMemo(() => {
-    if (!selectedProviderId) {
-      return [];
-    }
-
-    return modelPresets.filter((preset) => preset.providerId === selectedProviderId);
-  }, [modelPresets, selectedProviderId]);
-  const selectedProviderModels = useMemo(() => {
-    if (!selectedProviderId) {
-      return [];
-    }
-
-    return availableModels.filter((model) => model.providerId === selectedProviderId);
-  }, [availableModels, selectedProviderId]);
-  const displayModels = useMemo(() => {
-    if (!selectedItem || !selectedProviderId) {
-      return [];
-    }
-
-    const query = modelQuery.trim().toLowerCase();
-    return selectedItem.models
-      .filter((model) => {
-        if (!query) {
-          return true;
-        }
-
-        const haystack = `${model.label} ${model.id}`.toLowerCase();
-        return haystack.includes(query);
-      })
-      .sort((left, right) => {
-        const leftRef = createModelRef(selectedProviderId, left.id);
-        const rightRef = createModelRef(selectedProviderId, right.id);
-        const leftCurrent = currentModel?.ref === leftRef;
-        const rightCurrent = currentModel?.ref === rightRef;
-        const leftSaved = selectedProviderPresets.some(
-          (preset) => preset.modelId === left.id,
-        );
-        const rightSaved = selectedProviderPresets.some(
-          (preset) => preset.modelId === right.id,
-        );
-
-        if (leftCurrent !== rightCurrent) {
-          return leftCurrent ? -1 : 1;
-        }
-
-        if (leftSaved !== rightSaved) {
-          return leftSaved ? -1 : 1;
-        }
-
-        return left.label.localeCompare(right.label);
-      });
-  }, [
-    currentModel?.ref,
-    modelQuery,
-    selectedItem,
-    selectedProviderId,
-    selectedProviderPresets,
-  ]);
-  const modelSections = useMemo(
-    () => [
-      {
-        label: "Text models",
-        models: displayModels.filter((model) => model.outputType !== "image"),
-      },
-      {
-        label: "Image models",
-        models: displayModels.filter((model) => model.outputType === "image"),
-      },
-    ],
-    [displayModels],
-  );
-
-  const runAction = async (key: string, action: () => Promise<void>) => {
-    setBusyKey(key);
-
-    try {
-      await action();
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  const selectedProviderNeedsBaseUrl =
-    selectedProvider?.family === "openai-compatible" ||
-    selectedProvider?.family === "ollama";
-
-  return (
-    <Container
-      scroll
-      contentClassName="gap-sp-4 py-sp-4"
-      includeBottomTabInset={false}
-    >
-      <View className="flex-row items-center gap-sp-2">
-        <Button
-          leftIcon={<ChevronLeft color={theme.text} size={16} />}
-          onPress={() => {
-            router.back();
-          }}
-          size="icon-xs"
-          variant="ghost"
-        />
-        <Text className="font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
-          Providers
-        </Text>
-      </View>
-
-      <Card className="overflow-hidden">
-        {providerItems.map((provider, index) => (
-          <View key={provider.key}>
-            {index > 0 ? <Separator /> : null}
-            <SettingsLinkRow
-              chevronColor={theme.textSecondary}
-              label={provider.label}
-              onPress={() => {
-                setApiKeyInput("");
-                setBaseUrlInput(provider.provider.baseUrl ?? "");
-                setCustomModelId("");
-                setModelQuery("");
-                setSelectedItemKey(provider.key);
-              }}
-              value={provider.value}
-            />
-          </View>
-        ))}
-      </Card>
-
-      <Drawer
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedItemKey(null);
-            setApiKeyInput("");
-            setBaseUrlInput("");
-            setCustomModelId("");
-            setModelQuery("");
-          }
-        }}
-        open={selectedItemKey !== null}
-      >
-        <DrawerContent showCloseButton showHandle size={720}>
-          {selectedItem && selectedProvider ? (
-            <>
-              <DrawerHeader>
-                <DrawerTitle>{selectedItem.label}</DrawerTitle>
-              </DrawerHeader>
-
-              <DrawerBody contentContainerClassName="pb-sp-4">
-                <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
-                  <StatusRow
-                    label="Status"
-                    value={
-                      selectedProvider?.family === "ollama"
-                        ? selectedProviderDiscovery?.status === "connected"
-                          ? "Connected"
-                          : selectedProviderDiscovery?.status === "failed"
+                return {
+                    key: `provider:${provider.id}`,
+                    label: provider.label,
+                    models,
+                    provider,
+                    value: isCurrent
+                        ? "Current"
+                        : provider.family === "ollama" && discovery?.status === "failed"
                             ? "Connection failed"
-                            : selectedProviderActive
-                              ? "Checking"
-                              : "Not set up"
-                        : selectedProviderActive
-                          ? "Ready"
-                          : "Not set up"
-                    }
-                  />
-                  <Separator />
-                  <StatusRow label="Family" value={selectedProvider.family} />
-                  {currentModel?.providerId === selectedProvider.id ? (
-                    <>
-                      <Separator />
-                      <StatusRow label="Current model" value={currentModel.label} />
-                    </>
-                  ) : null}
-                </View>
+                            : provider.family === "ollama" &&
+                                discovery?.status === "connected"
+                                ? `${pulledModelCount} pulled`
+                                : isActive
+                                    ? `${models.length} available`
+                                    : provider.authType === "oauth"
+                                        ? "Connect"
+                                        : "Set up",
+                } satisfies ProviderListItem;
+            });
+    }, [
+        activeProviderIds,
+        currentModel,
+        modelPresets,
+        providers,
+        providerModelDiscovery,
+        suggestedModelsByProvider,
+    ]);
 
-                {selectedProvider.family === "ollama" &&
-                selectedProviderDiscovery?.error ? (
-                  <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-                    {selectedProviderDiscovery.error}
-                  </Text>
-                ) : null}
+    const selectedItem =
+        providerItems.find((item) => item.key === selectedItemKey) ?? null;
+    const selectedProvider = selectedItem?.provider ?? null;
+    const selectedProviderId = selectedProvider?.id ?? null;
+    const selectedProviderActive = selectedProviderId
+        ? activeProviderIds.includes(selectedProviderId)
+        : false;
+    const selectedProviderDiscovery = selectedProviderId
+        ? providerModelDiscovery[selectedProviderId]
+        : undefined;
+    const selectedProviderPresets = useMemo(() => {
+        if (!selectedProviderId) {
+            return [];
+        }
 
-                {selectedProvider.authType === "oauth" ? (
-                  <View className="gap-sp-3">
-                    {selectedProvider.oauthAccountEmail ? (
-                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                        {selectedProvider.oauthAccountEmail}
-                      </Text>
-                    ) : null}
-                    <View className="flex-row gap-sp-2">
-                      <Button
-                        className="flex-1"
-                        loading={busyKey === `connect:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(
-                            `connect:${selectedProvider.id}`,
-                            connectOpenAIOAuth,
-                          ).catch(console.error);
-                        }}
-                        variant="secondary"
-                      >
-                        Connect
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        loading={busyKey === `disconnect:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(
-                            `disconnect:${selectedProvider.id}`,
-                            disconnectOpenAIOAuth,
-                          ).catch(console.error);
-                        }}
-                        variant="outline"
-                      >
-                        Disconnect
-                      </Button>
-                    </View>
-                  </View>
-                ) : selectedProvider.authType === "none" ? (
-                  <View className="gap-sp-3">
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="url"
-                      onChangeText={setBaseUrlInput}
-                      placeholder="Ollama server URL"
-                      value={baseUrlInput}
-                    />
-                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                      On a physical phone, use your computer’s LAN address, for
-                      example http://192.168.1.10:11434.
-                    </Text>
-                    <View className="flex-row gap-sp-2">
-                      <Button
-                        className="flex-1"
-                        disabled={!baseUrlInput.trim()}
-                        loading={busyKey === `connect:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(
-                            `connect:${selectedProvider.id}`,
-                            async () => {
-                              await updateProvider(selectedProvider.id, {
-                                baseUrl: baseUrlInput.trim(),
-                                enabled: true,
-                              });
-                            },
-                          ).catch(console.error);
-                        }}
-                        variant="secondary"
-                      >
-                        Connect
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        loading={
-                          busyKey === `disconnect:${selectedProvider.id}`
-                        }
-                        onPress={() => {
-                          runAction(
-                            `disconnect:${selectedProvider.id}`,
-                            async () => {
-                              await updateProvider(selectedProvider.id, {
-                                enabled: false,
-                              });
-                            },
-                          ).catch(console.error);
-                        }}
-                        variant="outline"
-                      >
-                        Disconnect
-                      </Button>
-                    </View>
-                  </View>
-                ) : (
-                  <View className="gap-sp-3">
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={setApiKeyInput}
-                      placeholder="API key"
-                      secureTextEntry
-                      value={apiKeyInput}
-                    />
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="url"
-                      onChangeText={setBaseUrlInput}
-                      placeholder={
-                        selectedProviderNeedsBaseUrl
-                          ? "Base URL"
-                          : "Endpoint override (optional)"
-                      }
-                      value={baseUrlInput}
-                    />
-                    <View className="flex-row gap-sp-2">
-                      <Button
-                        className="flex-1"
-                        disabled={
-                          !apiKeyInput.trim() ||
-                          (selectedProviderNeedsBaseUrl && !baseUrlInput.trim())
-                        }
-                        loading={busyKey === `save:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(`save:${selectedProvider.id}`, async () => {
-                            const normalizedBaseUrl = baseUrlInput.trim();
-                            await updateProvider(selectedProvider.id, {
-                              baseUrl:
-                                normalizedBaseUrl ||
-                                (selectedProviderNeedsBaseUrl ? null : selectedProvider.baseUrl),
-                              label: selectedItem.label,
-                            });
+        return modelPresets.filter(
+            (preset) => preset.providerId === selectedProviderId,
+        );
+    }, [modelPresets, selectedProviderId]);
+    const selectedProviderModels = useMemo(() => {
+        if (!selectedProviderId) {
+            return [];
+        }
 
-                            await saveProviderApiKey(
-                              selectedProvider.id,
-                              apiKeyInput.trim(),
-                            );
-                            setApiKeyInput("");
-                          }).catch(console.error);
-                        }}
-                        variant="secondary"
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        loading={busyKey === `clear:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(`clear:${selectedProvider.id}`, async () => {
-                            await clearProviderApiKey(selectedProvider.id);
-                            setApiKeyInput("");
-                          }).catch(console.error);
-                        }}
-                        variant="outline"
-                      >
-                        Clear
-                      </Button>
-                    </View>
-                  </View>
-                )}
+        return availableModels.filter(
+            (model) => model.providerId === selectedProviderId,
+        );
+    }, [availableModels, selectedProviderId]);
+    const displayModels = useMemo(() => {
+        if (!selectedItem || !selectedProviderId) {
+            return [];
+        }
 
-                <View className="gap-sp-3">
-                  <View className="flex-row items-center justify-between gap-sp-3">
-                    <Text className="flex-1 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      {selectedProvider.authType === "oauth"
-                        ? "Models supported by ChatGPT OAuth"
-                        : "Models from live provider catalogs"}
-                    </Text>
-                    {selectedProvider.authType === "apiKey" ||
-                    selectedProvider.family === "ollama" ? (
-                      <Button
-                        loading={
-                          busyKey === `refresh-models:${selectedProvider.id}`
-                        }
-                        onPress={() => {
-                          runAction(
-                            `refresh-models:${selectedProvider.id}`,
-                            async () => {
-                              invalidateLiveModelCatalog();
-                              await refresh();
-                            },
-                          ).catch(console.error);
-                        }}
-                        size="xs"
-                        variant="outline"
-                      >
-                        Refresh
-                      </Button>
-                    ) : null}
-                  </View>
-                  <Input
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={setModelQuery}
-                    placeholder="Search models"
-                    value={modelQuery}
-                  />
+        const query = modelQuery.trim().toLowerCase();
+        return selectedItem.models
+            .filter((model) => {
+                if (!query) {
+                    return true;
+                }
 
-                  <View className="flex-row gap-sp-2">
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      className="flex-1"
-                      onChangeText={setCustomModelId}
-                      placeholder="Model ID not in catalog"
-                      value={customModelId}
-                    />
-                    <Button
-                      disabled={!customModelId.trim()}
-                      loading={
-                        busyKey ===
-                        `custom-model:${selectedProvider.id}:${customModelId.trim()}`
-                      }
-                      onPress={() => {
-                        const modelId = customModelId.trim();
-                        runAction(
-                          `custom-model:${selectedProvider.id}:${modelId}`,
-                          async () => {
-                            await createModelPreset({
-                              label: modelId,
-                              makeDefault: selectedProviderPresets.length === 0,
-                              modelId,
-                              providerId: selectedProvider.id,
-                              select: selectedProviderActive,
-                            });
-                            setCustomModelId("");
-                          },
-                        ).catch(console.error);
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Add
-                    </Button>
-                  </View>
+                const haystack = `${model.label} ${model.id}`.toLowerCase();
+                return haystack.includes(query);
+            })
+            .sort((left, right) => {
+                const leftRef = createModelRef(selectedProviderId, left.id);
+                const rightRef = createModelRef(selectedProviderId, right.id);
+                const leftCurrent = currentModel?.ref === leftRef;
+                const rightCurrent = currentModel?.ref === rightRef;
+                const leftSaved = selectedProviderPresets.some(
+                    (preset) => preset.modelId === left.id,
+                );
+                const rightSaved = selectedProviderPresets.some(
+                    (preset) => preset.modelId === right.id,
+                );
 
-                  {displayModels.length > 0 ? (
-                    modelSections.map((section) =>
-                      section.models.length > 0 ? (
-                        <View className="gap-sp-2" key={section.label}>
-                          <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                            {section.label}
-                          </Text>
-                          <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
-                            {section.models.map((model, index) => {
-                              const modelRef = createModelRef(
-                                selectedProvider.id,
-                                model.id,
-                              ) as ModelRef;
-                              const resolvedModel =
-                                selectedProviderModels.find(
-                                  (item) => item.ref === modelRef,
-                                ) ?? null;
-                              const existingPreset =
-                                selectedProviderPresets.find(
-                                  (item) => item.modelId === model.id,
-                                ) ?? null;
-                              const current = currentModel?.ref === modelRef;
+                if (leftCurrent !== rightCurrent) {
+                    return leftCurrent ? -1 : 1;
+                }
 
-                              return (
-                                <View key={model.id}>
-                                  {index > 0 ? <Separator /> : null}
-                                  <ProviderModelRow
-                                    capabilityBadges={buildCapabilityBadges(
-                                      resolvedModel ?? model,
-                                    ).concat(
-                                      selectedProvider.family === "ollama" &&
-                                        model.options?.ollama
-                                        ? ["Pulled"]
-                                        : [],
-                                    )}
-                                    checkColor={theme.text}
-                                    current={current}
-                                    label={model.label}
-                                    modelId={model.id}
-                                    onPress={() => {
-                                      runAction(
-                                        `model:${selectedProvider.id}:${model.id}`,
-                                        async () => {
-                                          if (existingPreset) {
-                                            if (
-                                              !current &&
-                                              selectedProviderActive
-                                            ) {
-                                              await selectModel(modelRef);
-                                            }
+                if (leftSaved !== rightSaved) {
+                    return leftSaved ? -1 : 1;
+                }
 
-                                            return;
-                                          }
+                return left.label.localeCompare(right.label);
+            });
+    }, [
+        currentModel?.ref,
+        modelQuery,
+        selectedItem,
+        selectedProviderId,
+        selectedProviderPresets,
+    ]);
+    const modelSections = useMemo(
+        () => [
+            {
+                label: "Text models",
+                models: displayModels.filter((model) => model.outputType !== "image"),
+            },
+            {
+                label: "Image models",
+                models: displayModels.filter((model) => model.outputType === "image"),
+            },
+        ],
+        [displayModels],
+    );
 
-                                          await createModelPreset({
-                                            label: model.label,
-                                            makeDefault:
-                                              selectedProviderPresets.length ===
-                                              0,
-                                            modelId: model.id,
-                                            options: {
-                                              ...(model.options ?? {}),
-                                              __mobileAgentModelProfile: {
-                                                capabilities:
-                                                  model.capabilities ?? {},
-                                                outputType:
-                                                  model.outputType ?? "text",
-                                                transport:
-                                                  model.transport ?? null,
-                                              },
-                                            },
-                                            providerId: selectedProvider.id,
-                                            select: selectedProviderActive,
-                                          });
-                                        },
-                                      ).catch(console.error);
-                                    }}
-                                    stateLabel={
-                                      current
-                                        ? "Current"
-                                        : existingPreset
-                                          ? selectedProviderActive
-                                            ? "Use"
-                                            : "Added"
-                                          : selectedProviderActive
-                                            ? "Add"
-                                            : "Save"
-                                    }
-                                  />
-                                </View>
-                              );
-                            })}
-                          </View>
-                        </View>
-                      ) : null,
-                    )
-                  ) : (
-                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      {selectedProvider.family === "ollama" &&
-                      selectedProviderDiscovery?.status === "connected"
-                        ? "Connected, but no pulled models were found. Pull a model in Ollama, then tap Refresh."
-                        : selectedProvider.family === "ollama"
-                          ? "Connect to Ollama to load pulled models."
-                          : "No models found"}
-                    </Text>
-                  )}
-                </View>
-              </DrawerBody>
-              <DrawerFooter>
-                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                  Models come from live catalogs. Saved custom model IDs remain
-                  available if a catalog is temporarily offline.
+    const runAction = async (key: string, action: () => Promise<void>) => {
+        setBusyKey(key);
+
+        try {
+            await action();
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
+    const selectedProviderNeedsBaseUrl =
+        selectedProvider?.family === "openai-compatible" ||
+        selectedProvider?.family === "ollama";
+
+    return (
+        <Container
+            scroll
+            contentClassName="gap-sp-4 py-sp-4"
+            includeBottomTabInset={false}
+        >
+            <View className="flex-row items-center gap-sp-2">
+                <Button
+                    leftIcon={<ChevronLeft color={theme.text} size={16} />}
+                    onPress={() => {
+                        router.back();
+                    }}
+                    size="icon-xs"
+                    variant="ghost"
+                />
+                <Text className="font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
+                    Providers
                 </Text>
-              </DrawerFooter>
-            </>
-          ) : null}
-        </DrawerContent>
-      </Drawer>
-    </Container>
-  );
+            </View>
+
+            <Card className="overflow-hidden">
+                {providerItems.map((provider, index) => (
+                    <View key={provider.key}>
+                        {index > 0 ? <Separator /> : null}
+                        <SettingsLinkRow
+                            chevronColor={theme.textSecondary}
+                            label={provider.label}
+                            onPress={() => {
+                                setApiKeyInput("");
+                                setBaseUrlInput(provider.provider.baseUrl ?? "");
+                                setCustomModelId("");
+                                setModelQuery("");
+                                setSelectedItemKey(provider.key);
+                            }}
+                            value={provider.value}
+                        />
+                    </View>
+                ))}
+            </Card>
+
+            <Drawer
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setSelectedItemKey(null);
+                        setApiKeyInput("");
+                        setBaseUrlInput("");
+                        setCustomModelId("");
+                        setModelQuery("");
+                    }
+                }}
+                open={selectedItemKey !== null}
+            >
+                <DrawerContent showCloseButton showHandle size={720}>
+                    {selectedItem && selectedProvider ? (
+                        <>
+                            <DrawerHeader>
+                                <DrawerTitle>{selectedItem.label}</DrawerTitle>
+                            </DrawerHeader>
+
+                            <DrawerBody contentContainerClassName="pb-sp-4">
+                                <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
+                                    <StatusRow
+                                        label="Status"
+                                        value={
+                                            selectedProvider?.family === "ollama"
+                                                ? selectedProviderDiscovery?.status === "connected"
+                                                    ? "Connected"
+                                                    : selectedProviderDiscovery?.status === "failed"
+                                                        ? "Connection failed"
+                                                        : selectedProviderActive
+                                                            ? "Checking"
+                                                            : "Not set up"
+                                                : selectedProviderActive
+                                                    ? "Ready"
+                                                    : "Not set up"
+                                        }
+                                    />
+                                    <Separator />
+                                    <StatusRow label="Family" value={selectedProvider.family} />
+                                    {currentModel?.providerId === selectedProvider.id ? (
+                                        <>
+                                            <Separator />
+                                            <StatusRow
+                                                label="Current model"
+                                                value={currentModel.label}
+                                            />
+                                        </>
+                                    ) : null}
+                                </View>
+
+                                {selectedProvider.family === "ollama" &&
+                                    selectedProviderDiscovery?.error ? (
+                                    <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                                        {selectedProviderDiscovery.error}
+                                    </Text>
+                                ) : null}
+
+                                {selectedProvider.authType === "oauth" ? (
+                                    <View className="gap-sp-3">
+                                        {selectedProvider.oauthAccountEmail ? (
+                                            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                                                {selectedProvider.oauthAccountEmail}
+                                            </Text>
+                                        ) : null}
+                                        <View className="flex-row gap-sp-2">
+                                            <Button
+                                                className="flex-1"
+                                                loading={busyKey === `connect:${selectedProvider.id}`}
+                                                onPress={() => {
+                                                    runAction(
+                                                        `connect:${selectedProvider.id}`,
+                                                        connectOpenAIOAuth,
+                                                    ).catch(console.error);
+                                                }}
+                                                variant="secondary"
+                                            >
+                                                Connect
+                                            </Button>
+                                            <Button
+                                                className="flex-1"
+                                                loading={
+                                                    busyKey === `disconnect:${selectedProvider.id}`
+                                                }
+                                                onPress={() => {
+                                                    runAction(
+                                                        `disconnect:${selectedProvider.id}`,
+                                                        disconnectOpenAIOAuth,
+                                                    ).catch(console.error);
+                                                }}
+                                                variant="outline"
+                                            >
+                                                Disconnect
+                                            </Button>
+                                        </View>
+                                    </View>
+                                ) : selectedProvider.authType === "none" ? (
+                                    <View className="gap-sp-3">
+                                        <Input
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            keyboardType="url"
+                                            onChangeText={setBaseUrlInput}
+                                            placeholder="Ollama server URL"
+                                            value={baseUrlInput}
+                                        />
+                                        <Input
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            onChangeText={setApiKeyInput}
+                                            placeholder="API key (optional)"
+                                            secureTextEntry
+                                            value={apiKeyInput}
+                                        />
+                                        <View className="flex-row gap-sp-2">
+                                            <Button
+                                                className="flex-1"
+                                                disabled={!baseUrlInput.trim()}
+                                                loading={busyKey === `connect:${selectedProvider.id}`}
+                                                onPress={() => {
+                                                    runAction(
+                                                        `connect:${selectedProvider.id}`,
+                                                        async () => {
+                                                            if (apiKeyInput.trim()) {
+                                                                await saveProviderApiKey(
+                                                                    selectedProvider.id,
+                                                                    apiKeyInput.trim(),
+                                                                );
+                                                                setApiKeyInput("");
+                                                            }
+                                                            await updateProvider(selectedProvider.id, {
+                                                                baseUrl: baseUrlInput.trim(),
+                                                                enabled: true,
+                                                            });
+                                                        },
+                                                    ).catch(console.error);
+                                                }}
+                                                variant="secondary"
+                                            >
+                                                Connect
+                                            </Button>
+                                            <Button
+                                                className="flex-1"
+                                                loading={
+                                                    busyKey === `disconnect:${selectedProvider.id}`
+                                                }
+                                                onPress={() => {
+                                                    runAction(
+                                                        `disconnect:${selectedProvider.id}`,
+                                                        async () => {
+                                                            await updateProvider(selectedProvider.id, {
+                                                                enabled: false,
+                                                            });
+                                                        },
+                                                    ).catch(console.error);
+                                                }}
+                                                variant="outline"
+                                            >
+                                                Disconnect
+                                            </Button>
+                                        </View>
+                                        <Button
+                                            loading={busyKey === `clear:${selectedProvider.id}`}
+                                            onPress={() => {
+                                                runAction(`clear:${selectedProvider.id}`, async () => {
+                                                    await clearProviderApiKey(selectedProvider.id);
+                                                    setApiKeyInput("");
+                                                }).catch(console.error);
+                                            }}
+                                            size="sm"
+                                            variant="ghost"
+                                        >
+                                            Clear saved API key
+                                        </Button>
+                                    </View>
+                                ) : (
+                                    <View className="gap-sp-3">
+                                        <Input
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            onChangeText={setApiKeyInput}
+                                            placeholder="API key"
+                                            secureTextEntry
+                                            value={apiKeyInput}
+                                        />
+                                        <Input
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            keyboardType="url"
+                                            onChangeText={setBaseUrlInput}
+                                            placeholder={
+                                                selectedProviderNeedsBaseUrl
+                                                    ? "Base URL"
+                                                    : "Endpoint override (optional)"
+                                            }
+                                            value={baseUrlInput}
+                                        />
+                                        <View className="flex-row gap-sp-2">
+                                            <Button
+                                                className="flex-1"
+                                                disabled={
+                                                    !apiKeyInput.trim() ||
+                                                    (selectedProviderNeedsBaseUrl && !baseUrlInput.trim())
+                                                }
+                                                loading={busyKey === `save:${selectedProvider.id}`}
+                                                onPress={() => {
+                                                    runAction(`save:${selectedProvider.id}`, async () => {
+                                                        const normalizedBaseUrl = baseUrlInput.trim();
+                                                        await updateProvider(selectedProvider.id, {
+                                                            baseUrl:
+                                                                normalizedBaseUrl ||
+                                                                (selectedProviderNeedsBaseUrl
+                                                                    ? null
+                                                                    : selectedProvider.baseUrl),
+                                                            label: selectedItem.label,
+                                                        });
+
+                                                        await saveProviderApiKey(
+                                                            selectedProvider.id,
+                                                            apiKeyInput.trim(),
+                                                        );
+                                                        setApiKeyInput("");
+                                                    }).catch(console.error);
+                                                }}
+                                                variant="secondary"
+                                            >
+                                                Save
+                                            </Button>
+                                            <Button
+                                                className="flex-1"
+                                                loading={busyKey === `clear:${selectedProvider.id}`}
+                                                onPress={() => {
+                                                    runAction(
+                                                        `clear:${selectedProvider.id}`,
+                                                        async () => {
+                                                            await clearProviderApiKey(selectedProvider.id);
+                                                            setApiKeyInput("");
+                                                        },
+                                                    ).catch(console.error);
+                                                }}
+                                                variant="outline"
+                                            >
+                                                Clear
+                                            </Button>
+                                        </View>
+                                    </View>
+                                )}
+
+                                <View className="gap-sp-3">
+                                    <View className="flex-row items-center justify-between gap-sp-3">
+                                        <Text className="flex-1 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                                            {selectedProvider.authType === "oauth"
+                                                ? "Models supported by ChatGPT OAuth"
+                                                : "Models from live provider catalogs"}
+                                        </Text>
+                                        {selectedProvider.authType === "apiKey" ||
+                                            selectedProvider.family === "ollama" ? (
+                                            <Button
+                                                loading={
+                                                    busyKey === `refresh-models:${selectedProvider.id}`
+                                                }
+                                                onPress={() => {
+                                                    runAction(
+                                                        `refresh-models:${selectedProvider.id}`,
+                                                        async () => {
+                                                            invalidateLiveModelCatalog();
+                                                            await refresh();
+                                                        },
+                                                    ).catch(console.error);
+                                                }}
+                                                size="xs"
+                                                variant="outline"
+                                            >
+                                                Refresh
+                                            </Button>
+                                        ) : null}
+                                    </View>
+                                    <Input
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        onChangeText={setModelQuery}
+                                        placeholder="Search models"
+                                        value={modelQuery}
+                                    />
+
+                                    <View className="flex-row gap-sp-2">
+                                        <Input
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            className="flex-1"
+                                            onChangeText={setCustomModelId}
+                                            placeholder="Model ID not in catalog"
+                                            value={customModelId}
+                                        />
+                                        <Button
+                                            disabled={!customModelId.trim()}
+                                            loading={
+                                                busyKey ===
+                                                `custom-model:${selectedProvider.id}:${customModelId.trim()}`
+                                            }
+                                            onPress={() => {
+                                                const modelId = customModelId.trim();
+                                                runAction(
+                                                    `custom-model:${selectedProvider.id}:${modelId}`,
+                                                    async () => {
+                                                        await createModelPreset({
+                                                            label: modelId,
+                                                            makeDefault: selectedProviderPresets.length === 0,
+                                                            modelId,
+                                                            providerId: selectedProvider.id,
+                                                            select: selectedProviderActive,
+                                                        });
+                                                        setCustomModelId("");
+                                                    },
+                                                ).catch(console.error);
+                                            }}
+                                            size="sm"
+                                            variant="outline"
+                                        >
+                                            Add
+                                        </Button>
+                                    </View>
+
+                                    {displayModels.length > 0 ? (
+                                        modelSections.map((section) =>
+                                            section.models.length > 0 ? (
+                                                <View className="gap-sp-2" key={section.label}>
+                                                    <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                                                        {section.label}
+                                                    </Text>
+                                                    <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
+                                                        {section.models.map((model, index) => {
+                                                            const modelRef = createModelRef(
+                                                                selectedProvider.id,
+                                                                model.id,
+                                                            ) as ModelRef;
+                                                            const resolvedModel =
+                                                                selectedProviderModels.find(
+                                                                    (item) => item.ref === modelRef,
+                                                                ) ?? null;
+                                                            const existingPreset =
+                                                                selectedProviderPresets.find(
+                                                                    (item) => item.modelId === model.id,
+                                                                ) ?? null;
+                                                            const current = currentModel?.ref === modelRef;
+
+                                                            return (
+                                                                <View key={model.id}>
+                                                                    {index > 0 ? <Separator /> : null}
+                                                                    <ProviderModelRow
+                                                                        capabilityBadges={buildCapabilityBadges(
+                                                                            resolvedModel ?? model,
+                                                                        ).concat(
+                                                                            selectedProvider.family === "ollama" &&
+                                                                                model.options?.ollama
+                                                                                ? ["Pulled"]
+                                                                                : [],
+                                                                        )}
+                                                                        checkColor={theme.text}
+                                                                        current={current}
+                                                                        label={model.label}
+                                                                        modelId={model.id}
+                                                                        onPress={() => {
+                                                                            runAction(
+                                                                                `model:${selectedProvider.id}:${model.id}`,
+                                                                                async () => {
+                                                                                    if (existingPreset) {
+                                                                                        if (
+                                                                                            !current &&
+                                                                                            selectedProviderActive
+                                                                                        ) {
+                                                                                            await selectModel(modelRef);
+                                                                                        }
+
+                                                                                        return;
+                                                                                    }
+
+                                                                                    await createModelPreset({
+                                                                                        label: model.label,
+                                                                                        makeDefault:
+                                                                                            selectedProviderPresets.length ===
+                                                                                            0,
+                                                                                        modelId: model.id,
+                                                                                        options: {
+                                                                                            ...(model.options ?? {}),
+                                                                                            __mobileAgentModelProfile: {
+                                                                                                capabilities:
+                                                                                                    model.capabilities ?? {},
+                                                                                                outputType:
+                                                                                                    model.outputType ?? "text",
+                                                                                                transport:
+                                                                                                    model.transport ?? null,
+                                                                                            },
+                                                                                        },
+                                                                                        providerId: selectedProvider.id,
+                                                                                        select: selectedProviderActive,
+                                                                                    });
+                                                                                },
+                                                                            ).catch(console.error);
+                                                                        }}
+                                                                        stateLabel={
+                                                                            current
+                                                                                ? "Current"
+                                                                                : existingPreset
+                                                                                    ? selectedProviderActive
+                                                                                        ? "Use"
+                                                                                        : "Added"
+                                                                                    : selectedProviderActive
+                                                                                        ? "Add"
+                                                                                        : "Save"
+                                                                        }
+                                                                    />
+                                                                </View>
+                                                            );
+                                                        })}
+                                                    </View>
+                                                </View>
+                                            ) : null,
+                                        )
+                                    ) : (
+                                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                                            {selectedProvider.family === "ollama" &&
+                                                selectedProviderDiscovery?.status === "connected"
+                                                ? "Connected, but no pulled models were found. Pull a model in Ollama, then tap Refresh."
+                                                : selectedProvider.family === "ollama"
+                                                    ? "Connect to Ollama to load pulled models."
+                                                    : "No models found"}
+                                        </Text>
+                                    )}
+                                </View>
+                            </DrawerBody>
+                            <DrawerFooter>
+                                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                                    Models come from live catalogs. Saved custom model IDs remain
+                                    available if a catalog is temporarily offline.
+                                </Text>
+                            </DrawerFooter>
+                        </>
+                    ) : null}
+                </DrawerContent>
+            </Drawer>
+        </Container>
+    );
 }
 
 function SettingsLinkRow({
-  chevronColor,
-  label,
-  onPress,
-  value,
+    chevronColor,
+    label,
+    onPress,
+    value,
 }: {
-  chevronColor: string;
-  label: string;
-  onPress: () => void;
-  value?: string;
+    chevronColor: string;
+    label: string;
+    onPress: () => void;
+    value?: string;
 }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
-      onPress={onPress}
-      style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-    >
-      <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
-        {label}
-      </Text>
-      {value ? (
-        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-          {value}
-        </Text>
-      ) : null}
-      <ChevronRight color={chevronColor} size={18} />
-    </Pressable>
-  );
+    return (
+        <Pressable
+            accessibilityRole="button"
+            className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+            onPress={onPress}
+            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+        >
+            <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+                {label}
+            </Text>
+            {value ? (
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    {value}
+                </Text>
+            ) : null}
+            <ChevronRight color={chevronColor} size={18} />
+        </Pressable>
+    );
 }
 
-function StatusRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <View className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3">
-      <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
-        {label}
-      </Text>
-      <Text className="max-w-40 text-right font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-        {value}
-      </Text>
-    </View>
-  );
+function StatusRow({ label, value }: { label: string; value: string }) {
+    return (
+        <View className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3">
+            <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+                {label}
+            </Text>
+            <Text className="max-w-40 text-right font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {value}
+            </Text>
+        </View>
+    );
 }
 
 function buildCapabilityBadges(
-  model: CuratedModelDefinition | ResolvedModel | null,
+    model: CuratedModelDefinition | ResolvedModel | null,
 ) {
-  if (!model) {
-    return [];
-  }
+    if (!model) {
+        return [];
+    }
 
-  const badges: string[] = [];
+    const badges: string[] = [];
 
-  const capabilities = model.capabilities ?? {};
+    const capabilities = model.capabilities ?? {};
 
-  if (
-    ("supportsTools" in model && model.supportsTools) ||
-    capabilities.tools
-  ) {
-    badges.push("Tools");
-  }
+    if (("supportsTools" in model && model.supportsTools) || capabilities.tools) {
+        badges.push("Tools");
+    }
 
-  if (
-    ("supportsImageInput" in model && model.supportsImageInput) ||
-    capabilities.imageInput
-  ) {
-    badges.push("Image input");
-  }
+    if (
+        ("supportsImageInput" in model && model.supportsImageInput) ||
+        capabilities.imageInput
+    ) {
+        badges.push("Image input");
+    }
 
-  if (
-    ("supportsImageGeneration" in model && model.supportsImageGeneration) ||
-    capabilities.imageGeneration
-  ) {
-    badges.push("Image output");
-  }
+    if (
+        ("supportsImageGeneration" in model && model.supportsImageGeneration) ||
+        capabilities.imageGeneration
+    ) {
+        badges.push("Image output");
+    }
 
-  return badges;
+    return badges;
 }
 
 function ProviderModelRow({
-  capabilityBadges,
-  checkColor,
-  current = false,
-  label,
-  modelId,
-  onPress,
-  stateLabel,
+    capabilityBadges,
+    checkColor,
+    current = false,
+    label,
+    modelId,
+    onPress,
+    stateLabel,
 }: {
-  capabilityBadges: string[];
-  checkColor: string;
-  current?: boolean;
-  label: string;
-  modelId: string;
-  onPress: () => void;
-  stateLabel: string;
+    capabilityBadges: string[];
+    checkColor: string;
+    current?: boolean;
+    label: string;
+    modelId: string;
+    onPress: () => void;
+    stateLabel: string;
 }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
-      onPress={onPress}
-      style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-    >
-      <View className="flex-1 gap-1">
-        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-          {label}
-        </Text>
-        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-          {modelId}
-        </Text>
-        {capabilityBadges.length > 0 ? (
-          <View className="flex-row flex-wrap gap-1 pt-1">
-            {capabilityBadges.map((badge) => (
-              <View
-                key={badge}
-                className="rounded-full border border-border px-2 py-1 dark:border-border-dark"
-              >
-                <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
-                  {badge}
+    return (
+        <Pressable
+            accessibilityRole="button"
+            className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+            onPress={onPress}
+            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+        >
+            <View className="flex-1 gap-1">
+                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                    {label}
                 </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-      </View>
-      <Text
-        className={cn(
-          "font-sans text-sm",
-          current
-            ? "text-foreground dark:text-foreground-dark"
-            : "text-muted-foreground dark:text-muted-foreground-dark",
-        )}
-      >
-        {stateLabel}
-      </Text>
-      {current ? <Check color={checkColor} size={18} /> : null}
-    </Pressable>
-  );
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    {modelId}
+                </Text>
+                {capabilityBadges.length > 0 ? (
+                    <View className="flex-row flex-wrap gap-1 pt-1">
+                        {capabilityBadges.map((badge) => (
+                            <View
+                                key={badge}
+                                className="rounded-full border border-border px-2 py-1 dark:border-border-dark"
+                            >
+                                <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
+                                    {badge}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                ) : null}
+            </View>
+            <Text
+                className={cn(
+                    "font-sans text-sm",
+                    current
+                        ? "text-foreground dark:text-foreground-dark"
+                        : "text-muted-foreground dark:text-muted-foreground-dark",
+                )}
+            >
+                {stateLabel}
+            </Text>
+            {current ? <Check color={checkColor} size={18} /> : null}
+        </Pressable>
+    );
 }

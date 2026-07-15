@@ -222,7 +222,6 @@ export const ChatMessage = memo(function ChatMessage({
       event.kind !== "prompt" &&
       !(event.kind === "run" && event.status === "pending"),
   );
-  const visibleExecutionTimeline = executionTimeline.slice(-12);
   const generatedImages = message.metadata?.generatedImages ?? [];
   const reasoningBlocks = message.metadata?.reasoning ?? [];
   const reasoningText = reasoningBlocks
@@ -447,11 +446,8 @@ export const ChatMessage = memo(function ChatMessage({
               <Button
                 leftIcon={<Clock3 color={theme.textSecondary} size={14} />}
                 onPress={() => {
-                  setTimelineExpanded((current) => !current);
+                  setTimelineExpanded(true);
                 }}
-                rightIcon={
-                  <ChevronDown color={theme.textSecondary} size={14} />
-                }
                 size="xs"
                 textClassName="text-muted-foreground dark:text-muted-foreground-dark"
                 variant="ghost"
@@ -460,45 +456,6 @@ export const ChatMessage = memo(function ChatMessage({
               </Button>
             ) : null}
           </MessageFooter>
-        ) : null}
-
-        {isAssistant && timelineExpanded && executionTimeline.length > 0 ? (
-          <View className="max-h-96 max-w-full gap-sp-2 overflow-hidden rounded-ui border border-border bg-card px-sp-3 py-sp-2 dark:border-border-dark dark:bg-card-dark">
-            {executionTimeline.length > visibleExecutionTimeline.length ? (
-              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                Showing the latest {visibleExecutionTimeline.length} of {executionTimeline.length} steps.
-              </Text>
-            ) : null}
-            {visibleExecutionTimeline.map((event) => {
-              const eventIndex = executionTimeline.indexOf(event);
-              const previousEvent = executionTimeline[eventIndex - 1];
-
-              return (
-                <View key={event.id} className="gap-1">
-                  <View className="flex-row items-center justify-between gap-sp-3">
-                    <Text className="flex-1 font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-                      {formatTimelineTitle(event)}
-                    </Text>
-                    <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
-                      {formatTimelineDuration(previousEvent, event)}
-                    </Text>
-                  </View>
-                  <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
-                    {formatTimelineStatus(event.status)}
-                  </Text>
-                  {event.detail ? (
-                    <Text
-                      className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark"
-                      ellipsizeMode="tail"
-                      numberOfLines={4}
-                    >
-                      {event.detail}
-                    </Text>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
         ) : null}
 
         {isAssistant && memoryExpanded && memoryEvents.length > 0 ? (
@@ -522,6 +479,46 @@ export const ChatMessage = memo(function ChatMessage({
           </Text>
         ) : null}
       </View>
+      <Drawer
+        direction="bottom"
+        onOpenChange={setTimelineExpanded}
+        open={timelineExpanded}
+      >
+        <DrawerContent showCloseButton showHandle size={560}>
+          <DrawerHeader>
+            <DrawerTitle>{timelineLabel ?? "Steps"}</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-4 pb-sp-4">
+            {executionTimeline.map((event, eventIndex) => {
+              const previousEvent = executionTimeline[eventIndex - 1];
+
+              return (
+                <View
+                  key={event.id}
+                  className="gap-1 rounded-ui border border-border bg-card px-sp-3 py-sp-3 dark:border-border-dark dark:bg-card-dark"
+                >
+                  <View className="flex-row items-center justify-between gap-sp-3">
+                    <Text className="flex-1 font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      {formatTimelineTitle(event)}
+                    </Text>
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {formatTimelineDuration(previousEvent, event)}
+                    </Text>
+                  </View>
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    {formatTimelineStatus(event.status)}
+                  </Text>
+                  {event.detail ? (
+                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                      {event.detail}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
       <Drawer
         direction="bottom"
         onOpenChange={(open) => {

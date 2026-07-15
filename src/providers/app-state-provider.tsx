@@ -1457,7 +1457,10 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       appStateRef.current = nextAppState;
 
       if (nextAppState === "active") {
-        hydrate().catch(() => {});
+        void (async () => {
+          await hydrate();
+          await resumePendingRuns();
+        })().catch(() => {});
       }
     });
 

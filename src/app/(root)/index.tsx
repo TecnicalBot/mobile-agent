@@ -14,7 +14,6 @@ import {
     Maximize2,
     Paperclip,
     Send,
-    Settings,
     StopCircle,
     Trash2,
     Upload,
@@ -163,6 +162,8 @@ export default function Screen() {
         importFiles,
         createWorkspaceFile,
         refreshWorkspaceFiles,
+        thinkEnabled,
+        setThinkEnabled,
     } = useChat();
     const currentConversationBusy =
         currentConversationRunStatus === "queued" ||
@@ -297,6 +298,8 @@ export default function Screen() {
                         supportsImageGeneration={currentModelSupportsImageGeneration}
                         supportsImageInput={currentModelSupportsImageInput}
                         supportsTools={currentModelSupportsTools}
+                        thinkEnabled={thinkEnabled}
+                        setThinkEnabled={setThinkEnabled}
                         toolApprovalMode={toolApprovalMode}
                         updateToolApprovalMode={updateToolApprovalMode}
                         workspaceFiles={workspaceFiles}
@@ -565,6 +568,8 @@ function ChatInput({
     supportsImageGeneration,
     supportsImageInput,
     supportsTools,
+    thinkEnabled,
+    setThinkEnabled,
     toolApprovalMode,
     updateToolApprovalMode,
     workspaceFiles,
@@ -610,6 +615,8 @@ function ChatInput({
     supportsImageGeneration: boolean;
     supportsImageInput: boolean;
     supportsTools: boolean;
+    thinkEnabled: boolean;
+    setThinkEnabled: (enabled: boolean) => void;
     toolApprovalMode: "ask" | "auto";
     updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
     workspaceFiles: WorkspaceFile[];
@@ -1105,6 +1112,18 @@ function ChatInput({
     const slashMenuItems = useMemo(
         () => [
             {
+                id: "think-toggle",
+                icon: <Brain color={theme.text} size={16} />,
+                label: thinkEnabled ? "Disable thinking" : "Enable thinking",
+                onPress: () => {
+                    clearTriggerText();
+                    setThinkEnabled(!thinkEnabled);
+                },
+                subtitle: thinkEnabled
+                    ? "Reasoning is ON for this chat"
+                    : "Send /think to toggle reasoning",
+            },
+            {
                 id: "select-skills",
                 icon: <Brain color={theme.text} size={16} />,
                 label: "Select skills",
@@ -1127,67 +1146,13 @@ function ChatInput({
                 },
                 subtitle: currentModelLabel ?? "Choose the current chat model",
             },
-            {
-                id: "new-chat",
-                icon: <Edit color={theme.text} size={16} />,
-                label: "New chat",
-                onPress: () => {
-                    clearTriggerText();
-                    onCreateConversation().catch(console.error);
-                },
-                subtitle: "Start a fresh conversation",
-            },
-            {
-                id: "open-settings",
-                icon: <Settings color={theme.text} size={16} />,
-                label: "Open settings",
-                onPress: () => {
-                    clearTriggerText();
-                    onOpenSettings();
-                },
-                subtitle: "Providers, models, and storage",
-            },
-            ...(Platform.OS === "android"
-                ? [
-                    {
-                        id: "folder-command",
-                        icon: <FolderOpen color={theme.text} size={16} />,
-                        label: activeFolderLabel ? "Switch folder" : "Select folder",
-                        onPress: () => {
-                            clearTriggerText();
-
-                            if (!supportsTools) {
-                                onOpenSettings();
-                                return;
-                            }
-
-                            setBusyAction("folder");
-                            pickConversationFolder()
-                                .then((session) => {
-                                    setFolderNotice(
-                                        `Using ${session.displayName} for this chat.`,
-                                    );
-                                })
-                                .catch(console.error)
-                                .finally(() => {
-                                    setBusyAction(null);
-                                });
-                        },
-                        subtitle:
-                            activeFolderLabel ?? "Use an external folder for this chat",
-                    },
-                ]
-                : []),
         ],
         [
-            activeFolderLabel,
             currentModelLabel,
-            onCreateConversation,
-            onOpenSettings,
-            pickConversationFolder,
             selectedSkills.length,
-            supportsTools,
             theme.text,
+            thinkEnabled,
+            setThinkEnabled,
         ],
     );
     const triggerMenuItems = useMemo(() => {

@@ -224,6 +224,8 @@ type AppStateContextValue = {
   sendMessage: (input: SendMessageInput) => Promise<void>;
   sending: boolean;
   stopSending: () => Promise<void>;
+  thinkEnabled: boolean;
+  setThinkEnabled: (enabled: boolean) => void;
   setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
   setCurrentSelectedSkillIds: (selectedSkillIds: string[]) => Promise<void>;
   setDefaultModelPreset: (modelPresetId: string) => Promise<void>;
@@ -1138,6 +1140,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
   } | null>(null);
   const snapshotRef = useRef(snapshot);
   const appStateRef = useRef(AppState.currentState);
+  const thinkEnabledRef = useRef(true);
 
   snapshotRef.current = snapshot;
 
@@ -3141,7 +3144,10 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           refreshAssistantState?.();
         },
         provider,
-        reasoning: resolvedModel.supportsReasoning ? "medium" : undefined,
+        reasoning:
+          resolvedModel.supportsReasoning && thinkEnabledRef.current
+            ? "medium"
+            : undefined,
         secretStore: secureSecretStore,
         sessionId: run.id,
         system: runtimeSystem,
@@ -3815,6 +3821,10 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         sendMessage,
         sending,
         stopSending,
+        thinkEnabled: thinkEnabledRef.current,
+        setThinkEnabled: (enabled: boolean) => {
+          thinkEnabledRef.current = enabled;
+        },
         setCurrentSelectedFileIds,
         setCurrentSelectedSkillIds,
         setDefaultModelPreset,
@@ -3958,6 +3968,8 @@ export function useChat() {
       currentConversationRunStatus === "waiting_for_approval" ||
       currentConversationRunStatus === "resumable",
     stopSending: context.stopSending,
+    thinkEnabled: context.thinkEnabled,
+    setThinkEnabled: context.setThinkEnabled,
     setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
     setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,
     refreshWorkspaceFiles: context.refreshWorkspaceFiles,

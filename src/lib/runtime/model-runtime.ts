@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOllama } from "ollama-ai-provider-v2";
 
 import {
   createOpenAIClient,
@@ -154,6 +155,32 @@ export const modelRuntime: ModelRuntime = {
             ...params,
             providerOptions,
           });
+    }
+
+    if (params.provider.family === "ollama") {
+      const ollamaBase =
+        (params.provider.baseUrl ?? "http://localhost:11434")
+          .replace(/\/(?:api|v1)\/?$/, "")
+          .replace(/\/$/, "");
+      const provider = createOllama({
+        baseURL: `${ollamaBase}/api`,
+      });
+      const shouldThink =
+        params.model.supportsReasoning &&
+        params.reasoning !== "none" &&
+        params.reasoning !== undefined;
+      const languageModel = provider.chat(params.model.modelId);
+      const providerOptions = {
+        ...(params.providerOptions ?? {}),
+        ollama: {
+          ...((params.providerOptions?.ollama as Record<string, unknown>) ?? {}),
+          think: shouldThink,
+        },
+      };
+
+      return shouldUseStreamingAISDK()
+        ? generateViaAISDK(languageModel, { ...params, providerOptions })
+        : generateViaAISDKNonStreaming(languageModel, { ...params, providerOptions });
     }
 
     const provider = await createOpenAIClient({

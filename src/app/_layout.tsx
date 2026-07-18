@@ -1,7 +1,7 @@
 import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
-import { useTheme } from "@/hooks/use-theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useTheme } from "@/hooks/use-theme";
 import { migrateAppDatabase } from "@/lib/db/database";
 import { AppStateProvider } from "@/providers/app-state-provider";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
@@ -144,10 +144,10 @@ function InAppNotificationBanner() {
 
 function ReleaseUpdateBanner() {
   const theme = useTheme();
-  const { release, installing, installUpdate, dismissUpdate } = useUpdate();
+  const { release, bannerDismissed, installing, installUpdate, dismissUpdate } =
+    useUpdate();
 
-  if (!release) return null;
-
+  if (!release || bannerDismissed) return null;
   return (
     <View className="absolute inset-x-0 top-10 z-50 px-sp-4 pb-10">
       <View className="rounded-card border border-border bg-card px-sp-4 py-sp-3 shadow-sm dark:border-border-dark dark:bg-card-dark">

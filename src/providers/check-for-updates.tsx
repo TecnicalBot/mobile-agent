@@ -20,6 +20,7 @@ type UpdateContextType = {
   release: AvailableRelease | null;
   checking: boolean;
   installing: boolean;
+  bannerDismissed: boolean;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
   dismissUpdate: () => void;
@@ -33,6 +34,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [release, setRelease] = useState<AvailableRelease | null>(null);
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   const checkForUpdates = useCallback(async () => {
     try {
@@ -68,7 +70,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     if (!release) return;
 
     dismissedTagRef.current = release.tagName;
-    setRelease(null);
+    setBannerDismissed(true);
   }, [release]);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   return (
     <UpdateContext.Provider
       value={{
+        bannerDismissed,
         release,
         checking,
         installing,

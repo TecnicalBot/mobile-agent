@@ -19,7 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
-import { useLiveModelCatalog } from "@/hooks/use-live-model-catalog";
 import { useTheme } from "@/hooks/use-theme";
 import { countEnabledBuiltInFileTools } from "@/lib/config/built-in-tools";
 import { cn } from "@/lib/utils";
@@ -49,7 +48,6 @@ export default function SettingsScreen() {
     updateThemeMode,
     providers,
   } = useConfig();
-  const { data: liveModels } = useLiveModelCatalog();
   const { release, installing, installUpdate } = useUpdate();
   const [databaseUrlInput, setDatabaseUrlInput] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -341,7 +339,13 @@ export default function SettingsScreen() {
       <Card className="overflow-hidden">
         <SettingsLinkRow
           label="App Update"
-          value={release ? `Update ${release.tagName}` : "Up to date"}
+          value={
+            installing
+              ? "Downloading..."
+              : release
+                ? `Update ${release.tagName}`
+                : "Up to date"
+          }
           showChevron={!!release}
           disabled={installing}
           onPress={release ? installUpdate : undefined}

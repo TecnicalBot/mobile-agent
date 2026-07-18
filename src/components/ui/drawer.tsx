@@ -25,6 +25,10 @@ import {
   useWindowDimensions,
   type GestureResponderEvent,
 } from "react-native";
+import {
+  KeyboardAwareScrollView,
+  type KeyboardAwareScrollViewRef,
+} from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/hooks/use-theme";
@@ -451,7 +455,7 @@ export type DrawerBodyProps = ComponentPropsWithoutRef<typeof ScrollView> & {
 };
 
 export const DrawerBody = forwardRef<
-  ComponentRef<typeof ScrollView>,
+  KeyboardAwareScrollViewRef,
   DrawerBodyProps
 >(({ className, contentContainerClassName, style, ...props }, ref) => {
   const layout = useContext(DrawerLayoutContext);
@@ -466,8 +470,9 @@ export const DrawerBody = forwardRef<
   }
 
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
       ref={ref}
+      bottomOffset={16}
       className={cn(fillAvailableSpace && "min-h-0 flex-1", className)}
       contentContainerClassName={cn("gap-sp-4", contentContainerClassName)}
       keyboardShouldPersistTaps="handled"

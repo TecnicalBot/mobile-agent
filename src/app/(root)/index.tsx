@@ -106,7 +106,9 @@ function matchesMenuQuery(
         return true;
     }
 
-    const haystack = [label, subtitle ?? "", ...keywords].join(" ").toLowerCase();
+    const haystack = [label, subtitle ?? "", ...keywords]
+        .join(" ")
+        .toLowerCase();
     return haystack.includes(query);
 }
 
@@ -180,7 +182,11 @@ export default function Screen() {
                 <View className="flex-row items-center justify-between gap-sp-3">
                     <View className="flex flex-row gap-2">
                         <SidebarTrigger />
-                        <Button onPress={createConversation} size="icon" variant="ghost">
+                        <Button
+                            onPress={createConversation}
+                            size="icon"
+                            variant="ghost"
+                        >
                             <Edit color={theme.text} />
                         </Button>
                     </View>
@@ -221,9 +227,9 @@ export default function Screen() {
                                                     variant="ghost"
                                                     className="justify-start"
                                                     onPress={() =>
-                                                        sendMessage({ content: prompt }).catch(
-                                                            console.error,
-                                                        )
+                                                        sendMessage({
+                                                            content: prompt,
+                                                        }).catch(console.error)
                                                     }
                                                 >
                                                     {prompt}
@@ -233,7 +239,8 @@ export default function Screen() {
                                     ) : (
                                         <View className="px-sp-2 py-sp-8">
                                             <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                                                Connect a model to start chatting.
+                                                Connect a model to start
+                                                chatting.
                                             </Text>
                                         </View>
                                     )
@@ -281,7 +288,9 @@ export default function Screen() {
                         onOpenSettings={() => {
                             router.push("/settings");
                         }}
-                        currentExternalFolderSession={currentExternalFolderSession}
+                        currentExternalFolderSession={
+                            currentExternalFolderSession
+                        }
                         onSend={sendMessage}
                         onStop={stopSending}
                         pickConversationFolder={pickConversationFolder}
@@ -295,7 +304,9 @@ export default function Screen() {
                         selectedSkillIds={currentSelectedSkillIds}
                         setSelectedSkillIds={setCurrentSelectedSkillIds}
                         skills={skills}
-                        supportsImageGeneration={currentModelSupportsImageGeneration}
+                        supportsImageGeneration={
+                            currentModelSupportsImageGeneration
+                        }
                         supportsImageInput={currentModelSupportsImageInput}
                         supportsTools={currentModelSupportsTools}
                         thinkEnabled={thinkEnabled}
@@ -315,14 +326,20 @@ export default function Screen() {
                         <DrawerHeader>
                             <DrawerTitle>Tool approval</DrawerTitle>
                             <DrawerDescription>
-                                Paused in {pendingToolApproval?.chatTitle ?? "this chat"} until
-                                you decide.
+                                Paused in{" "}
+                                {pendingToolApproval?.chatTitle ?? "this chat"}{" "}
+                                until you decide.
                             </DrawerDescription>
                         </DrawerHeader>
-                        <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
+                        <DrawerBody
+                            className="flex-0"
+                            contentContainerClassName="gap-sp-3"
+                        >
                             <View className="gap-sp-2 rounded-ui border border-border bg-card px-sp-4 py-sp-3 dark:border-border-dark dark:bg-card-dark">
                                 <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                                    {formatToolName(pendingToolApproval?.toolName ?? "")}
+                                    {formatToolName(
+                                        pendingToolApproval?.toolName ?? "",
+                                    )}
                                 </Text>
                                 {pendingToolApproval?.inputSummary ? (
                                     <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
@@ -340,7 +357,10 @@ export default function Screen() {
                                 >
                                     Deny
                                 </Button>
-                                <Button className="flex-1" onPress={approvePendingToolApproval}>
+                                <Button
+                                    className="flex-1"
+                                    onPress={approvePendingToolApproval}
+                                >
                                     Allow once
                                 </Button>
                             </View>
@@ -353,18 +373,25 @@ export default function Screen() {
                         <DrawerHeader>
                             <DrawerTitle>Chat info</DrawerTitle>
                             <DrawerDescription>
-                                Model, usage, context, and cost for this conversation.
+                                Model, usage, context, and cost for this
+                                conversation.
                             </DrawerDescription>
                         </DrawerHeader>
                         <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
                             <InfoSection title="Model">
                                 <InfoRow
                                     label="Provider"
-                                    value={chatInfo.currentModel?.providerLabel ?? "Unavailable"}
+                                    value={
+                                        chatInfo.currentModel?.providerLabel ??
+                                        "Unavailable"
+                                    }
                                 />
                                 <InfoRow
                                     label="Selected model"
-                                    value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
+                                    value={
+                                        chatInfo.currentModel?.modelLabel ??
+                                        "Unavailable"
+                                    }
                                 />
                             </InfoSection>
 
@@ -372,24 +399,29 @@ export default function Screen() {
                                 <InfoRow
                                     label="Input tokens"
                                     value={formatTokenCount(
-                                        chatInfo.latestTurn?.inputTokens ?? null,
+                                        chatInfo.latestTurn?.inputTokens ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Output tokens"
                                     value={formatTokenCount(
-                                        chatInfo.latestTurn?.outputTokens ?? null,
+                                        chatInfo.latestTurn?.outputTokens ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Total tokens"
                                     value={formatTokenCount(
-                                        chatInfo.latestTurn?.totalTokens ?? null,
+                                        chatInfo.latestTurn?.totalTokens ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Cost"
-                                    value={formatCurrency(chatInfo.latestTurn?.costTotal ?? null)}
+                                    value={formatCurrency(
+                                        chatInfo.latestTurn?.costTotal ?? null,
+                                    )}
                                 />
                             </InfoSection>
 
@@ -404,25 +436,29 @@ export default function Screen() {
                                 <InfoRow
                                     label="Input tokens"
                                     value={formatTokenCount(
-                                        chatInfo.conversationTotals?.inputTokens ?? null,
+                                        chatInfo.conversationTotals
+                                            ?.inputTokens ?? null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Output tokens"
                                     value={formatTokenCount(
-                                        chatInfo.conversationTotals?.outputTokens ?? null,
+                                        chatInfo.conversationTotals
+                                            ?.outputTokens ?? null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Total tokens"
                                     value={formatTokenCount(
-                                        chatInfo.conversationTotals?.totalTokens ?? null,
+                                        chatInfo.conversationTotals
+                                            ?.totalTokens ?? null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Cost"
                                     value={formatCurrency(
-                                        chatInfo.conversationTotals?.costTotal ?? null,
+                                        chatInfo.conversationTotals
+                                            ?.costTotal ?? null,
                                     )}
                                 />
                             </InfoSection>
@@ -432,26 +468,30 @@ export default function Screen() {
                                     label="Context window"
                                     value={formatTokenCount(
                                         chatInfo.latestTurn?.contextWindow ??
-                                        chatInfo.currentModel?.contextWindow ??
-                                        null,
+                                            chatInfo.currentModel
+                                                ?.contextWindow ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Used"
                                     value={formatTokenCount(
-                                        chatInfo.latestTurn?.totalTokens ?? null,
+                                        chatInfo.latestTurn?.totalTokens ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Remaining"
                                     value={formatTokenCount(
-                                        chatInfo.latestTurn?.remainingContext ?? null,
+                                        chatInfo.latestTurn?.remainingContext ??
+                                            null,
                                     )}
                                 />
                                 <InfoRow
                                     label="Usage"
                                     value={formatPercent(
-                                        chatInfo.latestTurn?.contextUsagePercent ?? null,
+                                        chatInfo.latestTurn
+                                            ?.contextUsagePercent ?? null,
                                     )}
                                 />
                             </InfoSection>
@@ -591,10 +631,10 @@ function ChatInput({
     currentModelLabel: string | null;
     currentModelRef: ModelRef | null;
     importFiles: typeof useChat extends () => infer T
-    ? T extends { importFiles: infer F }
-    ? F
-    : never
-    : never;
+        ? T extends { importFiles: infer F }
+            ? F
+            : never
+        : never;
     loading: boolean;
     onCreateConversation: () => Promise<void>;
     onOpenSettings: () => void;
@@ -655,6 +695,17 @@ function ChatInput({
     const showExpandComposer = composerContentHeight + 52 > 176;
 
     const composerTrigger = useMemo(() => getComposerTrigger(prompt), [prompt]);
+    const modelGroups = useMemo(() => {
+        const groups = new Map<string, typeof activeModels>();
+
+        for (const model of activeModels) {
+            const providerModels = groups.get(model.providerLabel) ?? [];
+            providerModels.push(model);
+            groups.set(model.providerLabel, providerModels);
+        }
+
+        return [...groups.entries()];
+    }, [activeModels]);
     const mergedWorkspaceFiles = useMemo(() => {
         const map = new Map(workspaceFiles.map((file) => [file.id, file]));
 
@@ -687,7 +738,8 @@ function ChatInput({
         .filter((file) => selectedFileIds.includes(file.id))
         .sort(
             (left, right) =>
-                selectedFileIds.indexOf(left.id) - selectedFileIds.indexOf(right.id),
+                selectedFileIds.indexOf(left.id) -
+                selectedFileIds.indexOf(right.id),
         );
     const uploadedFiles = mergedWorkspaceFiles.filter(
         (file) => file.sourceKind === "imported",
@@ -703,7 +755,10 @@ function ChatInput({
     );
 
     const canAttachSelectedFiles =
-        !(selectedAttachmentBuckets.imageFiles.length > 0 && !supportsImageInput) &&
+        !(
+            selectedAttachmentBuckets.imageFiles.length > 0 &&
+            !supportsImageInput
+        ) &&
         !(selectedAttachmentBuckets.binaryFiles.length > 0 && !supportsTools);
 
     const handleGenerate = async () => {
@@ -713,10 +768,10 @@ function ChatInput({
             selectedFileIds.length > 0
                 ? "workspace"
                 : currentExternalFolderSession
+                  ? "external-folder"
+                  : folderIntent.requiresFolderAccess
                     ? "external-folder"
-                    : folderIntent.requiresFolderAccess
-                        ? "external-folder"
-                        : "workspace";
+                    : "workspace";
 
         if (
             loading ||
@@ -788,7 +843,9 @@ function ChatInput({
         } catch (sendError) {
             logComposerDebug("handle-generate-send-error", {
                 message:
-                    sendError instanceof Error ? sendError.message : String(sendError),
+                    sendError instanceof Error
+                        ? sendError.message
+                        : String(sendError),
             });
             setPrompt(previousPrompt);
             await setSelectedFileIds(previousSelectedFileIds);
@@ -886,7 +943,9 @@ function ChatInput({
                     return {
                         lastModified: Date.now(),
                         mimeType: file.type || "image/png",
-                        name: file.name || `pasted-image-${Date.now()}-${index + 1}.png`,
+                        name:
+                            file.name ||
+                            `pasted-image-${Date.now()}-${index + 1}.png`,
                         size: file.size,
                         uri,
                     };
@@ -994,7 +1053,9 @@ function ChatInput({
                         deleteWorkspaceFile(file.id)
                             .then(() => {
                                 setLocalWorkspaceFiles((current) =>
-                                    current.filter((item) => item.id !== file.id),
+                                    current.filter(
+                                        (item) => item.id !== file.id,
+                                    ),
                                 );
                             })
                             .catch(console.error)
@@ -1051,7 +1112,9 @@ function ChatInput({
                 {
                     id: "select-folder",
                     icon: <FolderOpen color={theme.text} size={16} />,
-                    label: activeFolderLabel ? "Switch folder" : "Select folder",
+                    label: activeFolderLabel
+                        ? "Switch folder"
+                        : "Select folder",
                     onPress: () => {
                         clearTriggerText();
 
@@ -1070,14 +1133,18 @@ function ChatInput({
                         setBusyAction("folder");
                         pickConversationFolder()
                             .then((session) => {
-                                setFolderNotice(`Using ${session.displayName} for this chat.`);
+                                setFolderNotice(
+                                    `Using ${session.displayName} for this chat.`,
+                                );
                             })
                             .catch(console.error)
                             .finally(() => {
                                 setBusyAction(null);
                             });
                     },
-                    subtitle: activeFolderLabel ?? "Use an external folder for this chat",
+                    subtitle:
+                        activeFolderLabel ??
+                        "Use an external folder for this chat",
                     visible: Platform.OS === "android",
                 },
                 {
@@ -1088,7 +1155,9 @@ function ChatInput({
                         clearTriggerText();
                         clearConversationFolder()
                             .then(() => {
-                                setFolderNotice("Switched back to the workspace.");
+                                setFolderNotice(
+                                    "Switched back to the workspace.",
+                                );
                             })
                             .catch(console.error);
                     },
@@ -1161,7 +1230,9 @@ function ChatInput({
         }
 
         const source =
-            composerTrigger.kind === "mention" ? mentionMenuItems : slashMenuItems;
+            composerTrigger.kind === "mention"
+                ? mentionMenuItems
+                : slashMenuItems;
 
         return source.filter((item) =>
             matchesMenuQuery(composerTrigger.query, item.label, item.subtitle, [
@@ -1185,7 +1256,9 @@ function ChatInput({
                                 onPress={() => {
                                     clearConversationFolder()
                                         .then(() => {
-                                            setFolderNotice("Switched back to the workspace.");
+                                            setFolderNotice(
+                                                "Switched back to the workspace.",
+                                            );
                                         })
                                         .catch(console.error);
                                 }}
@@ -1211,16 +1284,23 @@ function ChatInput({
                                         <Image
                                             contentFit="cover"
                                             source={{
-                                                uri: resolveWorkspaceFile(file.relativePath).uri,
+                                                uri: resolveWorkspaceFile(
+                                                    file.relativePath,
+                                                ).uri,
                                             }}
                                             style={{ height: 48, width: 48 }}
                                         />
                                     ) : (
-                                        <Paperclip color={theme.text} size={18} />
+                                        <Paperclip
+                                            color={theme.text}
+                                            size={18}
+                                        />
                                     )}
                                 </AttachmentMedia>
                                 <AttachmentContent>
-                                    <AttachmentTitle>{file.displayName}</AttachmentTitle>
+                                    <AttachmentTitle>
+                                        {file.displayName}
+                                    </AttachmentTitle>
                                     <AttachmentDescription>
                                         {file.mimeType ?? "Unknown type"}
                                         {typeof file.size === "number"
@@ -1232,7 +1312,9 @@ function ChatInput({
                                     <AttachmentAction
                                         onPress={() => {
                                             setSelectedFileIds(
-                                                selectedFileIds.filter((id) => id !== file.id),
+                                                selectedFileIds.filter(
+                                                    (id) => id !== file.id,
+                                                ),
                                             ).catch(console.error);
                                         }}
                                     >
@@ -1279,7 +1361,9 @@ function ChatInput({
                             className="rounded-full border-0 bg-transparent px-0 py-0 pb-12 pr-16"
                             onChangeText={setPrompt}
                             onContentSizeChange={(event) => {
-                                setComposerContentHeight(event.nativeEvent.contentSize.height);
+                                setComposerContentHeight(
+                                    event.nativeEvent.contentSize.height,
+                                );
                             }}
                             onFocus={() => {
                                 scrollToEnd();
@@ -1299,7 +1383,9 @@ function ChatInput({
                             onPress={() => {
                                 setExpandedComposerOpen(true);
                             }}
-                            style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
+                            style={({ pressed }) =>
+                                pressed ? { opacity: 0.72 } : null
+                            }
                         >
                             <Maximize2 color={theme.textSecondary} size={17} />
                         </Pressable>
@@ -1311,7 +1397,9 @@ function ChatInput({
                         onPress={() => {
                             setApprovalModeDrawerOpen(true);
                         }}
-                        style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+                        style={({ pressed }) =>
+                            pressed ? { opacity: 0.82 } : null
+                        }
                     >
                         <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
                             {toolApprovalMode === "ask" ? "Ask" : "Allow"}
@@ -1325,7 +1413,9 @@ function ChatInput({
                         onPress={() => {
                             setSkillsDrawerOpen(true);
                         }}
-                        style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+                        style={({ pressed }) =>
+                            pressed ? { opacity: 0.82 } : null
+                        }
                     >
                         <Brain color={theme.textSecondary} size={14} />
                         <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
@@ -1435,27 +1525,45 @@ function ChatInput({
                     <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
                         {uploadedFiles.length > 0 ? (
                             uploadedFiles.map((file) => {
-                                const selected = selectedFileIds.includes(file.id);
+                                const selected = selectedFileIds.includes(
+                                    file.id,
+                                );
 
                                 return (
                                     <DrawerSelectRow
                                         key={file.id}
                                         leading={
-                                            file.mimeType?.startsWith("image/") ? (
+                                            file.mimeType?.startsWith(
+                                                "image/",
+                                            ) ? (
                                                 <Image
                                                     contentFit="cover"
                                                     source={{
-                                                        uri: resolveWorkspaceFile(file.relativePath).uri,
+                                                        uri: resolveWorkspaceFile(
+                                                            file.relativePath,
+                                                        ).uri,
                                                     }}
-                                                    style={{ borderRadius: 10, height: 48, width: 48 }}
+                                                    style={{
+                                                        borderRadius: 10,
+                                                        height: 48,
+                                                        width: 48,
+                                                    }}
                                                 />
                                             ) : null
                                         }
                                         onPress={() => {
                                             setSelectedFileIds(
-                                                selectedFileIds.includes(file.id)
-                                                    ? selectedFileIds.filter((id) => id !== file.id)
-                                                    : [...selectedFileIds, file.id],
+                                                selectedFileIds.includes(
+                                                    file.id,
+                                                )
+                                                    ? selectedFileIds.filter(
+                                                          (id) =>
+                                                              id !== file.id,
+                                                      )
+                                                    : [
+                                                          ...selectedFileIds,
+                                                          file.id,
+                                                      ],
                                             ).catch(console.error);
                                         }}
                                         deleting={deletingFileId === file.id}
@@ -1463,21 +1571,26 @@ function ChatInput({
                                             handleDeleteUploadedFile(file);
                                         }}
                                         selected={selected}
-                                        subtitle={file.mimeType ?? "Unknown type"}
+                                        subtitle={
+                                            file.mimeType ?? "Unknown type"
+                                        }
                                         title={file.displayName}
                                     />
                                 );
                             })
                         ) : (
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                                No uploaded files yet. Upload one below to attach it.
+                                No uploaded files yet. Upload one below to
+                                attach it.
                             </Text>
                         )}
                     </DrawerBody>
                     <DrawerFooter>
                         <View className="gap-sp-2">
                             <Button
-                                leftIcon={<Upload color={theme.text} size={16} />}
+                                leftIcon={
+                                    <Upload color={theme.text} size={16} />
+                                }
                                 loading={busyAction === "import"}
                                 onPress={handleImportFiles}
                                 variant="secondary"
@@ -1485,8 +1598,15 @@ function ChatInput({
                                 Upload new file
                             </Button>
                             <Button
-                                disabled={mergedWorkspaceFiles.length === 0 || loading}
-                                leftIcon={<Trash2 color={theme.destructive} size={16} />}
+                                disabled={
+                                    mergedWorkspaceFiles.length === 0 || loading
+                                }
+                                leftIcon={
+                                    <Trash2
+                                        color={theme.destructive}
+                                        size={16}
+                                    />
+                                }
                                 loading={busyAction === "clear"}
                                 onPress={handleClearWorkspaceFiles}
                                 textClassName="text-destructive dark:text-destructive-dark"
@@ -1537,7 +1657,10 @@ function ChatInput({
                 </DrawerContent>
             </Drawer>
 
-            <Drawer onOpenChange={setNewFileDrawerOpen} open={newFileDrawerOpen}>
+            <Drawer
+                onOpenChange={setNewFileDrawerOpen}
+                open={newFileDrawerOpen}
+            >
                 <DrawerContent showCloseButton showHandle>
                     <DrawerHeader>
                         <DrawerTitle>New file</DrawerTitle>
@@ -1546,7 +1669,10 @@ function ChatInput({
                         </DrawerDescription>
                     </DrawerHeader>
 
-                    <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
+                    <DrawerBody
+                        className="flex-0"
+                        contentContainerClassName="gap-sp-3"
+                    >
                         <Input
                             autoCapitalize="none"
                             autoCorrect={false}
@@ -1583,20 +1709,30 @@ function ChatInput({
                     </DrawerHeader>
                     <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
                         {activeModels.length > 0 ? (
-                            activeModels.map((model) => (
-                                <DrawerSelectRow
-                                    key={model.ref}
-                                    onPress={() => {
-                                        selectModel(model.ref)
-                                            .then(() => {
-                                                setModelsDrawerOpen(false);
-                                            })
-                                            .catch(console.error);
-                                    }}
-                                    selected={currentModelRef === model.ref}
-                                    subtitle={model.providerLabel}
-                                    title={model.label}
-                                />
+                            modelGroups.map(([providerLabel, models]) => (
+                                <View className="gap-sp-2" key={providerLabel}>
+                                    <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                                        {providerLabel}
+                                    </Text>
+                                    {models.map((model) => (
+                                        <DrawerSelectRow
+                                            key={model.ref}
+                                            onPress={() => {
+                                                selectModel(model.ref)
+                                                    .then(() => {
+                                                        setModelsDrawerOpen(
+                                                            false,
+                                                        );
+                                                    })
+                                                    .catch(console.error);
+                                            }}
+                                            selected={
+                                                currentModelRef === model.ref
+                                            }
+                                            title={model.label}
+                                        />
+                                    ))}
+                                </View>
                             ))
                         ) : (
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
@@ -1629,7 +1765,9 @@ function ChatInput({
                     <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
                         {enabledSkills.length > 0 ? (
                             enabledSkills.map((skill) => {
-                                const selected = selectedSkillIds.includes(skill.id);
+                                const selected = selectedSkillIds.includes(
+                                    skill.id,
+                                );
 
                                 return (
                                     <DrawerSelectRow
@@ -1637,8 +1775,14 @@ function ChatInput({
                                         onPress={() => {
                                             setSelectedSkillIds(
                                                 selected
-                                                    ? selectedSkillIds.filter((id) => id !== skill.id)
-                                                    : [...selectedSkillIds, skill.id],
+                                                    ? selectedSkillIds.filter(
+                                                          (id) =>
+                                                              id !== skill.id,
+                                                      )
+                                                    : [
+                                                          ...selectedSkillIds,
+                                                          skill.id,
+                                                      ],
                                             ).catch(console.error);
                                         }}
                                         selected={selected}
@@ -1647,7 +1791,8 @@ function ChatInput({
                                                 ? skill.description
                                                     ? `Auto · ${skill.description}`
                                                     : "Auto"
-                                                : (skill.description ?? undefined)
+                                                : (skill.description ??
+                                                  undefined)
                                         }
                                         title={skill.title}
                                     />

@@ -253,11 +253,15 @@ export const ChatMessage = memo(function ChatMessage({
     <Message align={align}>
       <View
         className={cn("gap-1", align === "end" ? "items-end" : "items-start", {
-          "max-w-full": isAssistant,
+          "w-full": isAssistant,
           "max-w-[80%]": !isAssistant,
         })}
       >
-        <Bubble align={align} className={cn("max-w-full")} variant={variant}>
+        <Bubble
+          align={align}
+          className={cn("max-w-full", isAssistant && "w-full")}
+          variant={variant}
+        >
           <BubbleContent>
             {isAssistant ? (
               <View className="gap-sp-3">

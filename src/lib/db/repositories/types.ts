@@ -2,6 +2,7 @@ import type { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import type { SQLiteDatabase } from "expo-sqlite";
 
 import type { schema } from "@/lib/db/schema";
+import type { MemoryStore } from "@/lib/memory/types";
 import type {
   AgentRun,
   AgentRunStatus,
@@ -15,7 +16,6 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpServerTransport,
-  MemoryEntry,
   MessageMetadata,
   ModelPreset,
   ProviderConfig,
@@ -218,28 +218,6 @@ export interface SkillRepository {
   ): Promise<void>;
 }
 
-export interface MemoryRepository {
-  archive(id: string): Promise<void>;
-  create(input: {
-    content: string;
-    enabled?: boolean;
-    id?: string;
-    sourceConversationId?: string | null;
-    sourceMessageId?: string | null;
-  }): Promise<MemoryEntry>;
-  getById(id: string): Promise<MemoryEntry | null>;
-  list(input?: { includeArchived?: boolean }): Promise<MemoryEntry[]>;
-  update(
-    id: string,
-    input: {
-      content?: string;
-      enabled?: boolean;
-      sourceConversationId?: string | null;
-      sourceMessageId?: string | null;
-    },
-  ): Promise<void>;
-}
-
 export interface ConfigRepository {
   createProvider(input: {
     authType: ProviderConfig["authType"];
@@ -291,7 +269,7 @@ export type Repositories = {
   agentRunRepository: AgentRunRepository;
   configRepository: ConfigRepository;
   conversationRepository: ConversationRepository;
-  memoryRepository: MemoryRepository;
+  memoryStore: MemoryStore;
   mcpServerRepository: McpServerRepository;
   messageRepository: MessageRepository;
   skillRepository: SkillRepository;

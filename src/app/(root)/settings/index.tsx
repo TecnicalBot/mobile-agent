@@ -36,7 +36,6 @@ export default function SettingsScreen() {
     currentModel,
     databaseMode,
     databaseUrl,
-    memories,
     memoryEnabled,
     refresh,
     selectModel,
@@ -62,7 +61,6 @@ export default function SettingsScreen() {
     (server) => server.enabled,
   ).length;
   const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
-  const enabledMemoryCount = memories.filter((memory) => memory.enabled).length;
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
@@ -132,7 +130,7 @@ export default function SettingsScreen() {
           onPress={() => {
             router.push("/settings/memory" as never);
           }}
-          value={memoryEnabled ? `${enabledMemoryCount} saved` : "Off"}
+          value={memoryEnabled ? "Local" : "Disabled"}
         />
         <Separator />
         <Drawer

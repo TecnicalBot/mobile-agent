@@ -3,7 +3,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { createAgentRunRepository } from "@/lib/db/repositories/agent-run-repository";
 import { createConfigRepository } from "@/lib/db/repositories/config-repository";
 import { createConversationRepository } from "@/lib/db/repositories/conversation-repository";
-import { createMemoryRepository } from "@/lib/db/repositories/memory-repository";
+import { createFileMemoryStore } from "@/lib/memory/file-memory-store";
 import { createMcpServerRepository } from "@/lib/db/repositories/mcp-server-repository";
 import { createMessageRepository } from "@/lib/db/repositories/message-repository";
 import { createSkillRepository } from "@/lib/db/repositories/skill-repository";
@@ -18,7 +18,7 @@ export function createRepositories(sqliteDb: SQLiteDatabase): Repositories {
     agentRunRepository: createAgentRunRepository(db),
     configRepository: createConfigRepository(db),
     conversationRepository: createConversationRepository(db),
-    memoryRepository: createMemoryRepository(db),
+    memoryStore: createFileMemoryStore(db),
     mcpServerRepository: createMcpServerRepository(db),
     messageRepository: createMessageRepository(db),
     skillRepository: createSkillRepository(db),

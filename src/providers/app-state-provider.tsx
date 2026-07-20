@@ -80,7 +80,7 @@ import { persistGeneratedImages } from "@/lib/tools/generated-images";
 import {
   buildMemorySystemPrompt,
   createMemoryTools,
-} from "@/lib/tools/memory-tools";
+} from "@/lib/memory/memory-tools";
 import {
   buildSelectedFilesInlineContext,
   createWorkspaceTools,
@@ -178,10 +178,7 @@ type AppStateContextValue = {
     recommendedMcpServerIds?: string[];
     title: string;
   }) => Promise<SkillConfig>;
-  createMemory: (input: {
-    content: string;
-    enabled?: boolean;
-  }) => Promise<MemoryEntry>;
+  writeMemory: (content: string) => Promise<MemoryEntry>;
   currentConversation: Conversation | null;
   currentExternalFolderSession: ExternalFolderSession | null;
   pendingToolApproval: PendingToolApproval | null;
@@ -189,7 +186,7 @@ type AppStateContextValue = {
   deleteMcpServer: (serverId: string) => Promise<void>;
   dismissInAppNotification: () => void;
   deleteModelPreset: (modelPresetId: string) => Promise<void>;
-  deleteMemory: (memoryId: string) => Promise<void>;
+  clearMemory: () => Promise<void>;
   deleteSkill: (skillId: string) => Promise<void>;
   disconnectOpenAIOAuth: () => Promise<void>;
   error: string | null;
@@ -203,7 +200,7 @@ type AppStateContextValue = {
   } | null;
   currentSelectedFileIds: string[];
   currentSelectedSkillIds: string[];
-  memories: MemoryEntry[];
+  memory: MemoryEntry | null;
   messages: StoredMessage[];
   mcpServers: McpServerConfig[];
   resumePendingRuns: () => Promise<void>;
@@ -254,13 +251,6 @@ type AppStateContextValue = {
   }) => Promise<void>;
   updateBuiltInToolSettings: (
     input: Partial<BuiltInToolSettings>,
-  ) => Promise<void>;
-  updateMemory: (
-    memoryId: string,
-    input: {
-      content?: string;
-      enabled?: boolean;
-    },
   ) => Promise<void>;
   updateMemoryEnabled: (enabled: boolean) => Promise<void>;
   updateToolApprovalMode: (
@@ -352,7 +342,7 @@ const EMPTY_SNAPSHOT: AppStateSnapshot = {
   currentConversation: null,
   currentSelectedFileIds: [],
   currentSelectedSkillIds: [],
-  memories: [],
+  memory: null,
   mcpServers: [],
   messages: [],
   skills: [],
@@ -1423,7 +1413,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             currentConversation.id,
           )
         : [];
-      const memories = await repositories.memoryRepository.list();
+      const memory = await repositories.memoryStore.read();
       const mcpServers = await repositories.mcpServerRepository.list();
       const skills = await repositories.skillRepository.list();
       const workspaceFiles = await repositories.workspaceRepository.list();
@@ -1433,7 +1423,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         currentConversation,
         currentSelectedFileIds: currentConversation?.selectedFileIds ?? [],
         currentSelectedSkillIds: currentConversation?.selectedSkillIds ?? [],
-        memories,
+        memory,
         mcpServers,
         messages,
         skills,
@@ -1915,30 +1905,14 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     await hydrate();
   }
 
-  async function createMemory(input: { content: string; enabled?: boolean }) {
-    const memory = await repositoriesRef.current.memoryRepository.create({
-      content: input.content,
-      enabled: input.enabled,
-      sourceConversationId: snapshotRef.current.currentConversation?.id ?? null,
-      sourceMessageId: null,
-    });
+  async function writeMemory(content: string) {
+    const memory = await repositoriesRef.current.memoryStore.write(content);
     await hydrate();
     return memory;
   }
 
-  async function updateMemory(
-    memoryId: string,
-    input: {
-      content?: string;
-      enabled?: boolean;
-    },
-  ) {
-    await repositoriesRef.current.memoryRepository.update(memoryId, input);
-    await hydrate();
-  }
-
-  async function deleteMemory(memoryId: string) {
-    await repositoriesRef.current.memoryRepository.archive(memoryId);
+  async function clearMemory() {
+    await repositoriesRef.current.memoryStore.clear();
     await hydrate();
   }
 
@@ -2884,7 +2858,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         snapshotRef.current.settings.memoryEnabled
           ? createMemoryTools({
               conversationId: conversation.id,
-              memoryRepository: repositories.memoryRepository,
+              memoryStore: repositories.memoryStore,
               sourceMessageId: assistantMessage.id,
               onEvent: (event) => {
                 memoryEvents.push(event);
@@ -2973,7 +2947,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         skills: appliedSkills,
       });
       const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
-        ? buildMemorySystemPrompt(snapshotRef.current.memories, {
+        ? buildMemorySystemPrompt(snapshotRef.current.memory, {
             canWrite: resolvedModel.supportsTools,
           })
         : undefined;
@@ -3218,8 +3192,8 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         status: "completed",
       });
 
-      const [memories, workspaceFiles] = await Promise.all([
-        repositories.memoryRepository.list(),
+      const [memory, workspaceFiles] = await Promise.all([
+        repositories.memoryStore.read(),
         repositories.workspaceRepository.list(),
       ]);
 
@@ -3247,7 +3221,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
                   },
                 ])
               : current.messages,
-          memories,
+          memory,
           workspaceFiles,
         };
       });
@@ -3326,8 +3300,8 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         setError(errorMessage);
       }
 
-      const [memories, workspaceFiles] = await Promise.all([
-        repositories.memoryRepository.list(),
+      const [memory, workspaceFiles] = await Promise.all([
+        repositories.memoryStore.read(),
         repositories.workspaceRepository.list(),
       ]);
 
@@ -3356,7 +3330,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
                   },
                 ])
               : current.messages,
-          memories,
+          memory,
           workspaceFiles,
         };
       });
@@ -3773,7 +3747,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         connectMcpServerOAuth,
         connectOpenAIOAuth,
         createMcpServer,
-        createMemory,
+        writeMemory,
         createProvider,
         createConversation,
         deleteConversation,
@@ -3793,7 +3767,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           }
         },
         deleteMcpServer,
-        deleteMemory,
+        clearMemory,
         deleteModelPreset,
         deleteSkill,
         deleteWorkspaceFile,
@@ -3803,7 +3777,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         importFiles,
         inAppNotification,
         messages: snapshot.messages,
-        memories: snapshot.memories,
+        memory: snapshot.memory,
         mcpServers: snapshot.mcpServers,
         pickConversationFolder,
         ready,
@@ -3833,7 +3807,6 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         updateMcpServer,
         updateDatabaseSettings,
         updateBuiltInToolSettings,
-        updateMemory,
         updateMemoryEnabled,
         updateSkill,
         updateToolApprovalMode,
@@ -3884,13 +3857,13 @@ export function useConfig() {
     connectMcpServerOAuth: context.connectMcpServerOAuth,
     connectOpenAIOAuth: context.connectOpenAIOAuth,
     createMcpServer: context.createMcpServer,
-    createMemory: context.createMemory,
+    writeMemory: context.writeMemory,
     createProvider: context.createProvider,
     createModelPreset: context.createModelPreset,
     createSkill: context.createSkill,
     createWorkspaceFile: context.createWorkspaceFile,
     deleteMcpServer: context.deleteMcpServer,
-    deleteMemory: context.deleteMemory,
+    clearMemory: context.clearMemory,
     deleteModelPreset: context.deleteModelPreset,
     deleteSkill: context.deleteSkill,
     deleteWorkspaceFile: context.deleteWorkspaceFile,
@@ -3901,7 +3874,7 @@ export function useConfig() {
       context.resolvedConfig.currentModelSupportsImageInput,
     currentModelSupportsTools: context.resolvedConfig.currentModelSupportsTools,
     importFiles: context.importFiles,
-    memories: context.memories,
+    memory: context.memory,
     memoryEnabled: context.settings.memoryEnabled,
     mcpServers: context.mcpServers,
     selectModel: context.selectModel,
@@ -3918,7 +3891,6 @@ export function useConfig() {
     updateDatabaseSettings: context.updateDatabaseSettings,
     updateMcpServer: context.updateMcpServer,
     updateBuiltInToolSettings: context.updateBuiltInToolSettings,
-    updateMemory: context.updateMemory,
     updateMemoryEnabled: context.updateMemoryEnabled,
     updateSkill: context.updateSkill,
     updateToolApprovalMode: context.updateToolApprovalMode,

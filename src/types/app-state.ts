@@ -354,7 +354,7 @@ export type AppStateSnapshot = {
   currentConversation: Conversation | null;
   currentSelectedFileIds: string[];
   currentSelectedSkillIds: string[];
-  memories: MemoryEntry[];
+  memory: MemoryEntry | null;
   mcpServers: McpServerConfig[];
   messages: StoredMessage[];
   skills: SkillConfig[];

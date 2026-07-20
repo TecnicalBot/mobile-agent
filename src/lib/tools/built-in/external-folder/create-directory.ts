@@ -20,7 +20,7 @@ export function createCreateDirectoryTool({
       const inputSummary = summarizeValue({ path });
 
       try {
-        const output = service.createDirectory(session, path);
+        const output = await service.createDirectory(session, path);
 
         onRecord?.(
           createRecord({

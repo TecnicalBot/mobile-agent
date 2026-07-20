@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useRouter } from "expo-router";
 import {
+  ArrowDown,
   Brain,
   Check,
   ChevronDown,
@@ -235,7 +236,7 @@ export default function Screen() {
         <MessageScrollerProvider autoScroll>
           <MessageScroller className="flex-1 rounded-none border-0">
             <MessageScrollerList
-              contentContainerClassName="py-sp-4"
+              contentContainerClassName="py-sp-4 pb-16"
               data={messages}
               keyExtractor={(message) => message.id}
               renderItem={({ index, item: message }) => (
@@ -278,7 +279,12 @@ export default function Screen() {
               }
               ListFooterComponent={<View className="h-sp-1" />}
             />
-            <MessageScrollerButton />
+            <MessageScrollerButton
+              accessibilityLabel="Jump to latest"
+              className="h-10 w-10 rounded-full px-0"
+            >
+              <ArrowDown color={theme.text} size={18} />
+            </MessageScrollerButton>
           </MessageScroller>
 
           {error ? (
@@ -1365,25 +1371,9 @@ function ChatInput({
           </Pressable>
 
           <Pressable
-            accessibilityRole="button"
-            className="absolute bottom-2 left-20 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
-            onPress={() => {
-              setSkillsDrawerOpen(true);
-            }}
-            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-          >
-            <Brain color={theme.textSecondary} size={14} />
-            <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-              {selectedSkills.length > 0
-                ? `${selectedSkills.length}`
-                : "Skills"}
-            </Text>
-          </Pressable>
-
-          <Pressable
             accessibilityLabel="Select reasoning level"
             accessibilityRole="button"
-            className="absolute bottom-2 left-40 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+            className="absolute bottom-2 left-20 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
             onPress={() => {
               setReasoningDrawerOpen(true);
             }}

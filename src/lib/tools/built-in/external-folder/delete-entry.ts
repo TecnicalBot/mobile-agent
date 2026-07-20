@@ -21,7 +21,7 @@ export function createDeleteEntryTool({
       const inputSummary = summarizeValue({ path, recursive });
 
       try {
-        const output = service.deleteEntry(session, path, recursive);
+        const output = await service.deleteEntry(session, path, recursive);
 
         onRecord?.(
           createRecord({

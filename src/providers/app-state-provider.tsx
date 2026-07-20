@@ -3142,9 +3142,12 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           refreshAssistantState?.();
         },
         provider,
-        reasoning: resolvedModel.supportsReasoning
-          ? conversation.reasoningEffort
-          : undefined,
+        reasoning:
+          resolvedModel.supportsReasoning ||
+          (provider.family === "openai-compatible" &&
+            resolvedModel.transport === "openaiCompatible")
+            ? conversation.reasoningEffort
+            : undefined,
         secretStore: secureSecretStore,
         sessionId: run.id,
         system: runtimeSystem,

@@ -21,7 +21,7 @@ export function createRenameEntryTool({
       const inputSummary = summarizeValue({ newName, path });
 
       try {
-        const output = service.renameEntry(session, path, newName);
+        const output = await service.renameEntry(session, path, newName);
 
         onRecord?.(
           createRecord({

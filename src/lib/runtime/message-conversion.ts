@@ -128,6 +128,37 @@ function parseStoredContent(
   return message.content;
 }
 
+function buildAssistantContent(
+  message: StoredMessage,
+  parsedContent: string | Record<string, unknown>[],
+) {
+  const reasoningParts = (message.metadata?.reasoning ?? [])
+    .filter((block) => block.text.trim())
+    .map((block) => ({
+      type: "reasoning",
+      text: block.text,
+    }));
+
+  if (reasoningParts.length === 0) {
+    return parsedContent;
+  }
+
+  const content: Record<string, unknown>[] = [...reasoningParts];
+
+  if (typeof parsedContent === "string") {
+    if (parsedContent.trim()) {
+      content.push({
+        type: "text",
+        text: parsedContent,
+      });
+    }
+  } else {
+    content.push(...parsedContent);
+  }
+
+  return content;
+}
+
 export async function convertStoredMessagesToModelMessages(input: {
   messages: StoredMessage[];
   supportsImageInput: boolean;
@@ -144,7 +175,15 @@ export async function convertStoredMessagesToModelMessages(input: {
   )) {
     const parsedContent = parseStoredContent(message);
 
-    if (message.role !== "user") {
+    if (message.role === "assistant") {
+      converted.push({
+        role: message.role,
+        content: buildAssistantContent(message, parsedContent),
+      } as ModelMessage);
+      continue;
+    }
+
+    if (message.role === "system") {
       converted.push({
         role: message.role,
         content: parsedContent,

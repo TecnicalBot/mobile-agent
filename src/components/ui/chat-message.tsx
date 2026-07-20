@@ -55,8 +55,6 @@ export const ChatMessage = memo(function ChatMessage({
     message.status === "streaming",
   );
   const previousMessageStatusRef = useRef(message.status);
-  const [responseContentHeight, setResponseContentHeight] = useState(0);
-  const [responseExpanded, setResponseExpanded] = useState(false);
   const [previewImage, setPreviewImage] =
     useState<GeneratedImageAttachment | null>(null);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
@@ -315,41 +313,9 @@ export const ChatMessage = memo(function ChatMessage({
                 ) : null}
 
                 {message.content.trim() ? (
-                  <>
-                    <View
-                      style={
-                        responseExpanded
-                          ? undefined
-                          : { maxHeight: 640, overflow: "hidden" }
-                      }
-                    >
-                      <View
-                        onLayout={(event) => {
-                          setResponseContentHeight(
-                            event.nativeEvent.layout.height,
-                          );
-                        }}
-                      >
-                        <Markdown mergeStyle={false} style={markdownStyles}>
-                          {message.content}
-                        </Markdown>
-                      </View>
-                    </View>
-                    {responseContentHeight > 640 ||
-                    message.content.length > 1200 ? (
-                      <Button
-                        onPress={() => {
-                          setResponseExpanded((current) => !current);
-                        }}
-                        size="xs"
-                        variant="ghost"
-                      >
-                        {responseExpanded
-                          ? "Collapse response"
-                          : "Show full response"}
-                      </Button>
-                    ) : null}
-                  </>
+                  <Markdown mergeStyle={false} style={markdownStyles}>
+                    {message.content}
+                  </Markdown>
                 ) : memoryEventLabel ? (
                   <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
                     {memoryEventLabel}
@@ -783,8 +749,8 @@ function createMarkdownStyles(input: {
       marginTop: 0,
     },
     bullet_list: {
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 10,
+      marginTop: 4,
     },
     bullet_list_content: {
       flex: 1,
@@ -801,8 +767,8 @@ function createMarkdownStyles(input: {
       fontFamily: "monospace",
       fontSize: 14,
       lineHeight: 22,
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 12,
+      marginTop: 6,
       padding: 12,
     },
     code_inline: {
@@ -821,38 +787,41 @@ function createMarkdownStyles(input: {
       fontFamily: "monospace",
       fontSize: 14,
       lineHeight: 22,
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 12,
+      marginTop: 6,
       padding: 12,
     },
     blockquote: {
       borderColor: input.borderColor,
       borderLeftWidth: 3,
       color: input.mutedText,
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 10,
+      marginTop: 4,
       paddingLeft: 12,
     },
     heading1: {
       color: input.text,
-      fontSize: 28,
+      fontSize: 24,
       fontWeight: "700",
-      marginBottom: 12,
-      marginTop: 0,
+      lineHeight: 32,
+      marginBottom: 8,
+      marginTop: 10,
     },
     heading2: {
       color: input.text,
-      fontSize: 24,
+      fontSize: 21,
       fontWeight: "700",
-      marginBottom: 10,
-      marginTop: 0,
+      lineHeight: 28,
+      marginBottom: 8,
+      marginTop: 10,
     },
     heading3: {
       color: input.text,
-      fontSize: 20,
+      fontSize: 18,
       fontWeight: "700",
-      marginBottom: 8,
-      marginTop: 0,
+      lineHeight: 25,
+      marginBottom: 6,
+      marginTop: 8,
     },
     hr: {
       backgroundColor: input.borderColor,
@@ -862,8 +831,8 @@ function createMarkdownStyles(input: {
     },
     image: {
       borderRadius: 16,
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 10,
+      marginTop: 4,
     },
     link: {
       color: input.linkColor,
@@ -873,12 +842,12 @@ function createMarkdownStyles(input: {
       color: input.text,
       flexDirection: "row",
       justifyContent: "flex-start",
-      marginBottom: 0,
+      marginBottom: 4,
       marginTop: 0,
     },
     ordered_list: {
-      marginBottom: 0,
-      marginTop: 0,
+      marginBottom: 10,
+      marginTop: 4,
     },
     ordered_list_content: {
       flex: 1,
@@ -892,7 +861,7 @@ function createMarkdownStyles(input: {
       color: input.text,
       fontSize: 16,
       lineHeight: 24,
-      marginBottom: 0,
+      marginBottom: 10,
       marginTop: 0,
     },
     strong: {

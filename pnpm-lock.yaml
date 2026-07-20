@@ -25,6 +25,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^4.0.5
         version: 4.0.5(zod@4.4.3)
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.12
+        version: 3.0.12(zod@4.4.3)
       '@ai-sdk/xai':
         specifier: ^4.0.16
         version: 4.0.16(zod@4.4.3)
@@ -6417,7 +6420,9 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 

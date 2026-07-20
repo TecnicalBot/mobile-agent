@@ -448,5 +448,5 @@ function inferMimeType(fileName: string) {
     return "text/plain";
   }
 
-  return "text/plain";
+  return "application/octet-stream";
 }

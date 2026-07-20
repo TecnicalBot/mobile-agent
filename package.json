@@ -8,6 +8,7 @@
     "@ai-sdk/google": "^4.0.6",
     "@ai-sdk/mcp": "^2.0.7",
     "@ai-sdk/openai": "^4.0.5",
+    "@ai-sdk/openai-compatible": "^3.0.12",
     "@ai-sdk/xai": "^4.0.16",
     "@expo/metro-runtime": "^57.0.3",
     "@expo/ui": "~57.0.3",

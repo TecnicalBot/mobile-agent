@@ -20,6 +20,55 @@ function shouldFallbackToNonStreaming(error: unknown) {
   );
 }
 
+function getRawReasoningDetailsText(rawValue: unknown) {
+  if (!rawValue || typeof rawValue !== "object") {
+    return null;
+  }
+
+  const choices = (rawValue as { choices?: unknown }).choices;
+
+  if (!Array.isArray(choices)) {
+    return null;
+  }
+
+  const delta = choices[0]?.delta;
+
+  if (!delta || typeof delta !== "object") {
+    return null;
+  }
+
+  const details = (delta as { reasoning_details?: unknown }).reasoning_details;
+
+  if (typeof details === "string") {
+    return details;
+  }
+
+  if (!Array.isArray(details)) {
+    return null;
+  }
+
+  const text = details
+    .map((detail) => {
+      if (typeof detail === "string") {
+        return detail;
+      }
+
+      if (!detail || typeof detail !== "object") {
+        return "";
+      }
+
+      const record = detail as { summary?: unknown; text?: unknown };
+      return typeof record.text === "string"
+        ? record.text
+        : typeof record.summary === "string"
+          ? record.summary
+          : "";
+    })
+    .join("");
+
+  return text || null;
+}
+
 export async function generateViaAISDK(
   providerModel: ProviderLanguageModel,
   params: GenerateModelTextStreamParams,
@@ -34,14 +83,71 @@ async function generateViaAISDKWithContinuation(
 ) {
   let finalText = "";
   let providerError: unknown;
+  let rawReasoningActive = false;
+  let lastRawReasoningDelta: string | null = null;
+  const rawReasoningId = "reasoning-0";
+  const endRawReasoning = () => {
+    if (!rawReasoningActive) {
+      return;
+    }
+
+    params.onEvent?.("reasoning-end", {
+      id: rawReasoningId,
+      type: "reasoning-end",
+    });
+    rawReasoningActive = false;
+  };
 
   try {
     const result = streamText({
       abortSignal: params.abortSignal,
       headers: params.requestHeaders,
+      includeRawChunks: params.model.transport === "openaiCompatible",
       model: providerModel,
       messages: params.messages,
       onChunk: ({ chunk }) => {
+        if (chunk.type === "raw") {
+          const text = getRawReasoningDetailsText(chunk.rawValue);
+
+          if (text) {
+            if (!rawReasoningActive) {
+              params.onEvent?.("reasoning-start", {
+                id: rawReasoningId,
+                type: "reasoning-start",
+              });
+              rawReasoningActive = true;
+            }
+
+            params.onEvent?.("reasoning-delta", {
+              id: rawReasoningId,
+              text,
+              type: "reasoning-delta",
+            });
+            lastRawReasoningDelta = text;
+          }
+
+          return;
+        }
+
+        if (
+          chunk.type === "reasoning-delta" &&
+          rawReasoningActive &&
+          chunk.id === rawReasoningId &&
+          chunk.text === lastRawReasoningDelta
+        ) {
+          lastRawReasoningDelta = null;
+          return;
+        }
+
+        if (
+          rawReasoningActive &&
+          (chunk.type === "text-start" ||
+            chunk.type === "tool-input-start" ||
+            chunk.type === "finish")
+        ) {
+          endRawReasoning();
+        }
+
         params.onEvent?.(chunk.type, chunk);
       },
       onError: ({ error }) => {
@@ -75,14 +181,16 @@ async function generateViaAISDKWithContinuation(
         params.onDelta?.(delta);
       }
 
-      const [, files, responseMessages, toolResults, usage, steps] = await Promise.all([
-        result.text,
-        result.files,
-        result.responseMessages,
-        result.toolResults,
-        result.usage,
-        result.steps,
-      ]);
+      endRawReasoning();
+      const [, files, responseMessages, toolResults, usage, steps] =
+        await Promise.all([
+          result.text,
+          result.files,
+          result.responseMessages,
+          result.toolResults,
+          result.usage,
+          result.steps,
+        ]);
 
       if (
         !finalText.trim() &&
@@ -189,9 +297,7 @@ export async function generateViaAISDKNonStreaming(
       params.onEvent?.("tool-execution-start", event);
     },
     providerOptions: params.providerOptions as any,
-    ...(params.reasoning !== undefined
-      ? { reasoning: params.reasoning }
-      : {}),
+    ...(params.reasoning !== undefined ? { reasoning: params.reasoning } : {}),
     stopWhen: stepCountIs(params.maxToolSteps),
     system: params.system,
     tools: params.tools,

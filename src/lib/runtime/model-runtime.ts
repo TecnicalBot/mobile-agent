@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { createOllama } from "ollama-ai-provider-v2";
 
@@ -220,6 +221,58 @@ export const modelRuntime: ModelRuntime = {
       return shouldUseStreamingAISDK()
         ? generateViaAISDK(languageModel, params)
         : generateViaAISDKNonStreaming(languageModel, params);
+    }
+
+    if (
+      params.provider.family === "openai-compatible" &&
+      params.model.transport === "openaiCompatible"
+    ) {
+      const storedApiKey = await params.secretStore.getProviderApiKey(
+        params.provider.id,
+      );
+      const apiKey =
+        params.provider.authType === "none"
+          ? storedApiKey || "openai-compatible"
+          : storedApiKey;
+
+      if (!apiKey) {
+        throw new Error(
+          `Missing API key for provider ${params.provider.label}.`,
+        );
+      }
+
+      if (!params.provider.baseUrl) {
+        throw new Error(
+          `Missing base URL for provider ${params.provider.label}.`,
+        );
+      }
+
+      const provider = createOpenAICompatible({
+        apiKey,
+        baseURL: params.provider.baseUrl,
+        includeUsage: true,
+        name: params.provider.id,
+      });
+      const languageModel = provider.chatModel(params.model.modelId);
+      const compatibleOptions =
+        (params.providerOptions?.openaiCompatible as
+          Record<string, unknown> | undefined) ?? {};
+      const providerOptions =
+        params.reasoning !== undefined &&
+        params.reasoning !== "provider-default"
+          ? {
+              ...(params.providerOptions ?? {}),
+              openaiCompatible: {
+                ...compatibleOptions,
+                reasoningEffort: params.reasoning,
+              },
+            }
+          : params.providerOptions;
+      const runtimeParams = { ...params, providerOptions };
+
+      return shouldUseStreamingAISDK()
+        ? generateViaAISDK(languageModel, runtimeParams)
+        : generateViaAISDKNonStreaming(languageModel, runtimeParams);
     }
 
     const provider = await createOpenAIClient({

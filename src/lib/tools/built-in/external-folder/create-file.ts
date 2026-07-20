@@ -24,7 +24,7 @@ export function createExternalCreateFileTool({
       });
 
       try {
-        const output = service.createTextFile(session, path, content);
+        const output = await service.createTextFile(session, path, content);
 
         onRecord?.(
           createRecord({

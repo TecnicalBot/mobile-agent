@@ -110,6 +110,7 @@ import type {
   PromptArtifact,
   ProviderConfig,
   ReasoningBlock,
+  ReasoningEffort,
   ResolvedConfig,
   ResolvedModel,
   SendMessageInput,
@@ -221,8 +222,8 @@ type AppStateContextValue = {
   sendMessage: (input: SendMessageInput) => Promise<void>;
   sending: boolean;
   stopSending: () => Promise<void>;
-  thinkEnabled: boolean;
-  setThinkEnabled: (enabled: boolean) => void;
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
   setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
   setCurrentSelectedSkillIds: (selectedSkillIds: string[]) => Promise<void>;
   setDefaultModelPreset: (modelPresetId: string) => Promise<void>;
@@ -1129,7 +1130,6 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
   } | null>(null);
   const snapshotRef = useRef(snapshot);
   const appStateRef = useRef(AppState.currentState);
-  const thinkEnabledRef = useRef(true);
 
   snapshotRef.current = snapshot;
 
@@ -2272,6 +2272,32 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     }));
   }
 
+  async function setReasoningEffort(effort: ReasoningEffort) {
+    const currentConversation = snapshotRef.current.currentConversation;
+
+    if (!currentConversation) {
+      return;
+    }
+
+    await repositoriesRef.current.conversationRepository.updateMetadata(
+      currentConversation.id,
+      { reasoningEffort: effort },
+    );
+
+    setSnapshot((current) => ({
+      ...current,
+      conversations: current.conversations.map((conversation) =>
+        conversation.id === currentConversation.id
+          ? { ...conversation, reasoningEffort: effort }
+          : conversation,
+      ),
+      currentConversation:
+        current.currentConversation?.id === currentConversation.id
+          ? { ...current.currentConversation, reasoningEffort: effort }
+          : current.currentConversation,
+    }));
+  }
+
   async function selectModel(modelRef: ModelRef) {
     await repositoriesRef.current.configRepository.setSetting(
       "active_model_ref",
@@ -3116,10 +3142,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           refreshAssistantState?.();
         },
         provider,
-        reasoning:
-          resolvedModel.supportsReasoning && thinkEnabledRef.current
-            ? "medium"
-            : undefined,
+        reasoning: resolvedModel.supportsReasoning
+          ? conversation.reasoningEffort
+          : undefined,
         secretStore: secureSecretStore,
         sessionId: run.id,
         system: runtimeSystem,
@@ -3793,10 +3818,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         sendMessage,
         sending,
         stopSending,
-        thinkEnabled: thinkEnabledRef.current,
-        setThinkEnabled: (enabled: boolean) => {
-          thinkEnabledRef.current = enabled;
-        },
+        reasoningEffort:
+          snapshot.currentConversation?.reasoningEffort ?? "medium",
+        setReasoningEffort,
         setCurrentSelectedFileIds,
         setCurrentSelectedSkillIds,
         setDefaultModelPreset,
@@ -3938,8 +3962,8 @@ export function useChat() {
       currentConversationRunStatus === "waiting_for_approval" ||
       currentConversationRunStatus === "resumable",
     stopSending: context.stopSending,
-    thinkEnabled: context.thinkEnabled,
-    setThinkEnabled: context.setThinkEnabled,
+    reasoningEffort: context.reasoningEffort,
+    setReasoningEffort: context.setReasoningEffort,
     setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
     setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,
     refreshWorkspaceFiles: context.refreshWorkspaceFiles,

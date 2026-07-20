@@ -8,7 +8,11 @@ import type {
 } from "ai";
 
 import type { SecretStore } from "@/lib/secrets";
-import type { ProviderConfig, ResolvedModel } from "@/types/app-state";
+import type {
+  ProviderConfig,
+  ReasoningEffort,
+  ResolvedModel,
+} from "@/types/app-state";
 
 export type GenerateModelTextStreamParams = {
   abortSignal?: AbortSignal;
@@ -18,14 +22,7 @@ export type GenerateModelTextStreamParams = {
   onDelta?: (delta: string) => void;
   onEvent?: (eventName: string | null, data: unknown) => void;
   provider: ProviderConfig;
-  reasoning?:
-    | "provider-default"
-    | "none"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh";
+  reasoning?: "provider-default" | ReasoningEffort;
   providerOptions?: Record<string, unknown>;
   requestHeaders?: Record<string, string>;
   secretStore: SecretStore;

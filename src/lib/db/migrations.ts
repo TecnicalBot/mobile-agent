@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 9;
+const DATABASE_VERSION = 10;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -53,6 +53,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         title TEXT NOT NULL,
         provider_id TEXT,
         model_id TEXT,
+        reasoning_effort TEXT NOT NULL DEFAULT 'medium',
         selected_file_ids_json TEXT NOT NULL DEFAULT '[]',
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
         external_folder_session_json TEXT,
@@ -386,6 +387,15 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 9;
+  }
+
+  if (currentVersion === 9) {
+    await db.execAsync(`
+      ALTER TABLE conversations
+      ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium';
+    `);
+
+    currentVersion = 10;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

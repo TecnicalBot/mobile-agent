@@ -12,6 +12,7 @@ import type {
   McpServerTransport,
   ProviderAuthType,
   ProviderFamily,
+  ReasoningEffort,
   BuiltInToolKey,
   WorkspaceFileSourceKind,
 } from "@/types/app-state";
@@ -23,6 +24,10 @@ export const conversations = sqliteTable(
     title: text("title").notNull(),
     providerId: text("provider_id"),
     modelId: text("model_id"),
+    reasoningEffort: text("reasoning_effort")
+      .$type<ReasoningEffort>()
+      .notNull()
+      .default("medium"),
     selectedFileIds: text("selected_file_ids_json", { mode: "json" })
       .$type<string[]>()
       .notNull()

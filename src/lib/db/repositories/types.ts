@@ -19,6 +19,7 @@ import type {
   MessageMetadata,
   ModelPreset,
   ProviderConfig,
+  ReasoningEffort,
   SkillConfig,
   StoredMessage,
   ToolApprovalMode,
@@ -42,6 +43,7 @@ export interface ConversationRepository {
       externalFolderSession?: ExternalFolderSession | null;
       modelId?: string | null;
       providerId?: string | null;
+      reasoningEffort?: ReasoningEffort;
       selectedFileIds?: string[];
       selectedSkillIds?: string[];
       title?: string;

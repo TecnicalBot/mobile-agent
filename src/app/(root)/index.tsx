@@ -75,9 +75,46 @@ import { resolveWorkspaceFile } from "@/lib/workspace/workspace-file-service";
 import type {
   ExternalFolderSession,
   ModelRef,
+  ReasoningEffort,
   SkillConfig,
   WorkspaceFile,
 } from "@/types/app-state";
+
+const REASONING_EFFORT_OPTIONS: {
+  value: ReasoningEffort;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "none",
+    label: "Off",
+    description: "Do not request model reasoning",
+  },
+  {
+    value: "minimal",
+    label: "Minimal",
+    description: "Use the lowest available reasoning level",
+  },
+  { value: "low", label: "Low", description: "Use light reasoning" },
+  {
+    value: "medium",
+    label: "Medium",
+    description: "Balance reasoning quality and speed (default)",
+  },
+  { value: "high", label: "High", description: "Use deeper reasoning" },
+  {
+    value: "xhigh",
+    label: "Extra high",
+    description: "Use the highest available reasoning level",
+  },
+];
+
+function getReasoningEffortLabel(effort: ReasoningEffort) {
+  return (
+    REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ??
+    "Medium"
+  );
+}
 
 function getComposerTrigger(prompt: string) {
   const match = /(^|\s)([@/])([^\s@/]*)$/.exec(prompt);
@@ -162,8 +199,8 @@ export default function Screen() {
     importFiles,
     createWorkspaceFile,
     refreshWorkspaceFiles,
-    thinkEnabled,
-    setThinkEnabled,
+    reasoningEffort,
+    setReasoningEffort,
   } = useChat();
   const currentConversationBusy =
     currentConversationRunStatus === "queued" ||
@@ -298,8 +335,8 @@ export default function Screen() {
             supportsImageGeneration={currentModelSupportsImageGeneration}
             supportsImageInput={currentModelSupportsImageInput}
             supportsTools={currentModelSupportsTools}
-            thinkEnabled={thinkEnabled}
-            setThinkEnabled={setThinkEnabled}
+            reasoningEffort={reasoningEffort}
+            setReasoningEffort={setReasoningEffort}
             toolApprovalMode={toolApprovalMode}
             updateToolApprovalMode={updateToolApprovalMode}
             workspaceFiles={workspaceFiles}
@@ -365,6 +402,10 @@ export default function Screen() {
                 <InfoRow
                   label="Selected model"
                   value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
+                />
+                <InfoRow
+                  label="Reasoning"
+                  value={getReasoningEffortLabel(reasoningEffort)}
                 />
               </InfoSection>
 
@@ -568,8 +609,8 @@ function ChatInput({
   supportsImageGeneration,
   supportsImageInput,
   supportsTools,
-  thinkEnabled,
-  setThinkEnabled,
+  reasoningEffort,
+  setReasoningEffort,
   toolApprovalMode,
   updateToolApprovalMode,
   workspaceFiles,
@@ -615,8 +656,8 @@ function ChatInput({
   supportsImageGeneration: boolean;
   supportsImageInput: boolean;
   supportsTools: boolean;
-  thinkEnabled: boolean;
-  setThinkEnabled: (enabled: boolean) => void;
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
   toolApprovalMode: "ask" | "auto";
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
   workspaceFiles: WorkspaceFile[];
@@ -630,6 +671,7 @@ function ChatInput({
   const [expandedComposerOpen, setExpandedComposerOpen] = useState(false);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [newFileDrawerOpen, setNewFileDrawerOpen] = useState(false);
+  const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [newFileContent, setNewFileContent] = useState("");
@@ -1123,16 +1165,14 @@ function ChatInput({
   const slashMenuItems = useMemo(
     () => [
       {
-        id: "think-toggle",
+        id: "reasoning-level",
         icon: <Brain color={theme.text} size={16} />,
-        label: thinkEnabled ? "Disable thinking" : "Enable thinking",
+        label: "Reasoning level",
         onPress: () => {
           clearTriggerText();
-          setThinkEnabled(!thinkEnabled);
+          setReasoningDrawerOpen(true);
         },
-        subtitle: thinkEnabled
-          ? "Reasoning is ON for this chat"
-          : "Send /think to toggle reasoning",
+        subtitle: getReasoningEffortLabel(reasoningEffort) + " for this chat",
       },
       {
         id: "select-skills",
@@ -1158,13 +1198,7 @@ function ChatInput({
         subtitle: currentModelLabel ?? "Choose the current chat model",
       },
     ],
-    [
-      currentModelLabel,
-      selectedSkills.length,
-      theme.text,
-      thinkEnabled,
-      setThinkEnabled,
-    ],
+    [currentModelLabel, reasoningEffort, selectedSkills.length, theme.text],
   );
   const triggerMenuItems = useMemo(() => {
     if (!composerTrigger) {
@@ -1344,6 +1378,22 @@ function ChatInput({
                 ? `${selectedSkills.length}`
                 : "Skills"}
             </Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Select reasoning level"
+            accessibilityRole="button"
+            className="absolute bottom-2 left-40 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+            onPress={() => {
+              setReasoningDrawerOpen(true);
+            }}
+            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+          >
+            <Brain color={theme.textSecondary} size={14} />
+            <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+              {getReasoningEffortLabel(reasoningEffort)}
+            </Text>
+            <ChevronDown color={theme.textSecondary} size={14} />
           </Pressable>
 
           <Button
@@ -1585,6 +1635,34 @@ function ChatInput({
               Create file
             </Button>
           </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer onOpenChange={setReasoningDrawerOpen} open={reasoningDrawerOpen}>
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>Reasoning level</DrawerTitle>
+            <DrawerDescription>
+              Choose how much reasoning the model should use for this chat.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            {REASONING_EFFORT_OPTIONS.map((option) => (
+              <DrawerSelectRow
+                key={option.value}
+                onPress={() => {
+                  setReasoningEffort(option.value)
+                    .then(() => {
+                      setReasoningDrawerOpen(false);
+                    })
+                    .catch(console.error);
+                }}
+                selected={reasoningEffort === option.value}
+                subtitle={option.description}
+                title={option.label}
+              />
+            ))}
+          </DrawerBody>
         </DrawerContent>
       </Drawer>
 

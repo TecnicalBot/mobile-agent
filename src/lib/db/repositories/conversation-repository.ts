@@ -21,6 +21,7 @@ export function createConversationRepository(
         title: input.title,
         providerId: input.providerId ?? null,
         modelId: input.modelId ?? null,
+        reasoningEffort: "medium",
         selectedFileIds: [],
         selectedSkillIds: [],
         externalFolderSession: null,
@@ -83,6 +84,7 @@ export function createConversationRepository(
           title: input.title ?? current.title,
           providerId: input.providerId ?? current.providerId,
           modelId: input.modelId ?? current.modelId,
+          reasoningEffort: input.reasoningEffort ?? current.reasoningEffort,
           selectedFileIds: input.selectedFileIds ?? current.selectedFileIds,
           selectedSkillIds: input.selectedSkillIds ?? current.selectedSkillIds,
           externalFolderSession:

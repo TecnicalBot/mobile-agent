@@ -178,6 +178,7 @@ export default function SettingsProvidersScreen() {
 
     const selectedProviderNeedsBaseUrl =
         selectedProvider?.family === "openai-compatible" ||
+        selectedProvider?.family === "xai" ||
         selectedProvider?.family === "ollama";
 
     return (

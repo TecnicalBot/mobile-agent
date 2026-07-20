@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createXai } from "@ai-sdk/xai";
 import { createOllama } from "ollama-ai-provider-v2";
 
 import {
@@ -36,16 +37,19 @@ function normalizeCodexOAuthError(error: unknown) {
           statusCode?: number;
         })
       : undefined;
-  const message = [
-    details?.statusCode ? `HTTP ${details.statusCode}` : undefined,
-    details?.message,
-    details?.responseBody,
-  ]
-    .filter((part): part is string => Boolean(part?.trim()))
-    .join(": ") || String(error);
+  const message =
+    [
+      details?.statusCode ? `HTTP ${details.statusCode}` : undefined,
+      details?.message,
+      details?.responseBody,
+    ]
+      .filter((part): part is string => Boolean(part?.trim()))
+      .join(": ") || String(error);
 
   if (/\b401\b|unauthorized/i.test(message)) {
-    return new Error("Your ChatGPT session expired. Please connect ChatGPT again.");
+    return new Error(
+      "Your ChatGPT session expired. Please connect ChatGPT again.",
+    );
   }
 
   return new Error(message, {
@@ -61,7 +65,8 @@ function prepareCodexOAuthParams(
   }
 
   const openaiOptions =
-    (params.providerOptions?.openai as Record<string, unknown> | undefined) ?? {};
+    (params.providerOptions?.openai as Record<string, unknown> | undefined) ??
+    {};
 
   return {
     ...params,
@@ -88,10 +93,14 @@ function prepareCodexOAuthParams(
 export const modelRuntime: ModelRuntime = {
   async generateTextStream(params) {
     if (params.provider.family === "anthropic") {
-      const apiKey = await params.secretStore.getProviderApiKey(params.provider.id);
+      const apiKey = await params.secretStore.getProviderApiKey(
+        params.provider.id,
+      );
 
       if (!apiKey) {
-        throw new Error(`Missing API key for provider ${params.provider.label}.`);
+        throw new Error(
+          `Missing API key for provider ${params.provider.label}.`,
+        );
       }
 
       const provider = createAnthropic({
@@ -106,10 +115,14 @@ export const modelRuntime: ModelRuntime = {
     }
 
     if (params.provider.family === "google") {
-      const apiKey = await params.secretStore.getProviderApiKey(params.provider.id);
+      const apiKey = await params.secretStore.getProviderApiKey(
+        params.provider.id,
+      );
 
       if (!apiKey) {
-        throw new Error(`Missing API key for provider ${params.provider.label}.`);
+        throw new Error(
+          `Missing API key for provider ${params.provider.label}.`,
+        );
       }
 
       const provider = createGoogleGenerativeAI({
@@ -121,8 +134,7 @@ export const modelRuntime: ModelRuntime = {
       const languageModel = provider.languageModel(params.model.modelId);
       const googleOptions =
         (params.providerOptions?.google as
-          | Record<string, unknown>
-          | undefined) ?? {};
+          Record<string, unknown> | undefined) ?? {};
       const providerOptions =
         params.model.supportsImageGeneration || params.model.supportsReasoning
           ? {
@@ -136,8 +148,7 @@ export const modelRuntime: ModelRuntime = {
                   ? {
                       thinkingConfig: {
                         ...((googleOptions.thinkingConfig as
-                          | Record<string, unknown>
-                          | undefined) ?? {}),
+                          Record<string, unknown> | undefined) ?? {}),
                         includeThoughts: true,
                       },
                     }
@@ -158,10 +169,9 @@ export const modelRuntime: ModelRuntime = {
     }
 
     if (params.provider.family === "ollama") {
-      const ollamaBase =
-        (params.provider.baseUrl ?? "http://localhost:11434")
-          .replace(/\/(?:api|v1)\/?$/, "")
-          .replace(/\/$/, "");
+      const ollamaBase = (params.provider.baseUrl ?? "http://localhost:11434")
+        .replace(/\/(?:api|v1)\/?$/, "")
+        .replace(/\/$/, "");
       const provider = createOllama({
         baseURL: `${ollamaBase}/api`,
       });
@@ -173,14 +183,43 @@ export const modelRuntime: ModelRuntime = {
       const providerOptions = {
         ...(params.providerOptions ?? {}),
         ollama: {
-          ...((params.providerOptions?.ollama as Record<string, unknown>) ?? {}),
+          ...((params.providerOptions?.ollama as Record<string, unknown>) ??
+            {}),
           think: shouldThink,
         },
       };
 
       return shouldUseStreamingAISDK()
         ? generateViaAISDK(languageModel, { ...params, providerOptions })
-        : generateViaAISDKNonStreaming(languageModel, { ...params, providerOptions });
+        : generateViaAISDKNonStreaming(languageModel, {
+            ...params,
+            providerOptions,
+          });
+    }
+
+    if (params.provider.family === "xai") {
+      const apiKey = await params.secretStore.getProviderApiKey(
+        params.provider.id,
+      );
+
+      if (!apiKey) {
+        throw new Error(
+          `Missing API key for provider ${params.provider.label}.`,
+        );
+      }
+
+      const provider = createXai({
+        apiKey,
+        baseURL: params.provider.baseUrl ?? undefined,
+      });
+      const languageModel =
+        params.model.transport === "openaiResponses"
+          ? provider.responses(params.model.modelId)
+          : provider.chat(params.model.modelId);
+
+      return shouldUseStreamingAISDK()
+        ? generateViaAISDK(languageModel, params)
+        : generateViaAISDKNonStreaming(languageModel, params);
     }
 
     const provider = await createOpenAIClient({

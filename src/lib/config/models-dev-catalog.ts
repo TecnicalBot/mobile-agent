@@ -58,7 +58,7 @@ export function getModelsDevDefinitionsForProvider(
   provider: ProviderConfig,
 ): CuratedModelDefinition[] {
   if (
-    provider.family !== "openai-compatible" ||
+    (provider.family !== "openai-compatible" && provider.family !== "xai") ||
     provider.id === "openai-compatible"
   ) {
     return [];
@@ -85,9 +85,7 @@ export function getModelsDevDefinitionsForProvider(
           tools: model.tool_call === true,
         },
         id,
-        kind: /(?:mini|nano|small|flash-lite)/i.test(id)
-          ? "small"
-          : "chat",
+        kind: /(?:mini|nano|small|flash-lite)/i.test(id) ? "small" : "chat",
         label: model.name?.trim() || id,
         outputType: imageGeneration ? "image" : "text",
       },

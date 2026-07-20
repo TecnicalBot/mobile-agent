@@ -20,7 +20,6 @@ const OPENAI_COMPATIBLE_PROFILES = [
   ["fireworks", "Fireworks AI", "https://api.fireworks.ai/inference/v1"],
   ["groq", "Groq", "https://api.groq.com/openai/v1"],
   ["togetherai", "Together AI", "https://api.together.xyz/v1"],
-  ["xai", "xAI", "https://api.x.ai/v1"],
 ] as const;
 
 export const OPENAI_COMPATIBLE_PROFILE_PROVIDERS =

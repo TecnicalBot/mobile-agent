@@ -8,6 +8,7 @@
     "@ai-sdk/google": "^4.0.6",
     "@ai-sdk/mcp": "^2.0.7",
     "@ai-sdk/openai": "^4.0.5",
+    "@ai-sdk/xai": "^4.0.16",
     "@expo/metro-runtime": "^57.0.3",
     "@expo/ui": "~57.0.3",
     "@tanstack/react-query": "^5.101.2",

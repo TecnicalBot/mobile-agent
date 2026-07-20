@@ -935,7 +935,7 @@ async function resolveConfig(input: {
   const needsModelsDevCatalog = input.providers.some(
     (provider) =>
       activeProviderIds.includes(provider.id) &&
-      provider.family === "openai-compatible" &&
+      (provider.family === "openai-compatible" || provider.family === "xai") &&
       provider.id !== "openai-compatible",
   );
 
@@ -964,11 +964,10 @@ async function resolveConfig(input: {
       )
       .map(async (provider) => {
         try {
-          ollamaModelsByProvider[provider.id] =
-            await fetchOllamaModels(
-              provider,
-              await secureSecretStore.getProviderApiKey(provider.id),
-            );
+          ollamaModelsByProvider[provider.id] = await fetchOllamaModels(
+            provider,
+            await secureSecretStore.getProviderApiKey(provider.id),
+          );
           providerModelDiscovery[provider.id] = {
             error: null,
             status: "connected",
@@ -1552,9 +1551,8 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
   }
 
   async function deleteWorkspaceFile(fileId: string) {
-    const file = await repositoriesRef.current.workspaceRepository.getById(
-      fileId,
-    );
+    const file =
+      await repositoriesRef.current.workspaceRepository.getById(fileId);
 
     if (!file || file.sourceKind !== "imported") {
       return;
@@ -3287,7 +3285,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
           ? requestTimedOut
             ? "This response took too long and was stopped. Try again."
             : "Stopped."
-          : "Something went wrong. Please try again.";
+          : `Something went wrong: ${errorMessage}`;
       }
 
       const assistantMetadata = buildAssistantMetadata({

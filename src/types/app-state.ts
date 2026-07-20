@@ -4,6 +4,7 @@ export type ProviderFamily =
   | "google"
   | "openrouter"
   | "ollama"
+  | "xai"
   | "openai-compatible";
 
 export type ProviderAuthType = "oauth" | "apiKey" | "none";

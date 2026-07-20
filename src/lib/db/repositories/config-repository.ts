@@ -3,13 +3,12 @@ import { desc, eq } from "drizzle-orm";
 
 import { normalizeBuiltInToolSettings } from "@/lib/config/built-in-tools";
 import { DEFAULT_PROVIDER_CONFIGS } from "@/lib/config/registry";
-import {
-  appSettings,
-  modelPresets,
-  providerConfigs,
-} from "@/lib/db/schema";
+import { appSettings, modelPresets, providerConfigs } from "@/lib/db/schema";
 import { buildSettings, nowIso } from "@/lib/db/repositories/shared";
-import type { AppDatabase, ConfigRepository } from "@/lib/db/repositories/types";
+import type {
+  AppDatabase,
+  ConfigRepository,
+} from "@/lib/db/repositories/types";
 
 export function createConfigRepository(db: AppDatabase): ConfigRepository {
   return {
@@ -62,7 +61,15 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
             createdAt: timestamp,
             updatedAt: timestamp,
           })
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: providerConfigs.id,
+            set: {
+              // Provider families and auth schemes are application-owned. Keep
+              // user-editable labels, URLs, credentials, and enabled state.
+              authType: provider.authType,
+              family: provider.family,
+            },
+          });
       }
     },
     async getSettings() {
@@ -238,13 +245,10 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
         .where(eq(providerConfigs.id, providerId));
     },
     async setSetting(key, value) {
-      await db
-        .insert(appSettings)
-        .values({ key, value })
-        .onConflictDoUpdate({
-          target: appSettings.key,
-          set: { value },
-        });
+      await db.insert(appSettings).values({ key, value }).onConflictDoUpdate({
+        target: appSettings.key,
+        set: { value },
+      });
     },
   };
 }

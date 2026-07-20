@@ -43,6 +43,12 @@ const FAMILY_DEFAULT_CAPABILITIES: Record<ProviderFamily, ModelCapabilities> = {
     imageGeneration: false,
     reasoning: false,
   },
+  xai: {
+    tools: true,
+    imageInput: true,
+    imageGeneration: false,
+    reasoning: false,
+  },
   "openai-compatible": {
     tools: true,
     imageInput: false,
@@ -63,6 +69,7 @@ const FAMILY_DEFAULT_TRANSPORT: Record<ProviderFamily, ModelTransport> = {
   google: "google",
   openrouter: "openaiChat",
   ollama: "openaiCompatible",
+  xai: "openaiCompatible",
   "openai-compatible": "openaiCompatible",
 };
 
@@ -95,12 +102,12 @@ export function resolveModelProfile(input: {
     const isChatOnly = OPENAI_CHAT_ONLY_MODELS.has(modelId);
 
     return {
-      transport: hintTransport ?? (isChatOnly ? "openaiChat" : "openaiResponses"),
+      transport:
+        hintTransport ?? (isChatOnly ? "openaiChat" : "openaiResponses"),
       capabilities: {
         ...FAMILY_DEFAULT_CAPABILITIES.openai,
         ...hintCapabilities,
-        imageGeneration:
-          hintCapabilities?.imageGeneration ?? !isChatOnly,
+        imageGeneration: hintCapabilities?.imageGeneration ?? !isChatOnly,
         reasoning:
           hintCapabilities?.reasoning ??
           modelIdLikelySupportsReasoning(modelId),
@@ -114,8 +121,7 @@ export function resolveModelProfile(input: {
       ...FAMILY_DEFAULT_CAPABILITIES[family],
       ...hintCapabilities,
       reasoning:
-        hintCapabilities?.reasoning ??
-        modelIdLikelySupportsReasoning(modelId),
+        hintCapabilities?.reasoning ?? modelIdLikelySupportsReasoning(modelId),
     },
   };
 }

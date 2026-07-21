@@ -1,1 +1,1 @@
-export { useAppState } from "@/providers/app-state-provider";
+export { useAppState } from "@/providers/app-state";

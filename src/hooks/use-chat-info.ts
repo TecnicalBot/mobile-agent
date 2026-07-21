@@ -4,7 +4,17 @@ import { useChat } from "@/hooks/use-chat";
 import { useConfig } from "@/hooks/use-config";
 import { useLiveModelCatalog } from "@/hooks/use-live-model-catalog";
 import type { LiveCatalogModel } from "@/lib/config/live-model-catalog";
-import type { ModelUsageSnapshot } from "@/types/app-state";
+import type { ModelUsageSnapshot, ResolvedModel } from "@/types/app-state";
+
+function getOllamaContextWindow(model: ResolvedModel): number | null {
+  if (model.providerFamily !== "ollama") return null;
+  const ollamaOpts = model.options?.ollama;
+  if (ollamaOpts && typeof ollamaOpts === "object" && "contextWindow" in ollamaOpts) {
+    const ctx = (ollamaOpts as { contextWindow?: unknown }).contextWindow;
+    if (typeof ctx === "number" && ctx > 0) return ctx;
+  }
+  return null;
+}
 
 type DisplayUsage = {
   contextUsagePercent: number | null;
@@ -57,6 +67,7 @@ function findLiveModel(
 function enrichUsage(
   usage: ModelUsageSnapshot,
   liveModel: LiveCatalogModel | null,
+  fallbackContextWindow?: number | null,
 ) {
   const inputPricePerToken = liveModel?.inputPricePerToken ?? null;
   const outputPricePerToken = liveModel?.outputPricePerToken ?? null;
@@ -72,7 +83,8 @@ function enrichUsage(
     inputCost !== null || outputCost !== null
       ? (inputCost ?? 0) + (outputCost ?? 0)
       : usage.costTotal;
-  const contextWindow = liveModel?.contextWindow ?? usage.contextWindow;
+  const contextWindow =
+    liveModel?.contextWindow ?? usage.contextWindow ?? fallbackContextWindow ?? null;
   const usedTokens =
     usage.totalTokens ??
     (usage.inputTokens !== null || usage.outputTokens !== null
@@ -128,12 +140,14 @@ export function useChatInfo() {
     const latestUsage = assistantUsages.at(-1) ?? null;
     const latestLiveModel =
       latestUsage !== null ? findLiveModel(liveModels, latestUsage) : null;
+    const ollamaContextWindow =
+      currentModel !== null ? getOllamaContextWindow(currentModel) : null;
 
     const conversationTotals =
       assistantUsages.length > 0
         ? (() => {
             const enriched = assistantUsages.map((usage) =>
-              enrichUsage(usage, findLiveModel(liveModels, usage)),
+              enrichUsage(usage, findLiveModel(liveModels, usage), ollamaContextWindow),
             );
             const modelLabels = new Set(enriched.map((usage) => usage.modelLabel));
             const providerLabels = new Set(
@@ -183,7 +197,8 @@ export function useChatInfo() {
       conversationTotals,
       currentModel: currentModel
         ? {
-            contextWindow: currentLiveModel?.contextWindow ?? null,
+            contextWindow:
+              currentLiveModel?.contextWindow ?? ollamaContextWindow ?? null,
             modelId: currentModel.modelId,
             modelLabel: currentModel.label,
             providerId: currentModel.providerId,
@@ -191,7 +206,9 @@ export function useChatInfo() {
           }
         : null,
       latestTurn:
-        latestUsage !== null ? enrichUsage(latestUsage, latestLiveModel) : null,
+        latestUsage !== null
+          ? enrichUsage(latestUsage, latestLiveModel, ollamaContextWindow)
+          : null,
     };
   }, [currentModel, liveModels, messages]);
 }

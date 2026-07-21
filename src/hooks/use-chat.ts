@@ -1,1 +1,1 @@
-export { useChat } from "@/providers/app-state-provider";
+export { useChat } from "@/providers/app-state";

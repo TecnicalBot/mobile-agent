@@ -3,7 +3,7 @@ import { useChat } from "@/hooks/use-chat";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { migrateAppDatabase } from "@/lib/db/database";
-import { AppStateProvider } from "@/providers/app-state-provider";
+import { AppStateProvider } from "@/providers/app-state";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
 import { AppQueryProvider } from "@/providers/query-provider";
 import * as Notifications from "expo-notifications";

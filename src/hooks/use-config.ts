@@ -1,1 +1,1 @@
-export { useConfig } from "@/providers/app-state-provider";
+export { useConfig } from "@/providers/app-state";

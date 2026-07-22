@@ -114,7 +114,12 @@ export function MessageScrollerProvider({
     if (options?.updateFollow ?? false) {
       followRef.current = !nextScrollable.end;
     }
-    setScrollable(nextScrollable);
+    setScrollable((current) =>
+      current.start === nextScrollable.start &&
+      current.end === nextScrollable.end
+        ? current
+        : nextScrollable,
+    );
 
     const nextVisibleIds = items
       .filter(
@@ -125,7 +130,12 @@ export function MessageScrollerProvider({
       )
       .map((item) => item.messageId as string);
 
-    setVisibleMessageIds(nextVisibleIds);
+    setVisibleMessageIds((current) =>
+      current.length === nextVisibleIds.length &&
+      current.every((id, index) => id === nextVisibleIds[index])
+        ? current
+        : nextVisibleIds,
+    );
 
     const anchors = items.filter((item) => item.anchor);
     const anchorId =
@@ -228,8 +238,14 @@ export function MessageScrollerProvider({
       });
     };
 
-    const showSubscription = Keyboard.addListener("keyboardDidShow", syncToLatest);
-    const hideSubscription = Keyboard.addListener("keyboardDidHide", syncToLatest);
+    const showSubscription = Keyboard.addListener(
+      "keyboardDidShow",
+      syncToLatest,
+    );
+    const hideSubscription = Keyboard.addListener(
+      "keyboardDidHide",
+      syncToLatest,
+    );
 
     return () => {
       showSubscription.remove();
@@ -427,12 +443,13 @@ export const MessageScrollerItem = forwardRef<
     const fallbackId = useId();
     const context = useMessageScrollerContext();
     const layoutId = messageId ?? fallbackId;
+    const unregisterItemRef = useRef(context.unregisterItem);
 
     useEffect(() => {
-      return () => {
-        context.unregisterItem(layoutId);
-      };
-    }, [context, layoutId]);
+      unregisterItemRef.current = context.unregisterItem;
+    }, [context.unregisterItem]);
+
+    useEffect(() => () => unregisterItemRef.current(layoutId), [layoutId]);
 
     return (
       <View

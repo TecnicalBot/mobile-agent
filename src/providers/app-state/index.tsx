@@ -2,6 +2,7 @@ import type { DocumentPickerAsset } from "expo-document-picker";
 import { useSQLiteContext } from "expo-sqlite";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -15,13 +16,9 @@ import {
 } from "react-native";
 import { colorScheme } from "nativewind";
 
-import {
-  createRepositories,
-} from "@/lib/db/database";
+import { createRepositories } from "@/lib/db/database";
 import { createExternalFolderService } from "@/lib/external-folder/external-folder-service";
-import {
-  testMcpServerConnection,
-} from "@/lib/mcp/runtime-tools";
+import { testMcpServerConnection } from "@/lib/mcp/runtime-tools";
 import {
   notifyRunFinishedAsync,
   prepareRunNotificationsAsync,
@@ -356,7 +353,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
     setPendingToolApprovals((current) => [...current, approval]);
 
-    return await new Promise<import("@/lib/runtime/run-manager").ToolApprovalDecision>((resolve) => {
+    return await new Promise<
+      import("@/lib/runtime/run-manager").ToolApprovalDecision
+    >((resolve) => {
       runRegistryRef.current.registerPendingApproval(
         run.id,
         approval.id,
@@ -683,7 +682,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     await hydrate();
   }
 
-  async function refreshWorkspaceFiles() {
+  const refreshWorkspaceFiles = useCallback(async () => {
     const workspaceFiles =
       await repositoriesRef.current.workspaceRepository.list();
 
@@ -691,7 +690,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
       ...current,
       workspaceFiles,
     }));
-  }
+  }, []);
 
   async function clearWorkspaceFiles() {
     await workspaceServiceRef.current.clearAll();

@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   Edit,
-  FilePlus2,
   FolderOpen,
   Info,
   Maximize2,
@@ -52,7 +51,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Input } from "@/components/ui/input";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -198,7 +196,6 @@ export default function Screen() {
     skills,
     workspaceFiles,
     importFiles,
-    createWorkspaceFile,
     refreshWorkspaceFiles,
     reasoningEffort,
     setReasoningEffort,
@@ -306,7 +303,6 @@ export default function Screen() {
 
           <ChatInput
             canSend={ready && !hydrating && currentModel !== null}
-            createWorkspaceFile={createWorkspaceFile}
             currentModelLabel={
               currentModel
                 ? `${currentModel.providerLabel} · ${currentModel.label}`
@@ -591,7 +587,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function ChatInput({
   activeModels,
   canSend,
-  createWorkspaceFile,
   currentExternalFolderSession,
   currentModelLabel,
   currentModelRef,
@@ -630,10 +625,6 @@ function ChatInput({
   clearConversationFolder: () => Promise<void>;
   clearWorkspaceFiles: () => Promise<void>;
   deleteWorkspaceFile: (fileId: string) => Promise<void>;
-  createWorkspaceFile: (input: {
-    content: string;
-    name: string;
-  }) => Promise<WorkspaceFile>;
   currentExternalFolderSession: ExternalFolderSession | null;
   currentModelLabel: string | null;
   currentModelRef: ModelRef | null;
@@ -676,13 +667,10 @@ function ChatInput({
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
   const [expandedComposerOpen, setExpandedComposerOpen] = useState(false);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
-  const [newFileDrawerOpen, setNewFileDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
-  const [newFileName, setNewFileName] = useState("");
-  const [newFileContent, setNewFileContent] = useState("");
   const [busyAction, setBusyAction] = useState<
-    null | "clear" | "create" | "import" | "folder" | "paste"
+    null | "clear" | "import" | "folder" | "paste"
   >(null);
   const [folderDrawerOpen, setFolderDrawerOpen] = useState(false);
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
@@ -973,38 +961,6 @@ function ChatInput({
     }
   };
 
-  const handleCreateFile = async () => {
-    if (!newFileName.trim() || busyAction) {
-      return;
-    }
-
-    setBusyAction("create");
-
-    try {
-      const file = await createWorkspaceFile({
-        name: newFileName.trim(),
-        content: newFileContent,
-      });
-
-      setLocalWorkspaceFiles((current) =>
-        current.some((item) => item.id === file.id)
-          ? current
-          : [file, ...current],
-      );
-      await setSelectedFileIds(
-        selectedFileIds.includes(file.id)
-          ? selectedFileIds
-          : [...selectedFileIds, file.id],
-      );
-      setPrompt((current) => clearComposerTrigger(current));
-      setNewFileName("");
-      setNewFileContent("");
-      setNewFileDrawerOpen(false);
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   const handleClearWorkspaceFiles = () => {
     if (mergedWorkspaceFiles.length === 0 || busyAction || loading) {
       return;
@@ -1089,36 +1045,12 @@ function ChatInput({
           visible: true,
         },
         {
-          id: "new-file",
-          icon: <FilePlus2 color={theme.text} size={16} />,
-          label: "New file",
-          onPress: () => {
-            clearTriggerText();
-
-            if (!supportsTools) {
-              onOpenSettings();
-              return;
-            }
-
-            setNewFileDrawerOpen(true);
-          },
-          subtitle: supportsTools
-            ? "Create a workspace file"
-            : "Choose a tool-capable model first",
-          visible: true,
-        },
-        {
+          disabled: !supportsTools,
           id: "select-folder",
           icon: <FolderOpen color={theme.text} size={16} />,
           label: activeFolderLabel ? "Switch folder" : "Select folder",
           onPress: () => {
             clearTriggerText();
-
-            if (!supportsTools) {
-              onOpenSettings();
-              return;
-            }
-
             if (Platform.OS !== "android") {
               setFolderNotice(
                 "Picked-folder access is Android-only right now.",
@@ -1136,7 +1068,9 @@ function ChatInput({
                 setBusyAction(null);
               });
           },
-          subtitle: activeFolderLabel ?? "Use an external folder for this chat",
+          subtitle: supportsTools
+            ? (activeFolderLabel ?? "Use an external folder for this chat")
+            : "Requires a tool-capable model",
           visible: Platform.OS === "android",
         },
         {
@@ -1161,9 +1095,7 @@ function ChatInput({
       activeFolderLabel,
       clearConversationFolder,
       currentExternalFolderSession,
-      onOpenSettings,
       pickConversationFolder,
-      supportsImageInput,
       supportsTools,
       theme.text,
     ],
@@ -1303,6 +1235,7 @@ function ChatInput({
                   {index > 0 ? <Separator /> : null}
                   <ComposerMenuRow
                     icon={item.icon}
+                    disabled={"disabled" in item && item.disabled === true}
                     label={item.label}
                     onPress={item.onPress}
                     subtitle={item.subtitle}
@@ -1487,9 +1420,16 @@ function ChatInput({
             {uploadedFiles.length > 0 ? (
               uploadedFiles.map((file) => {
                 const selected = selectedFileIds.includes(file.id);
+                const { binaryFiles, imageFiles } = partitionSelectedFiles([
+                  file,
+                ]);
+                const supported =
+                  (imageFiles.length === 0 || supportsImageInput) &&
+                  (binaryFiles.length === 0 || supportsTools);
 
                 return (
                   <DrawerSelectRow
+                    disabled={!supported && !selected}
                     key={file.id}
                     leading={
                       file.mimeType?.startsWith("image/") ? (
@@ -1518,7 +1458,11 @@ function ChatInput({
                       handleDeleteUploadedFile(file);
                     }}
                     selected={selected}
-                    subtitle={file.mimeType ?? "Unknown type"}
+                    subtitle={
+                      supported
+                        ? (file.mimeType ?? "Unknown type")
+                        : "Not supported with current model"
+                    }
                     title={file.displayName}
                   />
                 );
@@ -1587,42 +1531,6 @@ function ChatInput({
               variant="outline"
             >
               Cancel
-            </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer onOpenChange={setNewFileDrawerOpen} open={newFileDrawerOpen}>
-        <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>New file</DrawerTitle>
-            <DrawerDescription>
-              Create a workspace file and attach it to this turn.
-            </DrawerDescription>
-          </DrawerHeader>
-
-          <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setNewFileName}
-              placeholder="notes.md"
-              value={newFileName}
-            />
-            <Textarea
-              className="min-h-28"
-              onChangeText={setNewFileContent}
-              placeholder="Initial file content"
-              value={newFileContent}
-            />
-          </DrawerBody>
-          <DrawerFooter>
-            <Button
-              loading={busyAction === "create"}
-              onPress={handleCreateFile}
-              variant="secondary"
-            >
-              Create file
             </Button>
           </DrawerFooter>
         </DrawerContent>
@@ -1807,11 +1715,13 @@ function ChatInput({
 
 function ComposerMenuRow({
   icon,
+  disabled = false,
   label,
   onPress,
   subtitle,
 }: {
   icon: ReactNode;
+  disabled?: boolean;
   label: string;
   onPress: () => void;
   subtitle?: string;
@@ -1819,7 +1729,12 @@ function ComposerMenuRow({
   return (
     <Pressable
       accessibilityRole="button"
-      className="flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+      accessibilityState={{ disabled }}
+      className={cn(
+        "flex-row items-center gap-sp-3 px-sp-4 py-sp-3",
+        disabled && "opacity-50",
+      )}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
     >
@@ -1842,6 +1757,7 @@ function ComposerMenuRow({
 
 function DrawerSelectRow({
   deleting = false,
+  disabled = false,
   leading,
   onDelete,
   onPress,
@@ -1850,6 +1766,7 @@ function DrawerSelectRow({
   title,
 }: {
   deleting?: boolean;
+  disabled?: boolean;
   leading?: ReactNode;
   onDelete?: () => void;
   onPress: () => void;
@@ -1869,8 +1786,13 @@ function DrawerSelectRow({
       )}
     >
       <Pressable
+        accessibilityState={{ disabled }}
         accessibilityRole="button"
-        className="min-w-0 flex-1 flex-row items-center gap-sp-3"
+        className={cn(
+          "min-w-0 flex-1 flex-row items-center gap-sp-3",
+          disabled && "opacity-50",
+        )}
+        disabled={disabled}
         onPress={onPress}
         style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
       >

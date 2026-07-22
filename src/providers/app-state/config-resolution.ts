@@ -8,9 +8,14 @@ import {
   getModelsDevDefinitionsForProvider,
 } from "@/lib/config/models-dev-catalog";
 import { fetchOllamaModels } from "@/lib/providers/ollama-models";
+import { ON_DEVICE_MODELS } from "@/lib/providers/on-device";
 import { resolveConfiguredModel } from "@/lib/config/registry";
 import { secureSecretStore } from "@/lib/secrets";
-import { hasEnabledFolderTools, hasEnabledWorkspaceTools, isCodexOAuthModel } from "./helpers";
+import {
+  hasEnabledFolderTools,
+  hasEnabledWorkspaceTools,
+  isCodexOAuthModel,
+} from "./helpers";
 import type {
   AppSettings,
   CuratedModelDefinition,
@@ -131,28 +136,30 @@ export async function resolveConfig(input: {
   const suggestedModelsByProvider = Object.fromEntries(
     input.providers.map((provider) => {
       const builtInModels: CuratedModelDefinition[] =
-        provider.family === "openai" && provider.authType === "oauth"
-          ? [
-              {
-                id: "gpt-5.5",
-                kind: "chat",
-                label: "GPT-5.5",
-                capabilities: { tools: true },
-              },
-              {
-                id: "gpt-5.4",
-                kind: "chat",
-                label: "GPT-5.4",
-                capabilities: { tools: true },
-              },
-              {
-                id: "gpt-5.4-mini",
-                kind: "small",
-                label: "GPT-5.4 mini",
-                capabilities: { tools: true },
-              },
-            ]
-          : [];
+        provider.family === "on-device"
+          ? ON_DEVICE_MODELS
+          : provider.family === "openai" && provider.authType === "oauth"
+            ? [
+                {
+                  id: "gpt-5.5",
+                  kind: "chat",
+                  label: "GPT-5.5",
+                  capabilities: { tools: true },
+                },
+                {
+                  id: "gpt-5.4",
+                  kind: "chat",
+                  label: "GPT-5.4",
+                  capabilities: { tools: true },
+                },
+                {
+                  id: "gpt-5.4-mini",
+                  kind: "small",
+                  label: "GPT-5.4 mini",
+                  capabilities: { tools: true },
+                },
+              ]
+            : [];
       const discoveredModels = [
         ...(ollamaModelsByProvider[provider.id] ?? []),
         ...getCatalogModelDefinitionsForProvider(liveCatalog, provider),
@@ -217,9 +224,7 @@ export async function resolveConfig(input: {
           provider,
         });
       })
-      .filter(
-        (model): model is NonNullable<typeof model> => model !== null,
-      );
+      .filter((model): model is NonNullable<typeof model> => model !== null);
   });
 
   const activeModels = availableModels.filter((model) => model.active);

@@ -44,3 +44,7 @@ example
 
 
 *.apk
+
+# Local Expo module Android build output
+/modules/*/android/build/
+/modules/*/android/.gradle/

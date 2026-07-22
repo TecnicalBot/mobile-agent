@@ -10,6 +10,7 @@ import {
 } from "@/lib/providers/openai";
 import { OPENROUTER_PROVIDER } from "@/lib/providers/openrouter";
 import { OLLAMA_PROVIDER } from "@/lib/providers/ollama";
+import { ON_DEVICE_PROVIDER } from "@/lib/providers/on-device";
 import { XAI_PROVIDER } from "@/lib/providers/xai";
 import { resolveModelProfile } from "@/lib/providers/profile";
 import type { SupportedProviderDefinition } from "@/lib/providers/types";
@@ -28,6 +29,7 @@ const SUPPORTED_PROVIDERS = [
   GOOGLE_PROVIDER,
   OPENROUTER_PROVIDER,
   OLLAMA_PROVIDER,
+  ON_DEVICE_PROVIDER,
   OPENAI_COMPATIBLE_PROVIDER,
   ...OPENAI_COMPATIBLE_PROFILE_PROVIDERS,
   XAI_PROVIDER,

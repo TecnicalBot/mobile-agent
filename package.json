@@ -18,6 +18,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.2",
+    "expo-ai-kit": "0.11.1",
     "expo-auth-session": "^57.0.1",
     "expo-build-properties": "~57.0.5",
     "expo-clipboard": "~57.0.0",
@@ -95,7 +96,13 @@
   "packageManager": "pnpm@10.29.2",
   "pnpm": {
     "patchedDependencies": {
-      "@ai-sdk/mcp@2.0.7": "patches/@ai-sdk__mcp@2.0.7.patch"
+      "@ai-sdk/mcp@2.0.7": "patches/@ai-sdk__mcp@2.0.7.patch",
+      "expo-ai-kit@0.11.1": "patches/expo-ai-kit@0.11.1.patch"
+    }
+  },
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
     }
   }
 }

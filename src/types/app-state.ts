@@ -2,6 +2,7 @@ export type ProviderFamily =
   | "openai"
   | "anthropic"
   | "google"
+  | "on-device"
   | "openrouter"
   | "ollama"
   | "xai"
@@ -20,6 +21,7 @@ export type ModelTransport =
   | "anthropic"
   | "codexResponses"
   | "google"
+  | "onDevice"
   | "openaiChat"
   | "openaiCompatible"
   | "openaiResponses";

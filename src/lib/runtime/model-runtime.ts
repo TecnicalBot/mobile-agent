@@ -93,6 +93,28 @@ function prepareCodexOAuthParams(
 
 export const modelRuntime: ModelRuntime = {
   async generateTextStream(params) {
+    if (params.provider.family === "on-device") {
+      const { expoAiKit } = await import("expo-ai-kit/ai");
+      const onDeviceOptions =
+        (params.model.options?.onDevice as
+          | {
+              backend?: "auto" | "cpu" | "gpu";
+              generation?: {
+                temperature?: number;
+                topK?: number;
+                topP?: number;
+              };
+            }
+          | undefined) ?? {};
+      const languageModel = expoAiKit(params.model.modelId, {
+        backend: onDeviceOptions.backend ?? "auto",
+        generation: onDeviceOptions.generation,
+      });
+
+      return shouldUseStreamingAISDK()
+        ? generateViaAISDK(languageModel, params)
+        : generateViaAISDKNonStreaming(languageModel, params);
+    }
     if (params.provider.family === "anthropic") {
       const apiKey = await params.secretStore.getProviderApiKey(
         params.provider.id,

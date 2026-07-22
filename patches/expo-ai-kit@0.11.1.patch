@@ -1,0 +1,32 @@
+diff --git a/android/src/main/java/expo/modules/aikit/GemmaInferenceClient.kt b/android/src/main/java/expo/modules/aikit/GemmaInferenceClient.kt
+index 7730430..e7107d8 100644
+--- a/android/src/main/java/expo/modules/aikit/GemmaInferenceClient.kt
++++ b/android/src/main/java/expo/modules/aikit/GemmaInferenceClient.kt
+@@ -198,15 +198,25 @@ class GemmaInferenceClient(private val context: Context) {
+       withContext(Dispatchers.IO) {
+         suspendCancellableCoroutine<String> { continuation ->
+           val result = StringBuilder()
++          var previousText = ""
+           conv.sendMessageAsync(
+             Contents.of(fullPrompt),
+             object : MessageCallback {
+               override fun onMessage(message: Message) {
+-                result.clear()
+-                result.append(message.toString())
++                val messageText = message.toString()
++                if (
++                  messageText.startsWith(previousText) &&
++                  messageText.length >= previousText.length
++                ) {
++                  result.clear()
++                  result.append(messageText)
++                } else {
++                  result.append(messageText)
++                }
++                previousText = result.toString()
+               }
+               override fun onDone() {
+                 continuation.resume(result.toString())
+               }
+               override fun onError(throwable: Throwable) {
+                 continuation.resumeWithException(throwable)

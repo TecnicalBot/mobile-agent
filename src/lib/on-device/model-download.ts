@@ -2,7 +2,7 @@ import { requireOptionalNativeModule } from "expo";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
-import { getRegistryEntry } from "expo-ai-kit";
+import { fetchOnDeviceModelCatalogCached } from "@/lib/on-device/catalog";
 
 export type PersistentModelDownloadState =
   "idle" | "queued" | "downloading" | "succeeded" | "failed" | "cancelled";
@@ -48,7 +48,9 @@ function requireAndroidModule() {
   return nativeModule;
 }
 
-function requireModel(modelId: string) {
+async function requireModel(modelId: string) {
+  await fetchOnDeviceModelCatalogCached();
+  const { getRegistryEntry } = await import("expo-ai-kit");
   const model = getRegistryEntry(modelId);
   if (!model) {
     throw new Error(`Unknown on-device model: ${modelId}`);
@@ -80,7 +82,7 @@ export async function startPersistentModelDownload(
   label: string,
 ) {
   const module = requireAndroidModule();
-  const model = requireModel(modelId);
+  const model = await requireModel(modelId);
 
   return module.startDownload(
     modelId,
@@ -93,7 +95,7 @@ export async function startPersistentModelDownload(
 
 export async function getPersistentModelDownloadStatus(modelId: string) {
   const module = requireAndroidModule();
-  const model = requireModel(modelId);
+  const model = await requireModel(modelId);
   return module.getDownloadStatus(modelId, model.sizeBytes);
 }
 

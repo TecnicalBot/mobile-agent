@@ -20,6 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { invalidateLiveModelCatalog } from "@/lib/config/live-model-catalog";
+import { fetchOnDeviceModelCatalogCached } from "@/lib/on-device/catalog";
 import {
     cancelPersistentModelDownload,
     getPersistentModelDownloadStatus,
@@ -44,8 +45,6 @@ type ProviderListItem = {
     provider: ProviderConfig;
     value: string;
 };
-
-const ON_DEVICE_MODEL_IDS = ["gemma-e2b", "gemma-e4b"] as const;
 
 export default function SettingsProvidersScreen() {
     const router = useRouter();
@@ -82,6 +81,7 @@ export default function SettingsProvidersScreen() {
     const downloadStateRef = useRef<
         Record<string, PersistentModelDownloadState>
     >({});
+    const onDeviceModelIdsRef = useRef<string[]>([]);
 
     const loadOnDeviceModels = useCallback(async () => {
         if (Platform.OS === "web") {
@@ -93,14 +93,14 @@ export default function SettingsProvidersScreen() {
         }
 
         try {
+            const catalogModels = await fetchOnDeviceModelCatalogCached();
+            const catalogIds = new Set(catalogModels.map((model) => model.id));
+            onDeviceModelIdsRef.current = [...catalogIds];
             const { getDownloadableModels } = await import("expo-ai-kit");
             const models = await getDownloadableModels();
 
             setOnDeviceModels(
-                models.filter(
-                    (model) =>
-                        model.id === "gemma-e2b" || model.id === "gemma-e4b",
-                ),
+                models.filter((model) => catalogIds.has(model.id)),
             );
             setOnDeviceError(null);
         } catch (error) {
@@ -170,8 +170,11 @@ export default function SettingsProvidersScreen() {
 
         const syncDownloads = async () => {
             try {
+                const modelIds = onDeviceModelIdsRef.current;
+                if (modelIds.length === 0) return;
+
                 const statuses = await Promise.all(
-                    ON_DEVICE_MODEL_IDS.map(async (modelId) => ({
+                    modelIds.map(async (modelId) => ({
                         modelId,
                         status: await getPersistentModelDownloadStatus(modelId),
                     })),
@@ -204,7 +207,7 @@ export default function SettingsProvidersScreen() {
 
                 setDownloadProgress((current) => {
                     const next = { ...current };
-                    for (const modelId of ON_DEVICE_MODEL_IDS) {
+                    for (const modelId of modelIds) {
                         delete next[modelId];
                     }
                     return { ...next, ...activeProgress };
@@ -415,12 +418,14 @@ export default function SettingsProvidersScreen() {
                                 await cancelPersistentModelDownload(modelId);
                             }
                             await deleteModel(modelId);
+                            const catalogIds = new Set(
+                                onDeviceModelIdsRef.current,
+                            );
                             const remaining = (
                                 await getDownloadableModels()
                             ).filter(
                                 (model) =>
-                                    (model.id === "gemma-e2b" ||
-                                        model.id === "gemma-e4b") &&
+                                    catalogIds.has(model.id) &&
                                     (model.status === "downloaded" ||
                                         model.status === "ready" ||
                                         model.status === "loading"),
@@ -573,13 +578,6 @@ export default function SettingsProvidersScreen() {
 
                                 {selectedProvider.family === "on-device" ? (
                                     <View className="gap-sp-3">
-                                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                                            Download a Gemma model once, then
-                                            chat and run local tools without
-                                            sending prompts to a model server.
-                                            Networked MCP tools can still use
-                                            the internet.
-                                        </Text>
                                         {onDeviceError ? (
                                             <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
                                                 {onDeviceError}

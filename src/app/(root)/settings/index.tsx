@@ -112,7 +112,7 @@ export default function SettingsScreen() {
         <SettingsLinkRow
           label="MCP servers"
           onPress={() => {
-            router.push("/settings/mcp" as never);
+            router.push("/settings/mcp/connected" as never);
           }}
           value={`${enabledMcpServerCount} active`}
         />

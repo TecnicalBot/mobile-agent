@@ -4,6 +4,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
 import { createOllama } from "ollama-ai-provider-v2";
 
+import { fetchOnDeviceModelCatalogCached } from "@/lib/on-device/catalog";
 import {
   createOpenAIClient,
   getOpenAIProviderTools,
@@ -94,6 +95,7 @@ function prepareCodexOAuthParams(
 export const modelRuntime: ModelRuntime = {
   async generateTextStream(params) {
     if (params.provider.family === "on-device") {
+      await fetchOnDeviceModelCatalogCached();
       const { expoAiKit } = await import("expo-ai-kit/ai");
       const onDeviceOptions =
         (params.model.options?.onDevice as

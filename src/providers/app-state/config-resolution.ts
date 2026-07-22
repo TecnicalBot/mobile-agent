@@ -7,8 +7,12 @@ import {
   fetchModelsDevCatalogCached,
   getModelsDevDefinitionsForProvider,
 } from "@/lib/config/models-dev-catalog";
+import {
+  fetchOnDeviceModelCatalogCached,
+  getBundledOnDeviceModelCatalog,
+  getOnDeviceModelDefinitions,
+} from "@/lib/on-device/catalog";
 import { fetchOllamaModels } from "@/lib/providers/ollama-models";
-import { ON_DEVICE_MODELS } from "@/lib/providers/on-device";
 import { resolveConfiguredModel } from "@/lib/config/registry";
 import { secureSecretStore } from "@/lib/secrets";
 import {
@@ -76,6 +80,9 @@ export async function resolveConfig(input: {
     .map((provider) => provider.id);
   let liveCatalog: LiveCatalogModel[] = [];
   let modelsDevCatalog = {};
+  let onDeviceModelDefinitions = getOnDeviceModelDefinitions(
+    getBundledOnDeviceModelCatalog(),
+  );
   const ollamaModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
   const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
   const needsModelsDevCatalog = input.providers.some(
@@ -102,6 +109,13 @@ export async function resolveConfig(input: {
             console.warn("Failed to load the models.dev catalog.", error);
           })
       : Promise.resolve(),
+    fetchOnDeviceModelCatalogCached()
+      .then((models) => {
+        onDeviceModelDefinitions = getOnDeviceModelDefinitions(models);
+      })
+      .catch((error) => {
+        console.warn("Failed to load the on-device model catalog.", error);
+      }),
     ...input.providers
       .filter(
         (provider) =>
@@ -137,7 +151,7 @@ export async function resolveConfig(input: {
     input.providers.map((provider) => {
       const builtInModels: CuratedModelDefinition[] =
         provider.family === "on-device"
-          ? ON_DEVICE_MODELS
+          ? onDeviceModelDefinitions
           : provider.family === "openai" && provider.authType === "oauth"
             ? [
                 {

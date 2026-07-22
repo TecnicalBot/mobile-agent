@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "notion",
+      "label": "Notion",
+      "description": "Search, read, and update pages in your Notion workspace.",
+      "url": "https://mcp.notion.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "linear",
+      "label": "Linear",
+      "description": "Find, create, and update Linear issues and projects.",
+      "url": "https://mcp.linear.app/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "description": "Work with repositories, issues, pull requests, and actions.",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your GitHub PAT>"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "description": "Inspect projects, deployments, logs, and Vercel documentation.",
+      "url": "https://mcp.vercel.com",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "sentry",
+      "label": "Sentry",
+      "description": "Investigate errors, issues, traces, and project health in Sentry.",
+      "url": "https://mcp.sentry.dev/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "hugging-face",
+      "label": "Hugging Face",
+      "description": "Search models, datasets, Spaces, papers, and Hugging Face docs.",
+      "url": "https://huggingface.co/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "cloudflare-docs",
+      "label": "Cloudflare Docs",
+      "description": "Search Cloudflare developer documentation without signing in.",
+      "url": "https://docs.mcp.cloudflare.com/mcp",
+      "transport": "http",
+      "authMode": "none"
+    }
+  ]
+}

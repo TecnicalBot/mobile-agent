@@ -15,7 +15,14 @@ const MAX_CONTEXT_WINDOW = 1_000_000;
 const MODEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
+export type OnDeviceMinRamBasis =
+  "published-minimum" | "benchmark-derived" | "analogous-model-derived";
+
 export type OnDeviceCatalogModel = ModelRegistryEntry & {
+  backend: "auto" | "cpu" | "gpu";
+  lowMemoryContextWindow: number;
+  minRamBasis: OnDeviceMinRamBasis;
+  minRamSource: string;
   capabilities: {
     reasoning: boolean;
     tools: boolean;
@@ -91,15 +98,15 @@ function getBoolean(
   return value;
 }
 
-function getHttpsUrl(value: string) {
+function getHttpsUrl(value: string, field = "downloadUrl") {
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error("On-device model downloadUrl must be a valid URL.");
+    throw new Error("On-device model " + field + " must be a valid URL.");
   }
   if (parsed.protocol !== "https:") {
-    throw new Error("On-device model downloadUrl must use HTTPS.");
+    throw new Error("On-device model " + field + " must use HTTPS.");
   }
   return parsed.href;
 }
@@ -140,7 +147,46 @@ function parseModel(value: unknown): OnDeviceCatalogModel {
           `On-device catalog model ${id} capabilities`,
         );
 
+  const contextWindow = getPositiveInteger(
+    record,
+    "contextWindow",
+    MAX_CONTEXT_WINDOW,
+  );
+  const lowMemoryContextWindow =
+    record.lowMemoryContextWindow === undefined
+      ? Math.min(contextWindow, 4_096)
+      : getPositiveInteger(
+          record,
+          "lowMemoryContextWindow",
+          MAX_CONTEXT_WINDOW,
+        );
+  if (lowMemoryContextWindow > contextWindow) {
+    throw new Error(
+      "On-device catalog model " +
+        id +
+        " lowMemoryContextWindow cannot exceed contextWindow.",
+    );
+  }
+
+  const minRamBasis = getRequiredString(record, "minRamBasis", 40);
+  if (
+    minRamBasis !== "published-minimum" &&
+    minRamBasis !== "benchmark-derived" &&
+    minRamBasis !== "analogous-model-derived"
+  ) {
+    throw new Error("Invalid minRamBasis for on-device model " + id + ".");
+  }
+  const minRamSource = getHttpsUrl(
+    getRequiredString(record, "minRamSource", 2048),
+    "minRamSource",
+  );
+  const backend = record.backend ?? (id === "qwen3-0.6b" ? "cpu" : "auto");
+  if (backend !== "auto" && backend !== "cpu" && backend !== "gpu") {
+    throw new Error("Invalid backend for on-device model " + id + ".");
+  }
+
   return {
+    backend,
     id,
     name: getRequiredString(record, "name", 100),
     parameterCount: getRequiredString(record, "parameterCount", 32),
@@ -148,12 +194,11 @@ function parseModel(value: unknown): OnDeviceCatalogModel {
     downloadUrl: getHttpsUrl(getRequiredString(record, "downloadUrl", 2048)),
     sha256: sha256.toLowerCase(),
     sizeBytes: getPositiveInteger(record, "sizeBytes", MAX_MODEL_BYTES),
-    contextWindow: getPositiveInteger(
-      record,
-      "contextWindow",
-      MAX_CONTEXT_WINDOW,
-    ),
+    contextWindow,
+    lowMemoryContextWindow,
     minRamBytes: getPositiveInteger(record, "minRamBytes", MAX_RAM_BYTES),
+    minRamBasis,
+    minRamSource,
     supportedPlatforms: getSupportedPlatforms(record),
     license: getRequiredString(record, "license", 80),
     capabilities: {
@@ -187,7 +232,13 @@ export function parseOnDeviceModelCatalog(value: unknown) {
 }
 
 function toRegistryEntry(model: OnDeviceCatalogModel): ModelRegistryEntry {
-  const { capabilities: _capabilities, ...entry } = model;
+  const {
+    backend: _backend,
+    capabilities: _capabilities,
+    minRamBasis: _minRamBasis,
+    minRamSource: _minRamSource,
+    ...entry
+  } = model;
   return entry;
 }
 
@@ -234,8 +285,9 @@ export function getOnDeviceModelDefinitions(
     },
     options: {
       onDevice: {
-        backend: "auto",
+        backend: model.backend,
         contextWindow: model.contextWindow,
+        lowMemoryContextWindow: model.lowMemoryContextWindow,
         downloadBytes: model.sizeBytes,
         minRamBytes: model.minRamBytes,
       },

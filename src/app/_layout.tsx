@@ -17,7 +17,7 @@ import {
 import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider } from "expo-sqlite";
 import { X } from "lucide-react-native";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Pressable, Text, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import "./global.css";
@@ -183,17 +183,9 @@ function ReleaseUpdateBanner() {
 }
 
 function SplashScreenController() {
-  const { error, hydrating, ready } = useAppState();
-  const hasHiddenSplashRef = useRef(false);
-
   useEffect(() => {
-    if (hasHiddenSplashRef.current || (hydrating && !ready && !error)) {
-      return;
-    }
-
-    hasHiddenSplashRef.current = true;
-    SplashScreen.hideAsync().catch(console.error);
-  }, [error, hydrating, ready]);
+    SplashScreen.hide();
+  }, []);
 
   return null;
 }

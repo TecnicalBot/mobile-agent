@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 import {
   fetchLiveModelCatalogCached,
   getCatalogModelDefinitionsForProvider,
@@ -41,7 +43,7 @@ function mergeModelOptions(
     ...presetOptions,
   };
 
-  for (const ns of ["ollama"] as const) {
+  for (const ns of ["ollama", "onDevice"] as const) {
     const discNs =
       ns in discoveryOptions
         ? (discoveryOptions as Record<string, unknown>)[ns]
@@ -241,7 +243,32 @@ export async function resolveConfig(input: {
       .filter((model): model is NonNullable<typeof model> => model !== null);
   });
 
-  const activeModels = availableModels.filter((model) => model.active);
+  const downloadedOnDeviceModelIds = new Set<string>();
+  if (Platform.OS === "android" || Platform.OS === "ios") {
+    try {
+      const { getDownloadableModels } = await import("expo-ai-kit");
+      const downloadableModels = await getDownloadableModels();
+
+      for (const model of downloadableModels) {
+        if (
+          model.status === "downloaded" ||
+          model.status === "loading" ||
+          model.status === "ready"
+        ) {
+          downloadedOnDeviceModelIds.add(model.id);
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to read downloaded on-device models.", error);
+    }
+  }
+
+  const activeModels = availableModels.filter(
+    (model) =>
+      model.active &&
+      (model.providerFamily !== "on-device" ||
+        downloadedOnDeviceModelIds.has(model.modelId)),
+  );
   const requestedModel =
     input.settings.activeModelRef === null
       ? null

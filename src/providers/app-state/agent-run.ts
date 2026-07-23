@@ -6,6 +6,7 @@ import { resolveConfiguredModel } from "@/lib/config/registry";
 import { prepareMessagesForLLM } from "@/lib/context";
 import type { Repositories } from "@/lib/db/repositories/types";
 import { createMcpRuntimeTools } from "@/lib/mcp/runtime-tools";
+import { resolveOnDeviceRuntimePolicy } from "@/lib/on-device/runtime-policy";
 import {
   buildMemorySystemPrompt,
   createMemoryTools,
@@ -297,6 +298,8 @@ export async function executeClaimedAgentRun(
   const { binaryFiles, imageFiles } = partitionSelectedFiles(
     currentRunWorkspaceFiles,
   );
+  const onDevicePolicy = await resolveOnDeviceRuntimePolicy(resolvedModel);
+  const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
     await updateRunRecord(run.id, {
@@ -309,11 +312,13 @@ export async function executeClaimedAgentRun(
     return;
   }
 
-  if (binaryFiles.length > 0 && !resolvedModel.supportsTools) {
+  if (binaryFiles.length > 0 && !runtimeSupportsTools) {
     await updateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError:
-        "Binary file attachments require a tool-capable model for this chat.",
+        onDevicePolicy.memoryConstrained && onDevicePolicy.toolsMode === "auto"
+          ? "Tools are off in memory-safe mode. Enable tools for this model, then try the attachment again."
+          : "Binary file attachments require a tool-capable model for this chat.",
       status: "failed",
     });
     runRegistry.clear(runId);
@@ -575,7 +580,7 @@ export async function executeClaimedAgentRun(
 
   try {
     const builtInRuntimeTools: ToolSet | undefined =
-      resolvedModel.supportsTools && run.fileContextSource === "external-folder"
+      runtimeSupportsTools && run.fileContextSource === "external-folder"
         ? (() => {
             const folderTools = createExternalFolderTools({
               session: externalFolderSession as ExternalFolderSession,
@@ -628,7 +633,7 @@ export async function executeClaimedAgentRun(
               ? (enabledTools as ToolSet)
               : undefined;
           })()
-        : resolvedModel.supportsTools
+        : runtimeSupportsTools
           ? (() => {
               const workspaceTools = createWorkspaceTools({
                 repository: repositories.workspaceRepository,
@@ -664,14 +669,14 @@ export async function executeClaimedAgentRun(
             })()
           : undefined;
     mcpRuntime =
-      resolvedModel.supportsTools && snapshotRef.current.mcpServers.length > 0
+      runtimeSupportsTools && snapshotRef.current.mcpServers.length > 0
         ? await createMcpRuntimeTools({
             servers: snapshotRef.current.mcpServers,
             onRecord: handleToolExecutionRecord,
           })
         : null;
     const memoryRuntime =
-      resolvedModel.supportsTools && snapshotRef.current.settings.memoryEnabled
+      runtimeSupportsTools && snapshotRef.current.settings.memoryEnabled
         ? createMemoryTools({
             conversationId: conversation.id,
             memoryStore: repositories.memoryStore,
@@ -764,7 +769,7 @@ export async function executeClaimedAgentRun(
     });
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
       ? buildMemorySystemPrompt(snapshotRef.current.memory, {
-          canWrite: resolvedModel.supportsTools,
+          canWrite: runtimeSupportsTools,
         })
       : undefined;
     const toolLoopRuntimeSystem = runtimeTools
@@ -791,6 +796,24 @@ export async function executeClaimedAgentRun(
         .filter((part): part is string => Boolean(part?.trim()))
         .join("\n\n") || undefined;
 
+    if (
+      resolvedModel.providerFamily === "on-device" &&
+      resolvedModel.supportsTools &&
+      onDevicePolicy.memoryConstrained &&
+      !runtimeSupportsTools
+    ) {
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail:
+            "Tools were turned off for this run to reduce memory use. You can enable them manually in the on-device model settings.",
+          kind: "run",
+          status: "info",
+          title: "Tools off (memory safe)",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
+
     let contextWindowFromCatalog: number | null = null;
     try {
       const liveModels = await fetchLiveModelCatalogCached();
@@ -802,14 +825,47 @@ export async function executeClaimedAgentRun(
       contextWindowFromCatalog = liveModel?.contextWindow ?? null;
     } catch {}
 
-    if (contextWindowFromCatalog === null && resolvedModel.providerFamily === "ollama") {
+    if (
+      contextWindowFromCatalog === null &&
+      resolvedModel.providerFamily === "ollama"
+    ) {
       const ollamaOptions = resolvedModel.options?.ollama;
-      if (ollamaOptions && typeof ollamaOptions === "object" && "contextWindow" in ollamaOptions) {
-        const ctx = (ollamaOptions as { contextWindow?: unknown }).contextWindow;
+      if (
+        ollamaOptions &&
+        typeof ollamaOptions === "object" &&
+        "contextWindow" in ollamaOptions
+      ) {
+        const ctx = (ollamaOptions as { contextWindow?: unknown })
+          .contextWindow;
         if (typeof ctx === "number" && ctx > 0) {
           contextWindowFromCatalog = ctx;
         }
       }
+    }
+
+    if (
+      contextWindowFromCatalog === null &&
+      resolvedModel.providerFamily === "on-device"
+    ) {
+      const onDeviceOptions = resolvedModel.options?.onDevice;
+      if (
+        onDeviceOptions &&
+        typeof onDeviceOptions === "object" &&
+        "contextWindow" in onDeviceOptions
+      ) {
+        const contextWindow = (onDeviceOptions as { contextWindow?: unknown })
+          .contextWindow;
+        if (typeof contextWindow === "number" && contextWindow > 0) {
+          contextWindowFromCatalog = contextWindow;
+        }
+      }
+    }
+
+    if (
+      resolvedModel.providerFamily === "on-device" &&
+      onDevicePolicy.contextWindow !== null
+    ) {
+      contextWindowFromCatalog = onDevicePolicy.contextWindow;
     }
 
     const contextResult = prepareMessagesForLLM({
@@ -819,6 +875,16 @@ export async function executeClaimedAgentRun(
       systemPrompt: runtimeSystem,
       tools: runtimeTools,
     });
+    if (
+      resolvedModel.providerFamily === "on-device" &&
+      runtimeTools &&
+      contextResult.budget.usable === 0
+    ) {
+      throw new Error(
+        "Enabled tools exceed this device safe context limit. Disable some tools or MCP servers, or switch the model back to Auto.",
+      );
+    }
+
     runtimeMessages = contextResult.messages;
 
     if (contextResult.didPrune || contextResult.didTruncate) {

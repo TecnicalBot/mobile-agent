@@ -25,7 +25,16 @@ export function calculateContextBudget(input: {
 }): ContextBudget {
   const contextWindow = input.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
   const maxOutput = input.maxOutputTokens ?? DEFAULT_MAX_OUTPUT;
-  const reserved = Math.min(maxOutput, 16_384) + SAFETY_BUFFER;
+  const reservedOutput = Math.min(
+    maxOutput,
+    16_384,
+    Math.max(256, Math.floor(contextWindow * 0.25)),
+  );
+  const safetyBuffer = Math.min(
+    SAFETY_BUFFER,
+    Math.max(128, Math.floor(contextWindow * 0.1)),
+  );
+  const reserved = reservedOutput + safetyBuffer;
 
   const systemTokens = input.systemPrompt
     ? estimateTokens(input.systemPrompt)
@@ -37,7 +46,10 @@ export function calculateContextBudget(input: {
     toolDefinitionTokens = estimateTokens(toolJson);
   }
 
-  const usable = Math.max(contextWindow - reserved - systemTokens - toolDefinitionTokens, 0);
+  const usable = Math.max(
+    contextWindow - reserved - systemTokens - toolDefinitionTokens,
+    0,
+  );
 
   return {
     contextWindow,
@@ -62,6 +74,7 @@ export function getTokenUsage(
 ): { total: number; usable: number; overBy: number; percent: number } {
   const total = estimateMessagesTokens(messages);
   const overBy = Math.max(total - budget.usable, 0);
-  const percent = budget.usable > 0 ? Math.round((total / budget.usable) * 100) : 100;
+  const percent =
+    budget.usable > 0 ? Math.round((total / budget.usable) * 100) : 100;
   return { total, usable: budget.usable, overBy, percent };
 }

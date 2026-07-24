@@ -991,14 +991,33 @@ export default function SettingsProvidersScreen() {
                                 );
                               }}
                               onDownload={() => {
-                                void runAction(
-                                  `download-model:${model.id}`,
-                                  () =>
-                                    downloadOnDeviceModel(
-                                      model.id,
-                                      model.label,
-                                    ),
-                                );
+                                const download = () => {
+                                  void runAction(
+                                    `download-model:${model.id}`,
+                                    () =>
+                                      downloadOnDeviceModel(
+                                        model.id,
+                                        model.label,
+                                      ),
+                                  );
+                                };
+
+                                if (info?.meetsRequirements === false) {
+                                  Alert.alert(
+                                    "Download anyway?",
+                                    `${model.label} recommends at least ${formatBytes(info.minRamBytes)} of RAM. On this device it may run slowly, fail to load, or cause the app to close.`,
+                                    [
+                                      { style: "cancel", text: "Cancel" },
+                                      {
+                                        onPress: download,
+                                        text: "Download anyway",
+                                      },
+                                    ],
+                                  );
+                                  return;
+                                }
+
+                                download();
                               }}
                             />
                           </View>
@@ -1297,7 +1316,7 @@ function OnDeviceModelRow({
       ) : (
         <View className="gap-sp-1">
           <Button
-            disabled={!info?.meetsRequirements}
+            disabled={!info}
             loading={loading}
             onPress={onDownload}
             size="sm"
@@ -1307,7 +1326,8 @@ function OnDeviceModelRow({
           </Button>
           {info && !info.meetsRequirements ? (
             <Text className="font-sans text-xs text-destructive dark:text-destructive-dark">
-              This model needs at least {formatBytes(info.minRamBytes)} of RAM.
+              Recommended RAM: at least {formatBytes(info.minRamBytes)}. It may
+              be slow or unstable on this device.
             </Text>
           ) : null}
         </View>

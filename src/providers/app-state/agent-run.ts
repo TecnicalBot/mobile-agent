@@ -6,11 +6,11 @@ import { resolveConfiguredModel } from "@/lib/config/registry";
 import { prepareMessagesForLLM } from "@/lib/context";
 import type { Repositories } from "@/lib/db/repositories/types";
 import { createMcpRuntimeTools } from "@/lib/mcp/runtime-tools";
-import { resolveOnDeviceRuntimePolicy } from "@/lib/on-device/runtime-policy";
 import {
   buildMemorySystemPrompt,
   createMemoryTools,
 } from "@/lib/memory/memory-tools";
+import { resolveOnDeviceRuntimePolicy } from "@/lib/on-device/runtime-policy";
 import {
   convertStoredMessagesToModelMessages,
   partitionSelectedFiles,
@@ -1150,11 +1150,11 @@ export async function executeClaimedAgentRun(
       });
     }
 
-    await notifyRunStateChange({
-      body: "Agent finished this task.",
-      conversationId: conversation.id,
-      title: conversation.title,
-    }).catch(() => {});
+    // await notifyRunStateChange({
+    //   body: "Agent finished this task.",
+    //   conversationId: conversation.id,
+    //   title: conversation.title,
+    // }).catch(() => {});
   } catch (sendError) {
     await Promise.allSettled(pendingArtifactWrites);
     const requestAborted = abortController.signal.aborted;
@@ -1237,13 +1237,13 @@ export async function executeClaimedAgentRun(
       workspaceFiles,
     }));
 
-    if (finalStatus === "failed") {
-      await notifyRunStateChange({
-        body: errorMessage,
-        conversationId: conversation.id,
-        title: conversation.title,
-      }).catch(() => {});
-    }
+    // if (finalStatus === "failed") {
+    //   await notifyRunStateChange({
+    //     body: errorMessage,
+    //     conversationId: conversation.id,
+    //     title: conversation.title,
+    //   }).catch(() => {});
+    // }
   } finally {
     await mcpRuntime?.close();
 

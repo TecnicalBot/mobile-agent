@@ -1,29 +1,19 @@
-import {
-  DEFAULT_BUILT_IN_TOOL_SETTINGS,
-} from "@/lib/config/built-in-tools";
-import type { AppSettings, AppStateSnapshot, ResolvedConfig } from "@/types/app-state";
+import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/lib/config/built-in-tools";
+import type {
+  AppSettings,
+  AppStateSnapshot,
+  ResolvedConfig,
+} from "@/types/app-state";
 
 export const REQUEST_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
-export const BASE_AGENT_SYSTEM_PROMPT = [
-  "You are Mobile Agent, a capable assistant that helps the user complete tasks on their device and in their selected workspace.",
-  "Follow the user's request carefully and work toward a complete, useful result.",
-  "Be accurate about what you know, what tools confirmed, and what actions were actually completed.",
-  "Never claim that an external action or file change happened unless a tool result confirms it.",
-  "Use the available context and tools when they materially help, while respecting approval and access boundaries.",
-  "Ask a concise clarifying question only when a missing choice would materially change the result; otherwise make reasonable assumptions and proceed.",
-  "Keep user-facing responses clear and concise unless the task calls for more detail.",
-].join("\n\n");
+export const BASE_AGENT_SYSTEM_PROMPT = `
+You are Mobile Agent, a capable assistant that helps the user complete tasks on their device and in their selected workspace.
+`;
 
 export function buildCurrentDateTimeSystemPrompt() {
   const now = new Date();
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  return [
-    `Current date and time: ${now.toLocaleString()}.`,
-    `Current time zone: ${timeZone || "device local time"}.`,
-    "Use this as the reference for relative dates such as today, tomorrow, and yesterday.",
-  ].join("\n");
+  return `Current date and time: ${now.toLocaleString()}.`;
 }
 
 export function buildConversationTitle(input: string) {
@@ -38,7 +28,10 @@ export function buildConversationTitle(input: string) {
     : normalized;
 }
 
-export function normalizeGeneratedConversationTitle(text: string, fallback: string) {
+export function normalizeGeneratedConversationTitle(
+  text: string,
+  fallback: string,
+) {
   const title = text
     .split("\n")
     .map((line) => line.trim())

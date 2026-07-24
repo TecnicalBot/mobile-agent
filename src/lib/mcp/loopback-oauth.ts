@@ -1,5 +1,5 @@
 import * as WebBrowser from "expo-web-browser";
-import { Platform } from "react-native";
+import { AppState, Platform, type NativeEventSubscription } from "react-native";
 
 export const MCP_OAUTH_REDIRECT_URI =
   "http://127.0.0.1:2083/mcp/oauth/callback";
@@ -41,6 +41,7 @@ export async function openMcpLoopbackAuthorization(
   const TcpSocket = TcpSocketModule.default ?? TcpSocketModule;
   let server: any = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let appStateSubscription: NativeEventSubscription | null = null;
   let settled = false;
 
   const callbackPromise = new Promise<CallbackResult>((resolve, reject) => {
@@ -147,11 +148,28 @@ export async function openMcpLoopbackAuthorization(
       });
     });
 
-    server.listen({ port: 2083, host: "127.0.0.1" }, () => {
+    server.listen({ port: 2083, host: "127.0.0.1", reuseAddress: true }, () => {
       timeout = setTimeout(
         () => finish({ error: new Error("MCP OAuth callback timed out.") }),
         CALLBACK_TIMEOUT_MS,
       );
+
+      if (Platform.OS === "android") {
+        let appLeftForeground = false;
+        appStateSubscription = AppState.addEventListener(
+          "change",
+          (nextState) => {
+            if (nextState !== "active") {
+              appLeftForeground = true;
+              return;
+            }
+
+            if (appLeftForeground && !settled) {
+              finish({ error: canceledError() });
+            }
+          },
+        );
+      }
 
       void WebBrowser.openBrowserAsync(authorizationUrl)
         .then((result) => {
@@ -177,9 +195,19 @@ export async function openMcpLoopbackAuthorization(
     } catch {}
     return result;
   } finally {
+    (appStateSubscription as NativeEventSubscription | null)?.remove();
     if (timeout) clearTimeout(timeout);
-    try {
-      server?.close();
-    } catch {}
+    await new Promise<void>((resolve) => {
+      if (!server) {
+        resolve();
+        return;
+      }
+
+      try {
+        server.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
   }
 }

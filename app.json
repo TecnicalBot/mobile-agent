@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mobile Agent",
     "slug": "mobile-agent",
-    "version": "1.5.1",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile-agent",
@@ -18,7 +18,9 @@
       }
     },
     "android": {
-      "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"],
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/icon.png",

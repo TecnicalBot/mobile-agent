@@ -6,6 +6,7 @@ Mobile Agent is an open-source AI agent built specifically for mobile devices th
 
 ## Features
 
+- On-device models that can run completely offline
 - Runs completely on-device
 - No external server required
 - MCP support

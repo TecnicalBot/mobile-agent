@@ -13,7 +13,7 @@ export function createConversationRepository(
 ): ConversationRepository {
   return {
     async create(input) {
-      const id = Crypto.randomUUID();
+      const id = input.id ?? Crypto.randomUUID();
       const timestamp = nowIso();
 
       await db.insert(conversations).values({

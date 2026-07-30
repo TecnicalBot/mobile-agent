@@ -31,6 +31,7 @@ import type {
 export interface ConversationRepository {
   deleteById(id: string): Promise<void>;
   create(input: {
+    id?: string;
     modelId?: string | null;
     providerId?: string | null;
     title: string;

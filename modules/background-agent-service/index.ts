@@ -14,13 +14,6 @@ const BackgroundAgent = Platform.OS === 'android'
   ? requireNativeModule<BackgroundAgentModule>('BackgroundAgent')
   : null
 
-if (Platform.OS === 'android') {
-  console.log('[BackgroundAgent] Native module:', BackgroundAgent ? 'FOUND' : 'NULL')
-  if (BackgroundAgent) {
-    BackgroundAgent.isHeld?.().then((v: boolean) => console.log('[BackgroundAgent] initial isHeld:', v)).catch((e: unknown) => console.error('[BackgroundAgent] init check error:', e))
-  }
-}
-
 export async function startBackgroundAgent(): Promise<void> {
   if (Platform.OS !== 'android') return
   if (!BackgroundAgent) { console.error('[BackgroundAgent] module is null!'); return }

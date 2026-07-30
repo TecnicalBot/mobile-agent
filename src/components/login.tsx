@@ -1,4 +1,4 @@
-import { prepareOpenAICallbackSession } from "@/lib/local-server";
+import { prepareOpenAICallbackSession } from "@/core/services/local-server";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";

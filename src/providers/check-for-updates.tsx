@@ -14,7 +14,7 @@ import {
   type AvailableRelease,
   checkForGitHubReleaseUpdate,
   installAvailableRelease,
-} from "@/lib/updates/github-release";
+} from "@/modules/updates/github-release";
 
 type UpdateContextType = {
   release: AvailableRelease | null;

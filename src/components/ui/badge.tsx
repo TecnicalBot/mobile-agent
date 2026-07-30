@@ -3,7 +3,7 @@ import { forwardRef } from 'react';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { Text, View } from 'react-native';
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/utils';
 
 const badgeVariants = cva('rounded-pill px-sp-2 py-sp-1', {
   variants: {

@@ -16,7 +16,7 @@ import { EllipsisVertical, Pause, Settings2 } from "lucide-react-native";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 export function AppSidebar() {
   const theme = useTheme();

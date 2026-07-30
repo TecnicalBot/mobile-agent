@@ -20,9 +20,9 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { BUILT_IN_FILE_TOOL_CONTROLS } from "@/lib/config/built-in-tools";
-import { cn } from "@/lib/utils";
-import type { BuiltInToolKey, SkillConfig } from "@/types/app-state";
+import { BUILT_IN_FILE_TOOL_CONTROLS } from "@/modules/config/built-in-tools";
+import { cn } from "@/core/utils";
+import type { BuiltInToolKey, SkillConfig } from "@/core/types/app-state";
 
 type Draft = {
   autoMatch: boolean;

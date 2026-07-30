@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, ComponentRef } from "react";
 import { Children, createContext, forwardRef, useContext } from "react";
 import { Text, View } from "react-native";
 
-import { cn, withSlottedProps } from "@/lib/utils";
+import { cn, withSlottedProps } from "@/core/utils";
 
 const bubbleVariants = cva("self-start max-w-[80%]", {
   variants: {

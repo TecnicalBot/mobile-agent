@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useConfig } from "@/hooks/use-config";
 import { useLiveModelCatalog } from "@/hooks/use-live-model-catalog";
-import type { LiveCatalogModel } from "@/lib/config/live-model-catalog";
-import type { ModelUsageSnapshot, ResolvedModel } from "@/types/app-state";
+import type { LiveCatalogModel } from "@/modules/config/live-model-catalog";
+import type { ModelUsageSnapshot, ResolvedModel } from "@/core/types/app-state";
 
 function getOllamaContextWindow(model: ResolvedModel): number | null {
   if (model.providerFamily !== "ollama") return null;

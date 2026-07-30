@@ -4,7 +4,7 @@ import type { ComponentPropsWithoutRef, ElementRef, ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/utils';
 
 type CheckboxPressableProps = Omit<ComponentPropsWithoutRef<typeof Pressable>, 'children' | 'onPress'>;
 

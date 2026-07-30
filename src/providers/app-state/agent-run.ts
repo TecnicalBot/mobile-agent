@@ -1,45 +1,49 @@
 import type { ToolSet } from "ai";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import { fetchLiveModelCatalogCached } from "@/lib/config/live-model-catalog";
-import { resolveConfiguredModel } from "@/lib/config/registry";
-import { prepareMessagesForLLM } from "@/lib/context";
-import type { Repositories } from "@/lib/db/repositories/types";
-import { createMcpRuntimeTools } from "@/lib/mcp/runtime-tools";
+import { fetchLiveModelCatalogCached } from "@/modules/config/live-model-catalog";
+import { resolveConfiguredModel } from "@/modules/config/registry";
+import { prepareMessagesForLLM } from "@/modules/context";
+import type { Repositories } from "@/core/db/repositories/types";
+import { createMcpRuntimeTools } from "@/modules/mcp/runtime-tools";
 import {
   buildMemorySystemPrompt,
   createMemoryTools,
-} from "@/lib/memory/memory-tools";
-import { resolveOnDeviceRuntimePolicy } from "@/lib/on-device/runtime-policy";
+} from "@/modules/memory/memory-tools";
+import { resolveOnDeviceRuntimePolicy } from "@/modules/on-device/runtime-policy";
 import {
   convertStoredMessagesToModelMessages,
   partitionSelectedFiles,
-} from "@/lib/runtime/message-conversion";
-import { modelRuntime } from "@/lib/runtime/model-runtime";
+} from "@/modules/runtime/message-conversion";
+import { modelRuntime } from "@/modules/runtime/model-runtime";
 import {
   buildModelPromptArtifact,
   buildToolContextArtifact,
   buildToolExecutionArtifact,
   createExecutionTimelineEvent,
   createPromptArtifactRecord,
-} from "@/lib/runtime/run-artifacts";
+} from "@/modules/runtime/run-artifacts";
 import {
   createRunControllerRegistry,
   shouldAutoResumeRun,
-} from "@/lib/runtime/run-manager";
-import { wrapToolsWithApproval } from "@/lib/runtime/tool-approval";
-import { secureSecretStore } from "@/lib/secrets";
-import { summarizeValue } from "@/lib/tools/built-in/shared";
+} from "@/modules/runtime/run-manager";
+import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
+import { secureSecretStore } from "@/core/services/secrets";
+import { summarizeValue } from "@/modules/tools/built-in/shared";
 import {
   buildExternalFolderSystemPrompt,
   createExternalFolderTools,
-} from "@/lib/tools/external-folder-tools";
-import { persistGeneratedImages } from "@/lib/tools/generated-images";
+} from "@/modules/tools/external-folder-tools";
+import {
+  startBackgroundAgent,
+  stopBackgroundAgent,
+} from "background-agent-service";
+import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
   buildSelectedFilesInlineContext,
   createWorkspaceTools,
-} from "@/lib/tools/workspace-tools";
-import type { WorkspaceFileService } from "@/lib/workspace/workspace-file-service";
+} from "@/modules/tools/workspace-tools";
+import type { WorkspaceFileService } from "@/core/services/workspace-file-service";
 import type {
   AgentRun,
   AppStateSnapshot,
@@ -56,7 +60,7 @@ import type {
   StoredMessage,
   ToolExecutionRecord,
   WorkspaceFile,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 import {
   BASE_AGENT_SYSTEM_PROMPT,
   REQUEST_INACTIVITY_TIMEOUT_MS,
@@ -70,6 +74,7 @@ import {
   buildUsageSnapshot,
   describePromptArtifactLocation,
   filterToolsBySettings,
+  upsertAgentRun,
   upsertMessages,
 } from "./helpers";
 
@@ -85,7 +90,7 @@ export type AgentRunDeps = {
   requestToolApproval: (
     run: AgentRun,
     request: PendingToolApprovalRequest,
-  ) => Promise<import("@/lib/runtime/run-manager").ToolApprovalDecision>;
+  ) => Promise<import("@/modules/runtime/run-manager").ToolApprovalDecision>;
   generateAndApplyConversationTitle: (input: {
     conversation: Conversation;
     firstUserMessage: string;
@@ -101,10 +106,51 @@ export type AgentRunDeps = {
   setSnapshot: Dispatch<SetStateAction<AppStateSnapshot>>;
   setError: Dispatch<SetStateAction<string | null>>;
   setPendingToolApprovals: Dispatch<SetStateAction<PendingToolApproval[]>>;
+  retryRun: (runId: string, delayMs: number) => void;
 };
 
 function summarizeToolInput(toolInput: unknown) {
   return summarizeValue(toolInput);
+}
+
+function classifyRetryableError(error: unknown): {
+  retryable: boolean;
+  category: "transient" | "rate_limit" | "auth_expired" | "permanent";
+} {
+  const message =
+    error instanceof Error ? error.message : String(error);
+
+  if (
+    /timeout|timed ?out|network error|fetch failed|5\d\d|service unavailable|econnrefused|enotfound|socket hang up|request aborted/i.test(
+      message,
+    )
+  ) {
+    return { retryable: true, category: "transient" };
+  }
+
+  if (
+    /429|rate limit|too many requests/i.test(message)
+  ) {
+    return { retryable: true, category: "rate_limit" };
+  }
+
+  if (
+    /expired|token.*invalid|unauthorized|session expired/i.test(message)
+  ) {
+    return { retryable: true, category: "auth_expired" };
+  }
+
+  return { retryable: false, category: "permanent" };
+}
+
+function getRetryDelayMs(
+  attempt: number,
+  category: string,
+): number {
+  const baseDelay = category === "rate_limit" ? 5000 : 1000;
+  const exponential = baseDelay * Math.pow(2, attempt);
+  const jitter = Math.random() * 1000;
+  return Math.min(exponential + jitter, 30000);
 }
 
 export async function executeClaimedAgentRun(
@@ -123,6 +169,7 @@ export async function executeClaimedAgentRun(
     setSnapshot,
     setError,
     setPendingToolApprovals,
+    retryRun,
   } = deps;
 
   const run =
@@ -359,7 +406,7 @@ export async function executeClaimedAgentRun(
   ] as ReasoningBlock[];
   const executionTimeline = [
     ...(assistantMessage.metadata?.executionTimeline ?? []),
-  ] as import("@/types/app-state").ExecutionTimelineEvent[];
+  ] as import("@/core/types/app-state").ExecutionTimelineEvent[];
   const appliedSkillIds =
     assistantMessage.metadata?.appliedSkillIds ??
     userMessage?.metadata?.appliedSkillIds ??
@@ -380,7 +427,7 @@ export async function executeClaimedAgentRun(
   );
 
   const pushTimelineEvent = (
-    event: import("@/types/app-state").ExecutionTimelineEvent,
+    event: import("@/core/types/app-state").ExecutionTimelineEvent,
   ) => {
     executionTimeline.push(event);
   };
@@ -431,6 +478,7 @@ export async function executeClaimedAgentRun(
   const pendingArtifactWrites: Promise<void>[] = [];
   let assistantText = startingAssistantText;
   let persistTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastSnapshotTime = 0;
 
   const syncAssistantSnapshot = (
     status: StoredMessage["status"],
@@ -438,21 +486,38 @@ export async function executeClaimedAgentRun(
   ) => {
     const metadata = buildLiveAssistantMetadata();
 
-    setSnapshot((current) => ({
-      ...current,
-      messages:
-        current.currentConversation?.id === conversation.id
-          ? upsertMessages(current.messages, [
-              {
-                ...assistantMessage,
+    setSnapshot((current) => {
+      if (current.currentConversation?.id !== conversation.id) {
+        return current;
+      }
+
+      return {
+        ...current,
+        messages: current.messages.map((msg) =>
+          msg.id === assistantMessage.id
+            ? {
+                ...msg,
                 content: assistantText,
                 error: errorMessage,
                 metadata,
                 status,
-              },
-            ])
-          : current.messages,
-    }));
+              }
+            : msg,
+        ),
+      };
+    });
+  };
+
+  const throttleSnapshot = (
+    status: StoredMessage["status"],
+    errorMessage: string | null = null,
+  ) => {
+    const now = Date.now();
+    if (now - lastSnapshotTime < 32) {
+      return;
+    }
+    lastSnapshotTime = now;
+    syncAssistantSnapshot(status, errorMessage);
   };
 
   const schedulePersist = (status: StoredMessage["status"]) => {
@@ -494,7 +559,7 @@ export async function executeClaimedAgentRun(
 
   refreshAssistantState = () => {
     schedulePersist("streaming");
-    syncAssistantSnapshot("streaming");
+    throttleSnapshot("streaming");
   };
 
   refreshAssistantState();
@@ -579,6 +644,10 @@ export async function executeClaimedAgentRun(
   };
 
   try {
+    if (snapshotRef.current.settings.backgroundAgentEnabled) {
+      startBackgroundAgent();
+    }
+
     const builtInRuntimeTools: ToolSet | undefined =
       runtimeSupportsTools && run.fileContextSource === "external-folder"
         ? (() => {
@@ -909,78 +978,7 @@ export async function executeClaimedAgentRun(
       }),
     );
 
-    try {
-      const modelArtifactInput = buildModelPromptArtifact({
-        messages: runtimeMessages,
-        model: resolvedModel,
-        run,
-        system: runtimeSystem,
-      });
-      const modelPromptFile = await workspaceService.createManagedTextFile({
-        content: modelArtifactInput.content,
-        folderSegments: ["prompts"],
-        name: modelArtifactInput.fileName,
-      });
-
-      recordPromptArtifact(
-        createPromptArtifactRecord({
-          category: "model",
-          displayName: modelPromptFile.displayName,
-          fileId: modelPromptFile.id,
-          relativePath: modelPromptFile.relativePath,
-        }),
-      );
-    } catch (artifactError) {
-      pushTimelineEvent(
-        createExecutionTimelineEvent({
-          detail:
-            artifactError instanceof Error
-              ? artifactError.message
-              : String(artifactError),
-          kind: "prompt",
-          status: "failed",
-          title: "Failed to save model prompt",
-        }),
-      );
-    }
-
-    if (runtimeTools && Object.keys(runtimeTools).length > 0) {
-      try {
-        const toolArtifactInput = buildToolContextArtifact({
-          run,
-          system: runtimeSystem,
-          toolNames: Object.keys(runtimeTools),
-        });
-        const toolPromptFile = await workspaceService.createManagedTextFile({
-          content: toolArtifactInput.content,
-          folderSegments: ["tools"],
-          name: toolArtifactInput.fileName,
-        });
-
-        recordPromptArtifact(
-          createPromptArtifactRecord({
-            category: "tool",
-            displayName: toolPromptFile.displayName,
-            fileId: toolPromptFile.id,
-            relativePath: toolPromptFile.relativePath,
-          }),
-        );
-      } catch (artifactError) {
-        pushTimelineEvent(
-          createExecutionTimelineEvent({
-            detail:
-              artifactError instanceof Error
-                ? artifactError.message
-                : String(artifactError),
-            kind: "prompt",
-            status: "failed",
-            title: "Failed to save tool prompt",
-          }),
-        );
-      }
-    }
-
-    const runtimeResult = await modelRuntime.generateTextStream({
+    const runtimeResultPromise = modelRuntime.generateTextStream({
       abortSignal: abortController.signal,
       maxToolSteps: snapshotRef.current.settings.maxToolSteps,
       messages: runtimeMessages,
@@ -989,7 +987,7 @@ export async function executeClaimedAgentRun(
         markActivity();
         assistantText += delta;
         schedulePersist("streaming");
-        syncAssistantSnapshot("streaming");
+        throttleSnapshot("streaming");
       },
       onEvent: (eventName, data) => {
         markActivity();
@@ -1049,6 +1047,82 @@ export async function executeClaimedAgentRun(
       system: runtimeSystem,
       tools: runtimeTools,
     });
+
+    const persistArtifacts = (async () => {
+      try {
+        const modelArtifactInput = buildModelPromptArtifact({
+          messages: runtimeMessages,
+          model: resolvedModel,
+          run,
+          system: runtimeSystem,
+        });
+        const modelPromptFile = await workspaceService.createManagedTextFile({
+          content: modelArtifactInput.content,
+          folderSegments: ["prompts"],
+          name: modelArtifactInput.fileName,
+        });
+
+        recordPromptArtifact(
+          createPromptArtifactRecord({
+            category: "model",
+            displayName: modelPromptFile.displayName,
+            fileId: modelPromptFile.id,
+            relativePath: modelPromptFile.relativePath,
+          }),
+        );
+      } catch (artifactError) {
+        pushTimelineEvent(
+          createExecutionTimelineEvent({
+            detail:
+              artifactError instanceof Error
+                ? artifactError.message
+                : String(artifactError),
+            kind: "prompt",
+            status: "failed",
+            title: "Failed to save model prompt",
+          }),
+        );
+      }
+
+      if (runtimeTools && Object.keys(runtimeTools).length > 0) {
+        try {
+          const toolArtifactInput = buildToolContextArtifact({
+            run,
+            system: runtimeSystem,
+            toolNames: Object.keys(runtimeTools),
+          });
+          const toolPromptFile = await workspaceService.createManagedTextFile({
+            content: toolArtifactInput.content,
+            folderSegments: ["tools"],
+            name: toolArtifactInput.fileName,
+          });
+
+          recordPromptArtifact(
+            createPromptArtifactRecord({
+              category: "tool",
+              displayName: toolPromptFile.displayName,
+              fileId: toolPromptFile.id,
+              relativePath: toolPromptFile.relativePath,
+            }),
+          );
+        } catch (artifactError) {
+          pushTimelineEvent(
+            createExecutionTimelineEvent({
+              detail:
+                artifactError instanceof Error
+                  ? artifactError.message
+                  : String(artifactError),
+              kind: "prompt",
+              status: "failed",
+              title: "Failed to save tool prompt",
+            }),
+          );
+        }
+      }
+    })();
+
+    const runtimeResult = await runtimeResultPromise;
+    await persistArtifacts;
 
     await Promise.allSettled(pendingArtifactWrites);
 
@@ -1168,6 +1242,83 @@ export async function executeClaimedAgentRun(
     const finalStatus =
       requestAborted && !requestTimedOut ? "canceled" : "failed";
 
+    const retryClassification = requestAborted
+      ? { retryable: false, category: "permanent" as const }
+      : classifyRetryableError(sendError);
+
+    const currentRetryCount = run.retryCount ?? 0;
+    const maxRetries = run.maxRetries ?? 3;
+
+    if (
+      retryClassification.retryable &&
+      currentRetryCount < maxRetries &&
+      finalStatus !== "canceled"
+    ) {
+      const nextRetryCount = currentRetryCount + 1;
+      const delayMs = getRetryDelayMs(
+        currentRetryCount,
+        retryClassification.category,
+      );
+
+      await updateRunRecord(run.id, {
+        completedAt: null,
+        lastError: errorMessage,
+        status: "retrying",
+        retryCount: nextRetryCount,
+        lastRetryAt: new Date().toISOString(),
+      });
+
+      const retryMeta = buildAssistantMetadata({
+        executionTimeline: [
+          ...executionTimeline,
+          createExecutionTimelineEvent({
+            detail: `Attempt ${nextRetryCount}/${maxRetries} failed: ${errorMessage}. Retrying in ${Math.round(delayMs / 1000)}s...`,
+            kind: "run",
+            status: "info",
+            title: `Retrying (${nextRetryCount}/${maxRetries})`,
+          }),
+        ],
+        memoryEvents,
+        promptArtifacts,
+        reasoning: reasoning.map((block) => ({
+          ...block,
+          completedAt: block.completedAt ?? new Date().toISOString(),
+        })),
+        runId: run.id,
+        toolExecutions,
+      });
+
+      await flushPersist("streaming", null, retryMeta);
+
+      setSnapshot((current) => ({
+        ...current,
+        agentRuns: upsertAgentRun(current.agentRuns, {
+          ...run,
+          lastError: errorMessage,
+          retryCount: nextRetryCount,
+          status: "retrying",
+        }),
+        messages:
+          current.currentConversation?.id === conversation.id
+            ? upsertMessages(current.messages, [
+                {
+                  ...assistantMessage,
+                  content:
+                    assistantText ||
+                    `Retrying (${nextRetryCount}/${maxRetries})...`,
+                  error: null,
+                  metadata: retryMeta,
+                  status: "streaming",
+                },
+              ])
+            : current.messages,
+      }));
+
+      retryRun(run.id, delayMs);
+
+      return;
+    }
+
     if (!assistantText) {
       assistantText = requestAborted
         ? requestTimedOut
@@ -1197,7 +1348,7 @@ export async function executeClaimedAgentRun(
     });
 
     await flushPersist(
-      finalStatus === "canceled" ? "failed" : "failed",
+      "failed",
       finalStatus === "canceled" ? null : errorMessage,
       assistantMetadata,
     );
@@ -1245,6 +1396,10 @@ export async function executeClaimedAgentRun(
     //   }).catch(() => {});
     // }
   } finally {
+    if (snapshotRef.current.settings.backgroundAgentEnabled) {
+      stopBackgroundAgent();
+    }
+
     await mcpRuntime?.close();
 
     if (inactivityTimeout) {

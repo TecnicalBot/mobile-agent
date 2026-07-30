@@ -19,9 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { invalidateLiveModelCatalog } from "@/lib/config/live-model-catalog";
-import { fetchOnDeviceModelCatalogCached } from "@/lib/on-device/catalog";
-import { getOnDeviceToolsMode } from "@/lib/on-device/runtime-policy";
+import { invalidateLiveModelCatalog } from "@/modules/config/live-model-catalog";
+import { fetchOnDeviceModelCatalogCached } from "@/modules/on-device/catalog";
+import { getOnDeviceToolsMode } from "@/modules/on-device/runtime-policy";
 import {
   cancelPersistentModelDownload,
   getPersistentModelDownloadStatus,
@@ -29,15 +29,15 @@ import {
   preparePersistentModelDownloadNotifications,
   startPersistentModelDownload,
   type PersistentModelDownloadState,
-} from "@/lib/on-device/model-download";
-import { cn } from "@/lib/utils";
+} from "@/modules/on-device/model-download";
+import { cn } from "@/core/utils";
 import {
   createModelRef,
   type CuratedModelDefinition,
   type ModelRef,
   type ProviderConfig,
   type ResolvedModel,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 type ProviderListItem = {
   key: string;

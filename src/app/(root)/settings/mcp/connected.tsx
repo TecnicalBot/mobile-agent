@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { isMcpOAuthCanceledError } from "@/lib/mcp/oauth";
+import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
 
 export default function ConnectedMcpServersScreen() {
   const router = useRouter();

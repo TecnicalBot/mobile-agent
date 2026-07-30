@@ -12,7 +12,7 @@ import {
 } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 type Position = {
   x: number;

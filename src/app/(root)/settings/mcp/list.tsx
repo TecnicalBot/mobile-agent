@@ -10,8 +10,8 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { fetchMcpServerCatalog, type McpServerPreset } from "@/lib/mcp/catalog";
-import { isMcpOAuthCanceledError } from "@/lib/mcp/oauth";
+import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
+import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
 
 function normalizeMcpUrl(value: string) {
   try {

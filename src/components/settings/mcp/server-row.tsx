@@ -4,8 +4,8 @@ import { Pressable, Text, View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
-import type { McpServerConfig } from "@/types/app-state";
+import { cn } from "@/core/utils";
+import type { McpServerConfig } from "@/core/types/app-state";
 
 function formatMcpError(message: string) {
   const withoutMachineCode = message.replace(

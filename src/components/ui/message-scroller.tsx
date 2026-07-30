@@ -27,7 +27,7 @@ import {
 } from "react-native";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 type ScrollState = {
   end: boolean;

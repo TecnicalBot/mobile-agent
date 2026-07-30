@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchLiveModelCatalogCached } from "@/lib/config/live-model-catalog";
+import { fetchLiveModelCatalogCached } from "@/modules/config/live-model-catalog";
 
 export function useLiveModelCatalog() {
   return useQuery({

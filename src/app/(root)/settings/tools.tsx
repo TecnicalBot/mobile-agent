@@ -13,9 +13,9 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   BUILT_IN_FILE_TOOL_CONTROLS,
   isBuiltInFileToolEnabled,
-} from "@/lib/config/built-in-tools";
-import { cn } from "@/lib/utils";
-import type { BuiltInToolKey } from "@/types/app-state";
+} from "@/modules/config/built-in-tools";
+import { cn } from "@/core/utils";
+import type { BuiltInToolKey } from "@/core/types/app-state";
 
 export default function SettingsToolsScreen() {
   const router = useRouter();

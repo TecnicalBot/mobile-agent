@@ -16,7 +16,7 @@ import type {
 } from "react";
 import { Text, View } from "react-native";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 const avatarVariants = cva(
   "relative shrink-0 items-center justify-center overflow-hidden rounded-full bg-card dark:bg-card-dark",

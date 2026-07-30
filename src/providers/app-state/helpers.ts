@@ -2,8 +2,8 @@ import type { ModelMessage } from "ai";
 
 import {
   BUILT_IN_FILE_TOOL_CONTROLS,
-} from "@/lib/config/built-in-tools";
-import { summarizeValue } from "@/lib/tools/built-in/shared";
+} from "@/modules/config/built-in-tools";
+import { summarizeValue } from "@/modules/tools/built-in/shared";
 import type {
   AgentRun,
   BuiltInToolSettings,
@@ -23,7 +23,7 @@ import type {
   StoredMessage,
   ToolExecutionRecord,
   WorkspaceFile,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 export function sortConversations(conversations: Conversation[]) {
   return [...conversations].sort((left, right) =>

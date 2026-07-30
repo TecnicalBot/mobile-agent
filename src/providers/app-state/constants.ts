@@ -1,9 +1,9 @@
-import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/lib/config/built-in-tools";
+import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/modules/config/built-in-tools";
 import type {
   AppSettings,
   AppStateSnapshot,
   ResolvedConfig,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 export const REQUEST_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
@@ -54,6 +54,7 @@ export const EMPTY_SETTINGS: AppSettings = {
   maxToolSteps: 50,
   themeMode: "system",
   toolApprovalMode: "ask",
+  backgroundAgentEnabled: true,
 };
 
 export const EMPTY_RESOLVED_CONFIG: ResolvedConfig = {

@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Platform, ScrollView, View } from 'react-native';
 
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/utils';
 
 export type ContainerProps = PropsWithChildren<{
   className?: string;

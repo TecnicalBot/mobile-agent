@@ -2,7 +2,7 @@ import { forwardRef } from 'react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { Text } from 'react-native';
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/utils';
 
 export type LabelProps = ComponentPropsWithoutRef<typeof Text> & {
   className?: string;

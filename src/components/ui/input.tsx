@@ -4,7 +4,7 @@ import type { ComponentPropsWithoutRef } from 'react';
 import { TextInput } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/utils';
 
 const inputVariants = cva(
   'rounded-ui border bg-input px-sp-4 py-sp-3 font-sans text-base text-foreground dark:bg-input-dark dark:text-foreground-dark',

@@ -18,7 +18,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 const EMPTY_MEMORY = "# Memory\n";
 

@@ -29,13 +29,13 @@ import {
 import { Loading } from "@/components/ui/loading";
 import { Message, MessageFooter } from "@/components/ui/message";
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 import type {
   ExecutionTimelineEvent,
   GeneratedImageAttachment,
   ReasoningBlock,
   StoredMessage,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 import { Asset } from "expo-media-library";
 
 type ChatMessageProps = {

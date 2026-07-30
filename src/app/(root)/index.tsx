@@ -19,7 +19,7 @@ import {
   Upload,
   X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   Platform,
@@ -67,17 +67,17 @@ import { useChat } from "@/hooks/use-chat";
 import { useChatInfo } from "@/hooks/use-chat-info";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { detectFolderIntent } from "@/lib/chat/folder-intent";
-import { partitionSelectedFiles } from "@/lib/runtime/message-conversion";
-import { cn } from "@/lib/utils";
-import { resolveWorkspaceFile } from "@/lib/workspace/workspace-file-service";
+import { detectFolderIntent } from "@/modules/chat/folder-intent";
+import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
+import { cn } from "@/core/utils";
+import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
   ExternalFolderSession,
   ModelRef,
   ReasoningEffort,
   SkillConfig,
   WorkspaceFile,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 const REASONING_EFFORT_OPTIONS: {
   value: ReasoningEffort;
@@ -157,6 +157,7 @@ function logComposerDebug(label: string, data: Record<string, unknown>) {
   if (!__DEV__) {
     return;
   }
+  console.log(`[Composer:${label}]`, JSON.stringify(data));
 }
 
 export default function Screen() {
@@ -662,6 +663,7 @@ function ChatInput({
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
   const { scrollToEnd } = useMessageScroller();
+  const sendingRef = useRef(false);
   const [prompt, setPrompt] = useState("");
   const [composerContentHeight, setComposerContentHeight] = useState(0);
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
@@ -754,6 +756,11 @@ function ChatInput({
     !(selectedAttachmentBuckets.binaryFiles.length > 0 && !supportsTools);
 
   const handleGenerate = async () => {
+    if (sendingRef.current) {
+      logComposerDebug("handle-generate-duplicate", {});
+      return;
+    }
+
     const cleanPrompt = prompt.trim();
     const folderIntent = detectFolderIntent(cleanPrompt);
     const nextFileContextSource =
@@ -771,6 +778,13 @@ function ChatInput({
       (!cleanPrompt && selectedFileIds.length === 0) ||
       !canAttachSelectedFiles
     ) {
+      const reason = loading
+        ? "loading"
+        : !canSend
+          ? "canSend"
+          : !canAttachSelectedFiles
+            ? "canAttachSelectedFiles"
+            : "empty";
       logComposerDebug("handle-generate-blocked", {
         canAttachSelectedFiles,
         canSend,
@@ -778,8 +792,15 @@ function ChatInput({
         hasSelectedFiles: selectedFileIds.length > 0,
         loading,
         promptLength: prompt.length,
+        reason,
         selectedFileIds,
       });
+      if (__DEV__) {
+        Alert.alert(
+          "Send blocked",
+          `Reason: ${reason}\nloading: ${loading}\ncanSend: ${canSend}\ncanAttach: ${canAttachSelectedFiles}`,
+        );
+      }
       return;
     }
 
@@ -822,6 +843,7 @@ function ChatInput({
       selectedFileIds: previousSelectedFileIds,
     });
 
+    sendingRef.current = true;
     try {
       await onSend({
         content: cleanPrompt,
@@ -833,12 +855,18 @@ function ChatInput({
       });
       setFolderNotice(null);
     } catch (sendError) {
+      const errorMessage =
+        sendError instanceof Error ? sendError.message : String(sendError);
       logComposerDebug("handle-generate-send-error", {
-        message:
-          sendError instanceof Error ? sendError.message : String(sendError),
+        message: errorMessage,
       });
+      if (__DEV__) {
+        Alert.alert("Send failed", errorMessage);
+      }
       setPrompt(previousPrompt);
       await setSelectedFileIds(previousSelectedFileIds);
+    } finally {
+      sendingRef.current = false;
     }
   };
 
@@ -1254,13 +1282,13 @@ function ChatInput({
 
         <View className="relative rounded-3xl border border-border bg-background dark:border-border-dark dark:bg-background-dark">
           <TextInputWrapper
-            style={{ height: compactComposerHeight, width: "100%" }}
+            style={{ height: compactComposerHeight - 52, width: "100%" }}
             onPaste={(payload) => {
               handlePaste(payload).catch(console.error);
             }}
           >
             <Textarea
-              className="rounded-full border-0 bg-transparent px-0 py-0 pb-12 pr-16"
+              className="rounded-full border-0 bg-transparent px-0 py-0"
               onChangeText={setPrompt}
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);
@@ -1269,9 +1297,14 @@ function ChatInput({
                 scrollToEnd();
               }}
               placeholder="Type a message..."
+              returnKeyType="send"
               scrollEnabled={showExpandComposer}
-              style={{ height: compactComposerHeight }}
+              submitBehavior="submit"
+              style={{ height: compactComposerHeight - 52 }}
               value={prompt}
+              onSubmitEditing={() => {
+                handleGenerate().catch(console.error);
+              }}
             />
           </TextInputWrapper>
 
@@ -1283,61 +1316,82 @@ function ChatInput({
               onPress={() => {
                 setExpandedComposerOpen(true);
               }}
-              style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
+              style={({ pressed }) => ({
+                elevation: 2,
+                opacity: pressed ? 0.72 : 1,
+                zIndex: 10,
+              })}
             >
               <Maximize2 color={theme.textSecondary} size={17} />
             </Pressable>
           ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            className="absolute bottom-2 left-2 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
-            onPress={() => {
-              setApprovalModeDrawerOpen(true);
-            }}
-            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-          >
-            <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-              {toolApprovalMode === "ask" ? "Ask" : "Allow"}
-            </Text>
-            <ChevronDown color={theme.textSecondary} size={14} />
-          </Pressable>
+          <View className="h-[52px] flex-row items-center gap-2 px-2 pb-2">
+            <Pressable
+              accessibilityRole="button"
+              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+              onPress={() => {
+                setApprovalModeDrawerOpen(true);
+              }}
+              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+            >
+              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+                {toolApprovalMode === "ask" ? "Ask" : "Allow"}
+              </Text>
+              <ChevronDown color={theme.textSecondary} size={14} />
+            </Pressable>
 
-          <Pressable
-            accessibilityLabel="Select reasoning level"
-            accessibilityRole="button"
-            className="absolute bottom-2 left-20 flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
-            onPress={() => {
-              setReasoningDrawerOpen(true);
-            }}
-            style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-          >
-            <Brain color={theme.textSecondary} size={14} />
-            <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-              {getReasoningEffortLabel(reasoningEffort)}
-            </Text>
-            <ChevronDown color={theme.textSecondary} size={14} />
-          </Pressable>
+            <Pressable
+              accessibilityLabel="Select reasoning level"
+              accessibilityRole="button"
+              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+              onPress={() => {
+                setReasoningDrawerOpen(true);
+              }}
+              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+            >
+              <Brain color={theme.textSecondary} size={14} />
+              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+                {getReasoningEffortLabel(reasoningEffort)}
+              </Text>
+              <ChevronDown color={theme.textSecondary} size={14} />
+            </Pressable>
 
-          <Button
-            className="absolute bottom-2 right-2 rounded-full"
-            disabled={sendDisabled}
-            onPress={() => {
-              if (loading) {
-                onStop().catch(console.error);
-                return;
-              }
-
-              handleGenerate().catch(console.error);
-            }}
-            size="icon"
-          >
-            {loading ? (
-              <StopCircle color={theme.background} size={18} />
-            ) : (
-              <Send color={theme.background} size={18} />
-            )}
-          </Button>
+            <View className="flex-1" />
+            <Pressable
+              accessibilityLabel={loading ? "Stop generating" : "Send message"}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: sendDisabled }}
+              className="h-12 w-12 items-center justify-center rounded-full bg-foreground dark:bg-foreground-dark"
+              disabled={sendDisabled}
+              hitSlop={8}
+              onPress={() => {
+                if (sendDisabled) return;
+                if (loading) {
+                  onStop().catch(console.error);
+                  return;
+                }
+                handleGenerate().catch(console.error);
+              }}
+              onPressIn={() => {
+                if (sendDisabled) return;
+                if (loading) {
+                  onStop().catch(console.error);
+                  return;
+                }
+                handleGenerate().catch(console.error);
+              }}
+              style={({ pressed }) => ({
+                opacity: sendDisabled ? 0.5 : pressed ? 0.85 : 1,
+              })}
+            >
+              {loading ? (
+                <StopCircle color={theme.background} size={18} />
+              ) : (
+                <Send color={theme.background} size={18} />
+              )}
+            </Pressable>
+          </View>
         </View>
 
         <Text className="px-sp-1 font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">

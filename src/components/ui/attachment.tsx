@@ -4,7 +4,7 @@ import type { ComponentPropsWithoutRef, ComponentRef, ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
-import { cn, withSlottedProps } from "@/lib/utils";
+import { cn, withSlottedProps } from "@/core/utils";
 
 const attachmentVariants = cva(
   "relative overflow-hidden rounded-card border border-border bg-card dark:border-border-dark dark:bg-card-dark",

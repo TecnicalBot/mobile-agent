@@ -11,12 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
-import { fetchMcpServerCatalog, type McpServerPreset } from "@/lib/mcp/catalog";
+import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
 import type {
   McpServerAuthMode,
   McpServerConfig,
   McpServerTransport,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 type Draft = {
   authMode: McpServerAuthMode;

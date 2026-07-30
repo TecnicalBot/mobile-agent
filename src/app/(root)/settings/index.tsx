@@ -1,8 +1,9 @@
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,12 +21,18 @@ import { Separator } from "@/components/ui/separator";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { countEnabledBuiltInFileTools } from "@/lib/config/built-in-tools";
-import { cn } from "@/lib/utils";
+import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
+import {
+  isBackgroundAgentHeld,
+  requestBatteryOptimizationExemption,
+  requestNotificationPermission,
+  hasNotificationPermission,
+} from "background-agent-service";
+import { cn } from "@/core/utils";
 import { useUpdate } from "@/providers/check-for-updates";
-import type { DatabaseMode, ModelRef } from "@/types/app-state";
+import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 
-type DrawerKey = "current-model" | "db" | "theme" | null;
+type DrawerKey = "current-model" | "db" | "theme" | "background" | null;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -33,6 +40,7 @@ export default function SettingsScreen() {
   const { error, hydrating, ready } = useAppState();
   const {
     activeModels,
+    backgroundAgentEnabled,
     currentModel,
     databaseMode,
     databaseUrl,
@@ -43,6 +51,7 @@ export default function SettingsScreen() {
     skills,
     themeMode,
     toolSettings,
+    updateBackgroundAgentEnabled,
     updateDatabaseSettings,
     updateThemeMode,
     providers,
@@ -51,10 +60,28 @@ export default function SettingsScreen() {
   const [databaseUrlInput, setDatabaseUrlInput] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState<DrawerKey>(null);
+  const [agentActive, setAgentActive] = useState(false);
+  const [notificationGranted, setNotificationGranted] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
     setDatabaseUrlInput(databaseUrl ?? "");
   }, [databaseUrl]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const poll = setInterval(async () => {
+      setAgentActive(await isBackgroundAgentHeld());
+    }, 2000);
+    return () => clearInterval(poll);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    hasNotificationPermission().then(setNotificationGranted);
+  }, [openDrawer]);
+
   const providerCount = providers.length;
   const enabledToolCount = countEnabledBuiltInFileTools(toolSettings);
   const enabledMcpServerCount = mcpServers.filter(
@@ -132,6 +159,66 @@ export default function SettingsScreen() {
           }}
           value={memoryEnabled ? "Local" : "Disabled"}
         />
+        <Separator />
+        <Drawer
+          onOpenChange={(open) => {
+            setOpenDrawer(open ? "background" : null);
+          }}
+          open={openDrawer === "background"}
+        >
+          <DrawerTrigger asChild>
+            <SettingsLinkRow
+              label="Background agent"
+              value={
+                backgroundAgentEnabled
+                  ? agentActive
+                    ? "Active"
+                    : "Enabled"
+                  : "Disabled"
+              }
+            />
+          </DrawerTrigger>
+          <DrawerContent showCloseButton>
+            <DrawerHeader>
+              <DrawerTitle>Background agent</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-2">
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                Keeps the agent running when the app is in the background.
+                Uses a foreground service + wake lock (Android).
+              </Text>
+
+              <View className="flex-row items-center justify-between">
+                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                  Enabled
+                </Text>
+                <Checkbox
+                  checked={backgroundAgentEnabled}
+                  onCheckedChange={async (checked) => {
+                    await updateBackgroundAgentEnabled(checked);
+                    if (checked) {
+                      await requestBatteryOptimizationExemption();
+                    }
+                  }}
+                />
+              </View>
+
+              {Platform.OS === "android" && notificationGranted === false ? (
+                <Button
+                  onPress={async () => {
+                    await requestNotificationPermission();
+                    setNotificationGranted(
+                      await hasNotificationPermission(),
+                    );
+                  }}
+                  variant="outline"
+                >
+                  Enable notifications
+                </Button>
+              ) : null}
+            </DrawerBody>
+          </DrawerContent>
+        </Drawer>
         <Separator />
         <Drawer
           onOpenChange={(open) => {

@@ -8,6 +8,9 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "background-agent-service": [
+        "./modules/background-agent-service/index.ts"
       ]
     }
   },

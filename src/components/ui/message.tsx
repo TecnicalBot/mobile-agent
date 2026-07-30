@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, ComponentRef } from "react";
 import { createContext, forwardRef, useContext } from "react";
 import { Text, View } from "react-native";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 const messageVariants = cva("w-full flex-row gap-sp-2", {
   variants: {

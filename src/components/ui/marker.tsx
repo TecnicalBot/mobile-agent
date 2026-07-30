@@ -3,7 +3,7 @@ import { createContext, forwardRef, useContext } from "react";
 import type { ComponentPropsWithoutRef, ComponentRef, ReactNode } from "react";
 import { Text, View } from "react-native";
 
-import { cn, withSlottedProps } from "@/lib/utils";
+import { cn, withSlottedProps } from "@/core/utils";
 
 export const markerVariants = cva("self-center", {
   variants: {

@@ -4,19 +4,19 @@ import {
   fetchLiveModelCatalogCached,
   getCatalogModelDefinitionsForProvider,
   type LiveCatalogModel,
-} from "@/lib/config/live-model-catalog";
+} from "@/modules/config/live-model-catalog";
 import {
   fetchModelsDevCatalogCached,
   getModelsDevDefinitionsForProvider,
-} from "@/lib/config/models-dev-catalog";
+} from "@/modules/config/models-dev-catalog";
 import {
   fetchOnDeviceModelCatalogCached,
   getBundledOnDeviceModelCatalog,
   getOnDeviceModelDefinitions,
-} from "@/lib/on-device/catalog";
-import { fetchOllamaModels } from "@/lib/providers/ollama-models";
-import { resolveConfiguredModel } from "@/lib/config/registry";
-import { secureSecretStore } from "@/lib/secrets";
+} from "@/modules/on-device/catalog";
+import { fetchOllamaModels } from "@/modules/providers/ollama-models";
+import { resolveConfiguredModel } from "@/modules/config/registry";
+import { secureSecretStore } from "@/core/services/secrets";
 import {
   hasEnabledFolderTools,
   hasEnabledWorkspaceTools,
@@ -28,7 +28,7 @@ import type {
   ModelPreset,
   ProviderConfig,
   ResolvedConfig,
-} from "@/types/app-state";
+} from "@/core/types/app-state";
 
 function mergeModelOptions(
   discoveryOptions: CuratedModelDefinition["options"],

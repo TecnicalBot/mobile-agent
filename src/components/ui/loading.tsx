@@ -11,7 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 import { Loader } from "lucide-react-native";
 
 export type LoadingIndicatorProps = ComponentPropsWithoutRef<typeof View> & {

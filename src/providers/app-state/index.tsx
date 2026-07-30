@@ -16,33 +16,33 @@ import {
     useColorScheme as useSystemColorScheme,
 } from "react-native";
 
-import { createRepositories } from "@/lib/db/database";
-import { createExternalFolderService } from "@/lib/external-folder/external-folder-service";
-import { connectMcpOAuth } from "@/lib/mcp/oauth";
-import { testMcpServerConnection } from "@/lib/mcp/runtime-tools";
+import { createRepositories } from "@/core/db/database";
+import { createExternalFolderService } from "@/core/services/external-folder/external-folder-service";
+import { connectMcpOAuth } from "@/modules/mcp/oauth";
+import { testMcpServerConnection } from "@/modules/mcp/runtime-tools";
 import {
     notifyRunFinishedAsync,
     prepareRunNotificationsAsync,
-} from "@/lib/notifications/run-notifications";
+} from "@/modules/notifications/run-notifications";
 import {
     clearOpenAiTokens,
     getOpenAiAccessToken,
     getOpenAiRefreshToken,
     getOpenAiTokenInfo,
     handleLogin,
-} from "@/lib/openai-oauth";
-import { partitionSelectedFiles } from "@/lib/runtime/message-conversion";
-import { modelRuntime } from "@/lib/runtime/model-runtime";
-import { createExecutionTimelineEvent } from "@/lib/runtime/run-artifacts";
+} from "@/modules/providers/openai-oauth";
+import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
+import { modelRuntime } from "@/modules/runtime/model-runtime";
+import { createExecutionTimelineEvent } from "@/modules/runtime/run-artifacts";
 import {
     buildRunStatusByConversation,
     createPendingToolApproval,
     createRunControllerRegistry,
     isActiveAgentRunStatus,
     shouldAutoResumeRun,
-} from "@/lib/runtime/run-manager";
-import { secureSecretStore } from "@/lib/secrets";
-import { createWorkspaceFileService } from "@/lib/workspace/workspace-file-service";
+} from "@/modules/runtime/run-manager";
+import { secureSecretStore } from "@/core/services/secrets";
+import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import type {
     AgentRun,
     AppSettings,
@@ -65,8 +65,8 @@ import type {
     SkillConfig,
     StoredMessage,
     WorkspaceFile,
-} from "@/types/app-state";
-import { createModelRef } from "@/types/app-state";
+} from "@/core/types/app-state";
+import { createModelRef } from "@/core/types/app-state";
 
 import { executeClaimedAgentRun, type AgentRunDeps } from "./agent-run";
 import { resolveConfig } from "./config-resolution";
@@ -171,6 +171,7 @@ type AppStateContextValue = {
     messages: StoredMessage[];
     mcpServers: McpServerConfig[];
     resumePendingRuns: () => Promise<void>;
+    retryRun: (runId: string) => Promise<void>;
     runStatusByConversation: Record<string, AgentRun["status"] | null>;
     pickConversationFolder: () => Promise<ExternalFolderSession>;
     clearConversationFolder: () => Promise<void>;
@@ -225,6 +226,7 @@ type AppStateContextValue = {
     ) => Promise<void>;
     updateMaxToolSteps: (maxToolSteps: number) => Promise<void>;
     updateThemeMode: (mode: AppSettings["themeMode"]) => Promise<void>;
+    updateBackgroundAgentEnabled: (enabled: boolean) => Promise<void>;
     updateProvider: (
         providerId: string,
         input: {
@@ -321,7 +323,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
     function resolvePendingToolApproval(
         approval: PendingToolApproval,
-        decision: import("@/lib/runtime/run-manager").ToolApprovalDecision,
+        decision: import("@/modules/runtime/run-manager").ToolApprovalDecision,
     ) {
         runRegistryRef.current.resolvePendingApproval(
             approval.runId,
@@ -338,7 +340,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         request: PendingToolApprovalRequest,
     ) {
         if (snapshotRef.current.settings.toolApprovalMode !== "ask") {
-            return "approve" satisfies import("@/lib/runtime/run-manager").ToolApprovalDecision;
+            return "approve" satisfies import("@/modules/runtime/run-manager").ToolApprovalDecision;
         }
 
         const conversation =
@@ -354,7 +356,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         setPendingToolApprovals((current) => [...current, approval]);
 
         return await new Promise<
-            import("@/lib/runtime/run-manager").ToolApprovalDecision
+            import("@/modules/runtime/run-manager").ToolApprovalDecision
         >((resolve) => {
             runRegistryRef.current.registerPendingApproval(
                 run.id,
@@ -572,7 +574,7 @@ Your output must be:
             const agentRuns = await repositories.agentRunRepository.list();
             const staleRuns = agentRuns.filter(
                 (run) =>
-                    (run.status === "running" || run.status === "waiting_for_approval") &&
+                    (run.status === "running" || run.status === "waiting_for_approval" || run.status === "retrying") &&
                     !runRegistryRef.current.owns(run.id),
             );
 
@@ -1150,6 +1152,11 @@ Your output must be:
         await hydrate();
     }
 
+    async function updateBackgroundAgentEnabled(enabled: boolean) {
+        await repositoriesRef.current.configRepository.setBackgroundAgentEnabled(enabled);
+        await hydrate();
+    }
+
     function setOpenAIOAuthEmailInSnapshot(email: string | null) {
         setSnapshot((current) => {
             const providers = current.resolvedConfig.providers.map((provider) =>
@@ -1519,6 +1526,11 @@ Your output must be:
                 setSnapshot,
                 setError,
                 setPendingToolApprovals,
+                retryRun: (retryRunId, delayMs) => {
+                    setTimeout(() => {
+                        executeAgentRun(retryRunId).catch(() => {});
+                    }, delayMs);
+                },
             };
 
             await executeClaimedAgentRun(runId, deps);
@@ -1540,6 +1552,48 @@ Your output must be:
                 } catch { }
             }),
         );
+    }
+
+    async function retryRun(runId: string) {
+        const run = snapshotRef.current.agentRuns.find((r) => r.id === runId);
+        if (!run || (run.status !== "failed" && run.status !== "canceled")) {
+            return;
+        }
+
+        await repositoriesRef.current.agentRunRepository.update(runId, {
+            completedAt: null,
+            lastError: null,
+            status: "resumable",
+            retryCount: 0,
+        });
+
+        await repositoriesRef.current.messageRepository.updateContent({
+            id: run.assistantMessageId,
+            content: "",
+            error: null,
+            status: "streaming",
+        });
+
+        setSnapshot((current) => ({
+            ...current,
+            agentRuns: upsertAgentRun(current.agentRuns, {
+                ...run,
+                completedAt: null,
+                lastError: null,
+                retryCount: 0,
+                status: "resumable",
+            }),
+            messages: current.currentConversation?.id === run.conversationId
+                ? upsertMessages(current.messages, [{
+                    ...current.messages.find((m) => m.id === run.assistantMessageId)!,
+                    content: "",
+                    error: null,
+                    status: "streaming",
+                }])
+                : current.messages,
+        }));
+
+        await executeAgentRun(runId);
     }
 
     async function cancelRun(input?: {
@@ -1763,7 +1817,7 @@ Your output must be:
             skills: snapshotRef.current.skills,
         });
         const appliedSkillIds = appliedSkills.map((skill) => skill.id);
-        const userMetadataEntries: import("@/types/app-state").MessageMetadata = {};
+        const userMetadataEntries: import("@/core/types/app-state").MessageMetadata = {};
 
         if (selectedFileIds.length > 0 || fileContextSource === "external-folder") {
             userMetadataEntries.externalFolderDisplayName =
@@ -1779,7 +1833,7 @@ Your output must be:
             userMetadataEntries.appliedSkillIds = appliedSkillIds;
         }
 
-        const userMetadata: import("@/types/app-state").MessageMetadata | null =
+        const userMetadata: import("@/core/types/app-state").MessageMetadata | null =
             Object.keys(userMetadataEntries).length > 0 ? userMetadataEntries : null;
         const userMessage = await repositories.messageRepository.create({
             conversationId: conversation.id,
@@ -1956,6 +2010,7 @@ Your output must be:
                 refresh,
                 refreshWorkspaceFiles,
                 resumePendingRuns,
+                retryRun,
                 resolvedConfig: snapshot.resolvedConfig,
                 runStatusByConversation,
                 saveProviderApiKey,
@@ -1982,6 +2037,7 @@ Your output must be:
                 updateSkill,
                 updateToolApprovalMode,
                 updateThemeMode,
+                updateBackgroundAgentEnabled,
                 updateMaxToolSteps,
                 updateProvider,
                 workspaceFiles: snapshot.workspaceFiles,
@@ -2066,6 +2122,8 @@ export function useConfig() {
         updateSkill: context.updateSkill,
         updateToolApprovalMode: context.updateToolApprovalMode,
         updateThemeMode: context.updateThemeMode,
+        updateBackgroundAgentEnabled: context.updateBackgroundAgentEnabled,
+        backgroundAgentEnabled: context.settings.backgroundAgentEnabled,
         updateMaxToolSteps: context.updateMaxToolSteps,
         maxToolSteps: context.settings.maxToolSteps,
         updateProvider: context.updateProvider,
@@ -2099,6 +2157,7 @@ export function useChat() {
         messages: context.messages,
         pickConversationFolder: context.pickConversationFolder,
         resumePendingRuns: context.resumePendingRuns,
+        retryRun: context.retryRun,
         runStatusByConversation: context.runStatusByConversation,
         selectConversation: context.selectConversation,
         sendMessage: context.sendMessage,
@@ -2107,7 +2166,8 @@ export function useChat() {
             currentConversationRunStatus === "queued" ||
             currentConversationRunStatus === "running" ||
             currentConversationRunStatus === "waiting_for_approval" ||
-            currentConversationRunStatus === "resumable",
+            currentConversationRunStatus === "resumable" ||
+            currentConversationRunStatus === "retrying",
         stopSending: context.stopSending,
         reasoningEffort: context.reasoningEffort,
         setReasoningEffort: context.setReasoningEffort,

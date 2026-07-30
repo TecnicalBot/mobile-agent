@@ -25,7 +25,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 type SelectContextValue = {
   disabled: boolean;

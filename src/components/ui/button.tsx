@@ -4,7 +4,7 @@ import { forwardRef } from "react";
 import { ActivityIndicator, Pressable, Text } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@/core/utils";
 
 const buttonVariants = cva(
   "flex-row items-center justify-center gap-sp-2 rounded-ui",

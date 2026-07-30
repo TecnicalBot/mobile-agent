@@ -1,4 +1,5 @@
 import type { DocumentPickerAsset } from "expo-document-picker";
+import * as Crypto from "expo-crypto";
 import { useSQLiteContext } from "expo-sqlite";
 import { colorScheme } from "nativewind";
 import {
@@ -512,6 +513,19 @@ Your output must be:
 
             let settings = await repositories.configRepository.getSettings();
             let conversations = await repositories.conversationRepository.list();
+
+            // Clean up empty "New chat" conversations that were never used
+            for (const conv of conversations) {
+                if (conv.title !== "New chat") continue;
+                const msgs = await repositories.messageRepository.listByConversation(
+                    conv.id,
+                );
+                if (msgs.length > 0) continue;
+                if (conversations.length <= 1 && conv.id === settings.activeConversationId) continue;
+                await repositories.conversationRepository.deleteById(conv.id);
+            }
+
+            conversations = await repositories.conversationRepository.list();
 
             if (conversations.length === 0) {
                 const firstConversation =
@@ -1219,22 +1233,24 @@ Your output must be:
     }
 
     async function createConversation() {
-        const repositories = repositoriesRef.current;
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
-        const conversation = await repositories.conversationRepository.create({
-            title: "New chat",
-            providerId: currentModel?.providerId ?? null,
+        const now = new Date().toISOString();
+        const conversation: Conversation = {
+            archivedAt: null,
+            createdAt: now,
+            externalFolderSession: null,
+            id: Crypto.randomUUID(),
             modelId: currentModel?.modelId ?? null,
-        });
-
-        await repositories.configRepository.setSetting(
-            "active_conversation_id",
-            conversation.id,
-        );
+            providerId: currentModel?.providerId ?? null,
+            reasoningEffort: "medium",
+            selectedFileIds: [],
+            selectedSkillIds: [],
+            title: "New chat",
+            updatedAt: now,
+        };
 
         setSnapshot((current) => ({
             ...current,
-            conversations: upsertConversation(current.conversations, conversation),
             currentConversation: conversation,
             currentSelectedFileIds: [],
             currentSelectedSkillIds: [],
@@ -1399,6 +1415,8 @@ Your output must be:
             return;
         }
 
+        await ensureConversationPersisted(currentConversation);
+
         const nextSelectedFileIds = Array.from(
             new Set(selectedFileIds.filter(Boolean)),
         );
@@ -1437,6 +1455,8 @@ Your output must be:
         if (!currentConversation) {
             return;
         }
+
+        await ensureConversationPersisted(currentConversation);
 
         const existingSkillIds = new Set(
             snapshotRef.current.skills.map((skill) => skill.id),
@@ -1481,6 +1501,8 @@ Your output must be:
             return;
         }
 
+        await ensureConversationPersisted(currentConversation);
+
         await repositoriesRef.current.conversationRepository.updateMetadata(
             currentConversation.id,
             { reasoningEffort: effort },
@@ -1497,6 +1519,35 @@ Your output must be:
                 current.currentConversation?.id === currentConversation.id
                     ? { ...current.currentConversation, reasoningEffort: effort }
                     : current.currentConversation,
+        }));
+    }
+
+    async function ensureConversationPersisted(conversation: Conversation) {
+        const repositories = repositoriesRef.current;
+        const exists = await repositories.conversationRepository.getById(
+            conversation.id,
+        );
+        if (exists) return;
+
+        const saved = await repositories.conversationRepository.create({
+            id: conversation.id,
+            title: conversation.title,
+            providerId: conversation.providerId,
+            modelId: conversation.modelId,
+        });
+
+        await repositories.configRepository.setSetting(
+            "active_conversation_id",
+            saved.id,
+        );
+
+        setSnapshot((current) => ({
+            ...current,
+            conversations: upsertConversation(current.conversations, saved),
+            settings: {
+                ...current.settings,
+                activeConversationId: saved.id,
+            },
         }));
     }
 
@@ -1620,47 +1671,45 @@ Your output must be:
             return;
         }
 
-        const ownedLocally = runRegistryRef.current.stopRun(targetRun.id);
+        runRegistryRef.current.stopRun(targetRun.id);
 
-        if (!ownedLocally) {
-            await updateRunRecord(targetRun.id, {
-                completedAt: new Date().toISOString(),
-                lastError: null,
-                status: "canceled",
-            });
-            await repositoriesRef.current.messageRepository.updateContent({
-                id: targetRun.assistantMessageId,
-                content: "Stopped.",
-                error: null,
-                metadata: {
-                    runId: targetRun.id,
-                },
-                status: "failed",
-            });
+        await updateRunRecord(targetRun.id, {
+            completedAt: new Date().toISOString(),
+            lastError: null,
+            status: "canceled",
+        });
+        await repositoriesRef.current.messageRepository.updateContent({
+            id: targetRun.assistantMessageId,
+            content: "Stopped.",
+            error: null,
+            metadata: {
+                runId: targetRun.id,
+            },
+            status: "failed",
+        });
 
-            setSnapshot((current) => ({
-                ...current,
-                messages:
-                    current.currentConversation?.id === targetRun.conversationId
-                        ? upsertMessages(current.messages, [
-                            {
-                                content: "Stopped.",
-                                conversationId: targetRun.conversationId,
-                                createdAt: targetRun.startedAt,
-                                error: null,
-                                id: targetRun.assistantMessageId,
-                                metadata: {
-                                    runId: targetRun.id,
-                                },
-                                role: "assistant",
-                                sequence: Number.MAX_SAFE_INTEGER,
-                                status: "failed",
-                                updatedAt: new Date().toISOString(),
+        setSnapshot((current) => ({
+            ...current,
+            messages:
+                current.currentConversation?.id === targetRun.conversationId
+                    ? upsertMessages(current.messages, [
+                        {
+                            content: "Stopped.",
+                            conversationId: targetRun.conversationId,
+                            createdAt: targetRun.startedAt,
+                            error: null,
+                            id: targetRun.assistantMessageId,
+                            metadata: {
+                                runId: targetRun.id,
                             },
-                        ])
-                        : current.messages,
-            }));
-        }
+                            role: "assistant",
+                            sequence: Number.MAX_SAFE_INTEGER,
+                            status: "failed",
+                            updatedAt: new Date().toISOString(),
+                        },
+                    ])
+                    : current.messages,
+        }));
     }
 
     async function stopSending() {
@@ -1782,6 +1831,8 @@ Your output must be:
         if (fileContextSource === "external-folder" && !externalFolderSession) {
             failSend("Pick a folder for this chat before using folder actions.");
         }
+
+        await ensureConversationPersisted(conversation);
 
         setError(null);
         prepareRunNotificationsAsync().catch(() => { });

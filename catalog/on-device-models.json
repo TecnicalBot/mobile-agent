@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "models": [
     {
       "id": "gemma-e2b",
@@ -119,6 +119,147 @@
       "license": "MIT",
       "capabilities": {
         "tools": false,
+        "reasoning": false
+      }
+    },
+    {
+      "id": "qwen2.5-1.5b",
+      "name": "Qwen2.5 1.5B Instruct",
+      "parameterCount": "1.5B",
+      "quantization": "dynamic-int8",
+      "downloadUrl": "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+      "sha256": "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
+      "sizeBytes": 1597931520,
+      "contextWindow": 4096,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 6000000000,
+      "minRamBasis": "published-minimum",
+      "minRamSource": "https://github.com/google-ai-edge/gallery/blob/main/model_allowlists/1_0_15.json",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "Apache-2.0",
+      "capabilities": {
+        "tools": false,
+        "reasoning": false
+      }
+    },
+    {
+      "id": "deepseek-r1-1.5b",
+      "name": "DeepSeek R1 Distill Qwen 1.5B",
+      "parameterCount": "1.5B",
+      "quantization": "dynamic-int8",
+      "downloadUrl": "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.litertlm",
+      "sha256": "69b35f01759eed765641ab4af589bbe98131fd2825662a086d9037409b8c1295",
+      "sizeBytes": 1833451520,
+      "contextWindow": 4096,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 6000000000,
+      "minRamBasis": "published-minimum",
+      "minRamSource": "https://github.com/google-ai-edge/gallery/blob/main/model_allowlists/1_0_15.json",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "MIT",
+      "capabilities": {
+        "tools": false,
+        "reasoning": true
+      }
+    },
+    {
+      "id": "deepseek-r1-7b",
+      "name": "DeepSeek R1 Distill Qwen 7B",
+      "parameterCount": "7B",
+      "quantization": "int4-block32",
+      "downloadUrl": "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-7B/resolve/main/DeepSeek-R1-Distill-Qwen-7B_q4_block32_ekv4096.litertlm",
+      "sha256": "8eb98a628709eb02e31c2880fc4d2e2b78746f289bd6ffaf373a142412a54502",
+      "sizeBytes": 4531978224,
+      "contextWindow": 4096,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 12000000000,
+      "minRamBasis": "analogous-model-derived",
+      "minRamSource": "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-7B",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "MIT",
+      "capabilities": {
+        "tools": false,
+        "reasoning": true
+      }
+    },
+    {
+      "id": "smollm3-3b",
+      "name": "SmolLM3 3B",
+      "parameterCount": "3B",
+      "quantization": "int4-block32",
+      "downloadUrl": "https://huggingface.co/litert-community/SmolLM3-3B/resolve/main/SmolLM3-3B_q4_block32_ekv4096.litertlm",
+      "sha256": "38d7bf55e243f5a95d8b16c21b1f7ef7debe6ce6bb2ddb66eb54f4bc2be8e6eb",
+      "sizeBytes": 2002257840,
+      "contextWindow": 4096,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 8000000000,
+      "minRamBasis": "benchmark-derived",
+      "minRamSource": "https://huggingface.co/litert-community/SmolLM3-3B",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "Apache-2.0",
+      "capabilities": {
+        "tools": false,
+        "reasoning": false
+      }
+    },
+    {
+      "id": "lfm2.5-1.2b",
+      "name": "LFM 2.5 1.2B Thinking",
+      "parameterCount": "1.2B",
+      "quantization": "int4",
+      "downloadUrl": "https://huggingface.co/litert-community/LFM2.5-1.2B-Thinking/resolve/main/LFM2.5-1.2B-Thinking_int4.litertlm",
+      "sha256": "a83197f300a09b8d132b0c670cb26b190fe870ea3b8bc4840b561d1b437918fc",
+      "sizeBytes": 735999360,
+      "contextWindow": 4096,
+      "lowMemoryContextWindow": 2048,
+      "backend": "cpu",
+      "minRamBytes": 6000000000,
+      "minRamBasis": "benchmark-derived",
+      "minRamSource": "https://huggingface.co/litert-community/LFM2.5-1.2B-Thinking",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "LFM Open License v1.0",
+      "capabilities": {
+        "tools": false,
+        "reasoning": true
+      }
+    },
+    {
+      "id": "qwen3-8b",
+      "name": "Qwen3 8B",
+      "parameterCount": "8B",
+      "quantization": "mixed-int4",
+      "downloadUrl": "https://huggingface.co/litert-community/Qwen3-8B/resolve/main/qwen3_8b_mixed_int4.litertlm",
+      "sha256": "cb4e6d0de4bbf6656d177812cf0c6a983967dedd17e7f88e84b901c3a9862a42",
+      "sizeBytes": 4887412736,
+      "contextWindow": 2048,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 12000000000,
+      "minRamBasis": "analogous-model-derived",
+      "minRamSource": "https://huggingface.co/litert-community/Qwen3-8B",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "Apache-2.0",
+      "capabilities": {
+        "tools": true,
+        "reasoning": true
+      }
+    },
+    {
+      "id": "gemma-4-12b",
+      "name": "Gemma 4 12B",
+      "parameterCount": "12B",
+      "quantization": "mixed-4/8-bit",
+      "downloadUrl": "https://huggingface.co/litert-community/gemma-4-12B-it-litert-lm/resolve/main/gemma-4-12B-it.litertlm",
+      "sha256": "74fc29a10c20eb5b3ced6c389471a7994a0ffd657255b2a1c764262fb9054aef",
+      "sizeBytes": 6547589312,
+      "contextWindow": 32000,
+      "lowMemoryContextWindow": 2048,
+      "minRamBytes": 16000000000,
+      "minRamBasis": "analogous-model-derived",
+      "minRamSource": "https://huggingface.co/litert-community/gemma-4-12B-it-litert-lm",
+      "supportedPlatforms": ["ios", "android"],
+      "license": "Gemma",
+      "capabilities": {
+        "tools": true,
         "reasoning": false
       }
     }

@@ -23,7 +23,7 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
           label: input.label,
           authType: input.authType,
           baseUrl: input.baseUrl ?? null,
-          enabled: false,
+          enabled: input.enabled ?? false,
           oauthAccountEmail: input.oauthAccountEmail ?? null,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -43,6 +43,16 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
       }
 
       return row;
+    },
+    async deleteProvider(providerId) {
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(modelPresets)
+          .where(eq(modelPresets.providerId, providerId));
+        await tx
+          .delete(providerConfigs)
+          .where(eq(providerConfigs.id, providerId));
+      });
     },
     async ensureDefaultProviders() {
       const timestamp = nowIso();

@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
   ProviderFamily,
 } from "@/core/types/app-state";
+import { getSupportedProviderDefinition } from "@/modules/providers";
 
 const LIVE_MODEL_CATALOG_URL = "https://ai-gateway.vercel.sh/v1/models";
 const LIVE_MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -219,7 +220,7 @@ export function getCatalogModelDefinitionsForProvider(
   models: LiveCatalogModel[],
   provider: ProviderConfig,
 ): CuratedModelDefinition[] {
-  if (provider.id === "openai-compatible") {
+  if (!getSupportedProviderDefinition(provider.id)) {
     return [];
   }
 
@@ -260,7 +261,7 @@ export function getLiveModelsForProvider(
     return languageModels;
   }
 
-  if (provider.id === "openai-compatible") {
+  if (!getSupportedProviderDefinition(provider.id)) {
     return [];
   }
 

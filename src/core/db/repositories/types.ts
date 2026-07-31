@@ -231,11 +231,13 @@ export interface ConfigRepository {
   createProvider(input: {
     authType: ProviderConfig["authType"];
     baseUrl?: string | null;
+    enabled?: boolean;
     family: ProviderConfig["family"];
     id: string;
     label: string;
     oauthAccountEmail?: string | null;
   }): Promise<ProviderConfig>;
+  deleteProvider(providerId: string): Promise<void>;
   ensureDefaultProviders(): Promise<void>;
   getSettings(): Promise<AppSettings>;
   listModelPresets(): Promise<ModelPreset[]>;

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 11;
+const DATABASE_VERSION = 12;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -415,6 +415,15 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 11;
+  }
+
+  if (currentVersion === 11) {
+    await db.execAsync(`
+      DELETE FROM model_presets WHERE provider_id = 'openai-compatible';
+      DELETE FROM provider_configs WHERE id = 'openai-compatible';
+    `);
+
+    currentVersion = 12;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

@@ -1,4 +1,5 @@
 import type { CuratedModelDefinition, ProviderConfig } from "@/core/types/app-state";
+import { getSupportedProviderDefinition } from "@/modules/providers";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -59,7 +60,7 @@ export function getModelsDevDefinitionsForProvider(
 ): CuratedModelDefinition[] {
   if (
     (provider.family !== "openai-compatible" && provider.family !== "xai") ||
-    provider.id === "openai-compatible"
+    !getSupportedProviderDefinition(provider.id)
   ) {
     return [];
   }

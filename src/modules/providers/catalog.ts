@@ -1,9 +1,6 @@
 import { ANTHROPIC_PROVIDER } from "@/modules/providers/anthropic";
 import { GOOGLE_PROVIDER } from "@/modules/providers/google";
-import {
-  OPENAI_COMPATIBLE_PROFILE_PROVIDERS,
-  OPENAI_COMPATIBLE_PROVIDER,
-} from "@/modules/providers/openai-compatible";
+import { OPENAI_COMPATIBLE_PROFILE_PROVIDERS } from "@/modules/providers/openai-compatible";
 import {
   OPENAI_API_PROVIDER,
   OPENAI_OAUTH_PROVIDER,
@@ -30,7 +27,6 @@ const SUPPORTED_PROVIDERS = [
   OPENROUTER_PROVIDER,
   OLLAMA_PROVIDER,
   ON_DEVICE_PROVIDER,
-  OPENAI_COMPATIBLE_PROVIDER,
   ...OPENAI_COMPATIBLE_PROFILE_PROVIDERS,
   XAI_PROVIDER,
 ] satisfies SupportedProviderDefinition[];

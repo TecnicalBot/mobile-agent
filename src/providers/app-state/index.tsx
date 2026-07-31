@@ -32,6 +32,7 @@ import {
     getOpenAiTokenInfo,
     handleLogin,
 } from "@/modules/providers/openai-oauth";
+import { getSupportedProviderDefinition } from "@/modules/providers";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
 import { modelRuntime } from "@/modules/runtime/model-runtime";
 import { createExecutionTimelineEvent } from "@/modules/runtime/run-artifacts";
@@ -126,14 +127,17 @@ type AppStateContextValue = {
         url: string;
     }) => Promise<McpServerConfig>;
     createProvider: (input: {
+        apiKey?: string;
         authType: ProviderConfig["authType"];
         baseUrl?: string | null;
+        enabled?: boolean;
         family: ProviderConfig["family"];
         id: string;
         label: string;
         oauthAccountEmail?: string | null;
     }) => Promise<ProviderConfig>;
     createConversation: () => Promise<void>;
+    deleteProvider: (providerId: string) => Promise<void>;
     deleteConversation: (conversationId: string) => Promise<void>;
     createWorkspaceFile: (input: {
         content: string;
@@ -323,6 +327,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     } | null>(null);
     const snapshotRef = useRef(snapshot);
     const appStateRef = useRef(AppState.currentState);
+    const legacyProviderSecretCleanedRef = useRef(false);
 
     snapshotRef.current = snapshot;
 
@@ -521,6 +526,17 @@ Your output must be:
             const repositories = repositoriesRef.current;
 
             await repositories.configRepository.ensureDefaultProviders();
+            if (!legacyProviderSecretCleanedRef.current) {
+                try {
+                    await secureSecretStore.deleteProviderApiKey("openai-compatible");
+                    legacyProviderSecretCleanedRef.current = true;
+                } catch (cleanupError) {
+                    console.warn(
+                        "Failed to delete the legacy OpenAI-compatible credential.",
+                        cleanupError,
+                    );
+                }
+            }
 
             let settings = await repositories.configRepository.getSettings();
             let conversations = await repositories.conversationRepository.list();
@@ -833,8 +849,10 @@ Your output must be:
     }
 
     async function createProvider(input: {
+        apiKey?: string;
         authType: ProviderConfig["authType"];
         baseUrl?: string | null;
+        enabled?: boolean;
         family: ProviderConfig["family"];
         id: string;
         label: string;
@@ -842,8 +860,36 @@ Your output must be:
     }) {
         const provider =
             await repositoriesRef.current.configRepository.createProvider(input);
+
+        try {
+            if (input.apiKey) {
+                await secureSecretStore.setProviderApiKey(
+                    provider.id,
+                    input.apiKey.trim(),
+                );
+            }
+        } catch (credentialError) {
+            await repositoriesRef.current.configRepository.deleteProvider(provider.id);
+            throw credentialError;
+        }
+
         await hydrate();
         return provider;
+    }
+
+    async function deleteProvider(providerId: string) {
+        if (getSupportedProviderDefinition(providerId)) {
+            throw new Error("Built-in providers cannot be deleted.");
+        }
+
+        await repositoriesRef.current.configRepository.deleteProvider(providerId);
+        try {
+            await secureSecretStore.deleteProviderApiKey(providerId);
+        } catch (cleanupError) {
+            console.warn("Failed to delete the provider credential.", cleanupError);
+        } finally {
+            await hydrate();
+        }
     }
 
     async function saveProviderApiKey(providerId: string, apiKey: string) {
@@ -2103,6 +2149,7 @@ Your output must be:
                 writeMemory,
                 createProvider,
                 createConversation,
+                deleteProvider,
                 deleteConversation,
                 createModelPreset,
                 createSkill,
@@ -2218,6 +2265,7 @@ export function useConfig() {
         createSkill: context.createSkill,
         createWorkspaceFile: context.createWorkspaceFile,
         deleteMcpServer: context.deleteMcpServer,
+        deleteProvider: context.deleteProvider,
         clearMemory: context.clearMemory,
         deleteModelPreset: context.deleteModelPreset,
         deleteSkill: context.deleteSkill,

@@ -1,17 +1,5 @@
 import type { SupportedProviderDefinition } from "@/modules/providers/types";
 
-export const OPENAI_COMPATIBLE_PROVIDER = {
-  config: {
-    id: "openai-compatible",
-    family: "openai-compatible",
-    label: "Custom OpenAI-Compatible",
-    authType: "apiKey",
-    baseUrl: "",
-    enabled: false,
-    oauthAccountEmail: null,
-  },
-} satisfies SupportedProviderDefinition;
-
 const OPENAI_COMPATIBLE_PROFILES = [
   ["baseten", "Baseten", "https://inference.baseten.co/v1"],
   ["cerebras", "Cerebras", "https://api.cerebras.ai/v1"],

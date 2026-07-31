@@ -44,6 +44,25 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
   await db.execAsync(CORE_SCHEMA_REPAIR_SQL);
 
   if (currentVersion >= DATABASE_VERSION) {
+    // Fresh installs created by buggy builds skipped the
+    // selected_mcp_server_ids_json column and jumped straight to the latest
+    // version, so the v12/v13 migration path never ran for them. Repair
+    // idempotently so existing installs recover without a reinstall.
+    const conversationColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(conversations)",
+    );
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "selected_mcp_server_ids_json",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN selected_mcp_server_ids_json TEXT;
+      `);
+    }
+
     return;
   }
 
@@ -58,6 +77,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         model_id TEXT,
         reasoning_effort TEXT NOT NULL DEFAULT 'medium',
         selected_file_ids_json TEXT NOT NULL DEFAULT '[]',
+        selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
         external_folder_session_json TEXT,
         created_at TEXT NOT NULL,

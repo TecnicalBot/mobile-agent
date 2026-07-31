@@ -18,18 +18,10 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-<<<<<<< Updated upstream
-import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
+import { fetchMcpServerCatalogCached, type McpServerPreset } from "@/modules/mcp/catalog";
 import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
 
 import { McpServerForm } from "./add";
-=======
-import {
-  fetchMcpServerCatalogCached,
-  type McpServerPreset,
-} from "@/lib/mcp/catalog";
-import { isMcpOAuthCanceledError } from "@/lib/mcp/oauth";
->>>>>>> Stashed changes
 
 function normalizeMcpUrl(value: string) {
   try {

@@ -18,6 +18,14 @@
       "authMode": "oauth"
     },
     {
+      "id": "atlassian",
+      "label": "Atlassian",
+      "description": "Search and manage Jira issues, Confluence pages, and Compass resources.",
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
       "id": "github",
       "label": "GitHub",
       "description": "Work with repositories, issues, pull requests, and actions.",
@@ -35,6 +43,14 @@
       "authMode": "oauth"
     },
     {
+      "id": "honeycomb",
+      "label": "Honeycomb",
+      "description": "Query telemetry, investigate traces, and manage observability resources.",
+      "url": "https://mcp.honeycomb.io/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
       "id": "hugging-face",
       "label": "Hugging Face",
       "description": "Search models, datasets, Spaces, papers, and Hugging Face docs.",
@@ -47,6 +63,22 @@
       "label": "Cloudflare Docs",
       "description": "Search Cloudflare developer documentation without signing in.",
       "url": "https://docs.mcp.cloudflare.com/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "microsoft-learn",
+      "label": "Microsoft Learn",
+      "description": "Search Microsoft documentation, full articles, and official code samples.",
+      "url": "https://learn.microsoft.com/api/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "digitalocean-docs",
+      "label": "DigitalOcean Docs",
+      "description": "Search DigitalOcean product and developer documentation.",
+      "url": "https://docs.mcp.digitalocean.com/mcp",
       "transport": "http",
       "authMode": "none"
     },
@@ -71,6 +103,22 @@
       "label": "Supabase",
       "description": "Query and manage your Supabase projects, databases, and auth.",
       "url": "https://mcp.supabase.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "neon",
+      "label": "Neon",
+      "description": "Manage Neon projects and branches, inspect schemas, and run PostgreSQL queries.",
+      "url": "https://mcp.neon.tech/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "clickhouse-cloud",
+      "label": "ClickHouse Cloud",
+      "description": "Explore schemas, run read-only queries, and inspect ClickHouse Cloud services.",
+      "url": "https://mcp.clickhouse.cloud/mcp",
       "transport": "http",
       "authMode": "oauth"
     },
@@ -107,6 +155,14 @@
       "authMode": "oauth"
     },
     {
+      "id": "postman",
+      "label": "Postman",
+      "description": "Manage API workspaces, collections, specifications, mocks, and monitors.",
+      "url": "https://mcp.postman.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
       "id": "zapier",
       "label": "Zapier",
       "description": "Trigger Zaps and automate workflows across thousands of apps.",
@@ -115,12 +171,21 @@
       "authMode": "oauth"
     },
     {
-      "id": "google",
-      "label": "Google",
-      "description": "Use Google Maps, Gmail, Calendar, Drive, and Search from your Google account.",
-      "url": "https://mcp.googleapis.com/mcp",
+      "id": "google-maps",
+      "label": "Google Maps",
+      "description": "Search places, check weather, and compute routes with Google Maps data.",
+      "url": "https://mapstools.googleapis.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "headers",
+      "headerTemplate": "X-Goog-Api-Key: <your Google Maps API key>"
+    },
+    {
+      "id": "google-maps-docs",
+      "label": "Google Maps Docs",
+      "description": "Search official Google Maps documentation and code samples.",
+      "url": "https://mapscodeassist.googleapis.com/mcp",
+      "transport": "http",
+      "authMode": "none"
     },
     {
       "id": "youtube",
@@ -135,6 +200,31 @@
       "label": "Alibaba Cloud",
       "description": "Manage cloud resources, databases, and services on Alibaba Cloud.",
       "url": "https://mcp.alibabacloud.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "render",
+      "label": "Render",
+      "description": "Manage Render services and datastores, trigger deploys, and query logs and metrics.",
+      "url": "https://mcp.render.com/mcp",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Render API key>"
+    },
+    {
+      "id": "pulumi",
+      "label": "Pulumi",
+      "description": "Query Pulumi stacks and resources, review policies, and generate infrastructure code.",
+      "url": "https://mcp.ai.pulumi.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "aiven",
+      "label": "Aiven",
+      "description": "Manage Aiven data services and inspect their configuration, metrics, and logs.",
+      "url": "https://mcp.aiven.live/mcp",
       "transport": "http",
       "authMode": "oauth"
     },
@@ -181,6 +271,14 @@
       "transport": "http",
       "authMode": "headers",
       "headerTemplate": "Authorization: Bearer <your Exa API key>"
+    },
+    {
+      "id": "firecrawl",
+      "label": "Firecrawl",
+      "description": "Search, scrape, crawl, and extract structured data from the web.",
+      "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+      "transport": "http",
+      "authMode": "oauth"
     },
     {
       "id": "context7",

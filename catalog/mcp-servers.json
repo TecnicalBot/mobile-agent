@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "servers": [
     {
       "id": "notion",
@@ -27,14 +27,6 @@
       "headerTemplate": "Authorization: Bearer <your GitHub PAT>"
     },
     {
-      "id": "vercel",
-      "label": "Vercel",
-      "description": "Inspect projects, deployments, logs, and Vercel documentation.",
-      "url": "https://mcp.vercel.com",
-      "transport": "http",
-      "authMode": "oauth"
-    },
-    {
       "id": "sentry",
       "label": "Sentry",
       "description": "Investigate errors, issues, traces, and project health in Sentry.",
@@ -55,6 +47,146 @@
       "label": "Cloudflare Docs",
       "description": "Search Cloudflare developer documentation without signing in.",
       "url": "https://docs.mcp.cloudflare.com/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "slack",
+      "label": "Slack",
+      "description": "Read and send messages, search conversations, and manage your Slack workspace.",
+      "url": "https://mcp.slack.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "stripe",
+      "label": "Stripe",
+      "description": "Manage customers, payments, invoices, and subscriptions in Stripe.",
+      "url": "https://mcp.stripe.com",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "supabase",
+      "label": "Supabase",
+      "description": "Query and manage your Supabase projects, databases, and auth.",
+      "url": "https://mcp.supabase.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "resend",
+      "label": "Resend",
+      "description": "Send and manage transactional emails with the Resend API.",
+      "url": "https://mcp.resend.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "airtable",
+      "label": "Airtable",
+      "description": "Read and update records, bases, and tables in Airtable.",
+      "url": "https://mcp.airtable.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "box",
+      "label": "Box",
+      "description": "Browse, upload, and manage files and folders in Box.",
+      "url": "https://mcp.box.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "webflow",
+      "label": "Webflow",
+      "description": "Create and manage sites, pages, collections, and content in Webflow.",
+      "url": "https://mcp.webflow.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "zapier",
+      "label": "Zapier",
+      "description": "Trigger Zaps and automate workflows across thousands of apps.",
+      "url": "https://mcp.zapier.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "google",
+      "label": "Google",
+      "description": "Use Google Maps, Gmail, Calendar, Drive, and Search from your Google account.",
+      "url": "https://mcp.googleapis.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "youtube",
+      "label": "YouTube",
+      "description": "Search, manage, and upload to your YouTube channel.",
+      "url": "https://mcp.youtube.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "alibaba-cloud",
+      "label": "Alibaba Cloud",
+      "description": "Manage cloud resources, databases, and services on Alibaba Cloud.",
+      "url": "https://mcp.alibabacloud.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "shutterstock",
+      "label": "Shutterstock",
+      "description": "Search and license photos, vectors, and video from Shutterstock.",
+      "url": "https://mcp.shutterstock.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "description": "Ask Claude models via the Anthropic MCP endpoint.",
+      "url": "https://mcp.anthropic.com",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Anthropic API key>"
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "description": "Use OpenAI models and tools via the OpenAI MCP endpoint.",
+      "url": "https://mcp.openai.com",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your OpenAI API key>"
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
+      "description": "Use Mistral models and tools via the Mistral MCP endpoint.",
+      "url": "https://mcp.mistral.ai",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Mistral API key>"
+    },
+    {
+      "id": "exa",
+      "label": "Exa",
+      "description": "Search the web and retrieve content with Exa's neural search.",
+      "url": "https://mcp.exa.ai/mcp",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Exa API key>"
+    },
+    {
+      "id": "context7",
+      "label": "Context7",
+      "description": "Look up up-to-date documentation and code examples for any library.",
+      "url": "https://mcp.context7.com/mcp",
       "transport": "http",
       "authMode": "none"
     }

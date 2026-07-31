@@ -1,8 +1,12 @@
 # Remote catalogs
 
-The app fetches `mcp-servers.json` from the `main` branch at runtime. After a
-catalog change is merged, users can see it by reopening the MCP settings screen
-or tapping **Refresh**; an app rebuild is not required.
+The top-level `version` is the catalog schema version, not a content revision.
+Keep it at `1` when adding or updating entries. Incrementing it requires shipping
+parser support in the app first; older app releases reject unknown versions.
+
+The app fetches `mcp-servers.json` from the `main` branch at runtime and caches
+it in memory for 30 minutes. After a catalog change is merged, users receive it
+when that cache expires or the app restarts; an app rebuild is not required.
 
 Each server supports these fields:
 
@@ -21,9 +25,9 @@ file. User credentials remain in the app's secure on-device secret store.
 
 ## On-device model catalog
 
-The app fetches `on-device-models.json` from the `main` branch at runtime and
-falls back to the bundled copy when offline. A newly merged entry can appear
-without rebuilding the app.
+The app fetches `on-device-models.json` from the `main` branch at runtime,
+caches it in memory for 30 minutes, and falls back to the bundled copy when
+offline. A newly merged entry can appear without rebuilding the app.
 
 Only add model files compatible with the LiteRT-LM engine (`.litertlm`). Each
 model requires:

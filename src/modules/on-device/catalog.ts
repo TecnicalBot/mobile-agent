@@ -7,7 +7,7 @@ import type { CuratedModelDefinition } from "@/core/types/app-state";
 export const ON_DEVICE_MODEL_CATALOG_URL =
   "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/on-device-models.json";
 
-const CATALOG_TTL_MS = 5 * 60 * 1000;
+const CATALOG_TTL_MS = 30 * 60 * 1000;
 const MAX_CATALOG_MODELS = 50;
 const MAX_MODEL_BYTES = 20_000_000_000;
 const MAX_RAM_BYTES = 32_000_000_000;

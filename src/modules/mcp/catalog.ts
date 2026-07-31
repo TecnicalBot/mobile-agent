@@ -5,6 +5,7 @@ import type { McpServerAuthMode, McpServerTransport } from "@/core/types/app-sta
 export const MCP_CATALOG_URL =
   "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/mcp-servers.json";
 
+const CATALOG_TTL_MS = 30 * 60 * 1000;
 const MAX_CATALOG_SERVERS = 100;
 
 export type McpServerPreset = {
@@ -26,6 +27,11 @@ export type McpServerCatalogResult = {
   presets: McpServerPreset[];
   source: "bundled" | "github";
 };
+
+let cachedCatalog: {
+  expiresAt: number;
+  result: McpServerCatalogResult;
+} | null = null;
 
 function getRecord(value: unknown, label: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -183,4 +189,17 @@ export async function fetchMcpServerCatalog(
       source: "bundled",
     };
   }
+}
+
+export async function fetchMcpServerCatalogCached(signal?: AbortSignal) {
+  if (cachedCatalog && cachedCatalog.expiresAt > Date.now()) {
+    return cachedCatalog.result;
+  }
+
+  const result = await fetchMcpServerCatalog(signal);
+  cachedCatalog = {
+    expiresAt: Date.now() + CATALOG_TTL_MS,
+    result,
+  };
+  return result;
 }

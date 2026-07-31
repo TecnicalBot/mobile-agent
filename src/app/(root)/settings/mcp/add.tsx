@@ -11,7 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
+<<<<<<< Updated upstream
 import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
+=======
+import {
+  fetchMcpServerCatalogCached,
+  type McpServerPreset,
+} from "@/lib/mcp/catalog";
+>>>>>>> Stashed changes
 import type {
   McpServerAuthMode,
   McpServerConfig,
@@ -171,7 +178,7 @@ export function McpServerForm({
     }
 
     const controller = new AbortController();
-    fetchMcpServerCatalog(controller.signal)
+    fetchMcpServerCatalogCached(controller.signal)
       .then((result) => {
         const preset = result.presets.find((item) => item.id === presetId);
         if (!preset) {

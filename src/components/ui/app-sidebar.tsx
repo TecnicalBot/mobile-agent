@@ -11,6 +11,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useChat } from "@/hooks/use-chat";
+import { useAppState } from "@/hooks/use-app-state";
 import { usePathname, useRouter } from "expo-router";
 import { EllipsisVertical, Pause, Settings2 } from "lucide-react-native";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -24,6 +25,7 @@ export function AppSidebar() {
   const router = useRouter();
   const settingsActive =
     pathname === "/settings" || pathname.startsWith("/settings/");
+  const { hydrating } = useAppState();
   const {
     conversations,
     currentConversation,
@@ -107,9 +109,18 @@ export function AppSidebar() {
             ))}
             {conversations.length === 0 ? (
               <SidebarMenuItem>
-                <Text className="px-sp-2 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                  Your chats will show up here after hydration finishes.
-                </Text>
+                {hydrating ? (
+                  <View className="flex-row items-center gap-sp-2 px-sp-2 py-sp-2">
+                    <ActivityIndicator color={theme.textSecondary} size="small" />
+                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                      Loading chats…
+                    </Text>
+                  </View>
+                ) : (
+                  <Text className="px-sp-2 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    No chats yet. Start a new conversation.
+                  </Text>
+                )}
               </SidebarMenuItem>
             ) : null}
           </SidebarMenu>

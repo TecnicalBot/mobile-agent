@@ -1,5 +1,4 @@
 import { useRouter } from "expo-router";
-import { RefreshCw } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 
@@ -7,11 +6,20 @@ import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
-import { useTheme } from "@/hooks/use-theme";
 import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
 import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
+
+import { McpServerForm } from "./add";
 
 function normalizeMcpUrl(value: string) {
   try {
@@ -25,16 +33,14 @@ function normalizeMcpUrl(value: string) {
 
 export default function McpCatalogScreen() {
   const router = useRouter();
-  const theme = useTheme();
-  const { connectMcpServerOAuth, createMcpServer, mcpServers } = useConfig();
+  const { createMcpServerOAuth, mcpServers } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogPresets, setCatalogPresets] = useState<McpServerPreset[]>([]);
-  const [catalogSource, setCatalogSource] = useState<
-    "bundled" | "github" | null
-  >(null);
   const [error, setError] = useState<string | null>(null);
+  const [setupPresetId, setSetupPresetId] = useState<string | null>(null);
+  const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
 
   const loadCatalog = async (signal?: AbortSignal) => {
     setCatalogLoading(true);
@@ -43,7 +49,6 @@ export default function McpCatalogScreen() {
     try {
       const result = await fetchMcpServerCatalog(signal);
       setCatalogPresets(result.presets);
-      setCatalogSource(result.source);
     } catch (catalogLoadError) {
       if (signal?.aborted) return;
       setCatalogError(
@@ -64,10 +69,8 @@ export default function McpCatalogScreen() {
 
   const connectPreset = async (preset: McpServerPreset) => {
     if (preset.authMode !== "oauth") {
-      router.push({
-        pathname: "/settings/mcp/add" as never,
-        params: { presetId: preset.id },
-      });
+      setSetupPresetId(preset.id);
+      setSetupDrawerOpen(true);
       return;
     }
 
@@ -75,8 +78,7 @@ export default function McpCatalogScreen() {
     setError(null);
 
     try {
-      const server = await createMcpServer({
-        authMode: preset.authMode,
+      await createMcpServerOAuth({
         enabled: true,
         label: preset.label,
         oauthAllowedAuthOrigin: preset.oauthAllowedAuthOrigin,
@@ -88,14 +90,9 @@ export default function McpCatalogScreen() {
         url: preset.url,
       });
 
-      try {
-        await connectMcpServerOAuth(server.id);
-      } catch (oauthError) {
-        if (!isMcpOAuthCanceledError(oauthError)) throw oauthError;
-      }
-
       router.replace("/settings/mcp/connected" as never);
     } catch (connectError) {
+      if (isMcpOAuthCanceledError(connectError)) return;
       setError(
         connectError instanceof Error
           ? connectError.message
@@ -140,7 +137,10 @@ export default function McpCatalogScreen() {
             );
           })}
           <CustomRow
-            onPress={() => router.push("/settings/mcp/add" as never)}
+            onPress={() => {
+              setSetupPresetId(null);
+              setSetupDrawerOpen(true);
+            }}
           />
         </Card>
       ) : catalogLoading ? (
@@ -152,7 +152,10 @@ export default function McpCatalogScreen() {
       ) : (
         <Card className="overflow-hidden">
           <CustomRow
-            onPress={() => router.push("/settings/mcp/add" as never)}
+            onPress={() => {
+              setSetupPresetId(null);
+              setSetupDrawerOpen(true);
+            }}
           />
         </Card>
       )}
@@ -167,6 +170,28 @@ export default function McpCatalogScreen() {
           {error}
         </Text>
       ) : null}
+
+      <Drawer onOpenChange={setSetupDrawerOpen} open={setupDrawerOpen}>
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>Set up MCP server</DrawerTitle>
+            <DrawerDescription>
+              Review the connection and authentication settings before adding
+              this server.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="pb-sp-4">
+            <McpServerForm
+              key={setupPresetId ?? "custom"}
+              onSaved={() => {
+                setSetupDrawerOpen(false);
+                router.replace("/settings/mcp/connected" as never);
+              }}
+              presetId={setupPresetId ?? undefined}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
     </Container>
   );
 }
@@ -199,7 +224,7 @@ function PresetRow({
         size="sm"
         variant={connected ? "secondary" : "outline"}
       >
-        {connected ? "Added" : preset.authMode === "oauth" ? "Connect" : "Add"}
+        {connected ? "Added" : "Set up"}
       </Button>
     </View>
   );
@@ -217,7 +242,7 @@ function CustomRow({ onPress }: { onPress: () => void }) {
         </Text>
       </View>
       <Button onPress={onPress} size="sm" variant="outline">
-        Add
+        Set up
       </Button>
     </View>
   );

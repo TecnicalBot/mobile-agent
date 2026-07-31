@@ -101,6 +101,17 @@ type AppStateContextValue = {
     clearMcpServerCredentials: (serverId: string) => Promise<void>;
     connectOpenAIOAuth: () => Promise<void>;
     connectMcpServerOAuth: (serverId: string) => Promise<void>;
+    createMcpServerOAuth: (input: {
+        enabled?: boolean;
+        label: string;
+        oauthAllowedAuthOrigin?: string | null;
+        oauthAuthorizationUrl?: string | null;
+        oauthClientId?: string | null;
+        oauthScopes?: string | null;
+        oauthTokenUrl?: string | null;
+        transport: McpServerTransport;
+        url: string;
+    }) => Promise<McpServerConfig>;
     createMcpServer: (input: {
         authMode: McpServerAuthMode;
         enabled?: boolean;
@@ -878,6 +889,70 @@ Your output must be:
 
         await hydrate();
         return server;
+    }
+
+    async function createMcpServerOAuth(input: {
+        enabled?: boolean;
+        label: string;
+        oauthAllowedAuthOrigin?: string | null;
+        oauthAuthorizationUrl?: string | null;
+        oauthClientId?: string | null;
+        oauthScopes?: string | null;
+        oauthTokenUrl?: string | null;
+        transport: McpServerTransport;
+        url: string;
+    }) {
+        const id = Crypto.randomUUID();
+        const timestamp = new Date().toISOString();
+        const pendingServer: McpServerConfig = {
+            authMode: "oauth",
+            createdAt: timestamp,
+            enabled: input.enabled ?? true,
+            headerNames: [],
+            id,
+            label: input.label,
+            lastError: null,
+            lastStatus: "untested",
+            oauthAllowedAuthOrigin: input.oauthAllowedAuthOrigin ?? null,
+            oauthAuthorizationUrl: input.oauthAuthorizationUrl ?? null,
+            oauthClientId: input.oauthClientId ?? null,
+            oauthScopes: input.oauthScopes ?? null,
+            oauthTokenUrl: input.oauthTokenUrl ?? null,
+            serverInfo: null,
+            serverInstructions: null,
+            toolCount: null,
+            transport: input.transport,
+            updatedAt: timestamp,
+            url: input.url,
+        };
+
+        try {
+            await connectMcpOAuth(pendingServer);
+            const server =
+                await repositoriesRef.current.mcpServerRepository.create({
+                    authMode: "oauth",
+                    enabled: pendingServer.enabled,
+                    headerNames: [],
+                    id,
+                    label: pendingServer.label,
+                    oauthAllowedAuthOrigin: pendingServer.oauthAllowedAuthOrigin,
+                    oauthAuthorizationUrl: pendingServer.oauthAuthorizationUrl,
+                    oauthClientId: pendingServer.oauthClientId,
+                    oauthScopes: pendingServer.oauthScopes,
+                    oauthTokenUrl: pendingServer.oauthTokenUrl,
+                    transport: pendingServer.transport,
+                    url: pendingServer.url,
+                });
+            await hydrate();
+            return server;
+        } catch (error) {
+            try {
+                await secureSecretStore.deleteMcpOAuthTokens(id);
+            } catch (cleanupError) {
+                console.error("Could not clear pending MCP OAuth setup.", cleanupError);
+            }
+            throw error;
+        }
     }
 
     async function updateMcpServer(
@@ -2024,6 +2099,7 @@ Your output must be:
                 connectMcpServerOAuth,
                 connectOpenAIOAuth,
                 createMcpServer,
+                createMcpServerOAuth,
                 writeMemory,
                 createProvider,
                 createConversation,
@@ -2135,6 +2211,7 @@ export function useConfig() {
         connectMcpServerOAuth: context.connectMcpServerOAuth,
         connectOpenAIOAuth: context.connectOpenAIOAuth,
         createMcpServer: context.createMcpServer,
+        createMcpServerOAuth: context.createMcpServerOAuth,
         writeMemory: context.writeMemory,
         createProvider: context.createProvider,
         createModelPreset: context.createModelPreset,

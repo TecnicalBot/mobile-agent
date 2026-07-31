@@ -86,6 +86,10 @@ export function createConversationRepository(
           modelId: input.modelId ?? current.modelId,
           reasoningEffort: input.reasoningEffort ?? current.reasoningEffort,
           selectedFileIds: input.selectedFileIds ?? current.selectedFileIds,
+          selectedMcpServerIds:
+            input.selectedMcpServerIds !== undefined
+              ? input.selectedMcpServerIds
+              : current.selectedMcpServerIds,
           selectedSkillIds: input.selectedSkillIds ?? current.selectedSkillIds,
           externalFolderSession:
             input.externalFolderSession !== undefined

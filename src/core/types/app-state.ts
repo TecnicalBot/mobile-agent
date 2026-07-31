@@ -257,6 +257,7 @@ export type Conversation = {
   modelId: string | null;
   reasoningEffort: ReasoningEffort;
   selectedFileIds: string[];
+  selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];
   externalFolderSession: ExternalFolderSession | null;
   createdAt: string;
@@ -363,6 +364,7 @@ export type AppStateSnapshot = {
   conversations: Conversation[];
   currentConversation: Conversation | null;
   currentSelectedFileIds: string[];
+  currentSelectedMcpServerIds: string[] | null;
   currentSelectedSkillIds: string[];
   memory: MemoryEntry | null;
   mcpServers: McpServerConfig[];

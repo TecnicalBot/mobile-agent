@@ -182,6 +182,7 @@ type AppStateContextValue = {
         title: string;
     } | null;
     currentSelectedFileIds: string[];
+    currentSelectedMcpServerIds: string[] | null;
     currentSelectedSkillIds: string[];
     memory: MemoryEntry | null;
     messages: StoredMessage[];
@@ -208,6 +209,9 @@ type AppStateContextValue = {
     reasoningEffort: ReasoningEffort;
     setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
     setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
+    setCurrentSelectedMcpServerIds: (
+        selectedMcpServerIds: string[] | null,
+    ) => Promise<void>;
     setCurrentSelectedSkillIds: (selectedSkillIds: string[]) => Promise<void>;
     setDefaultModelPreset: (modelPresetId: string) => Promise<void>;
     settings: AppSettings;
@@ -666,6 +670,8 @@ Your output must be:
                 conversations,
                 currentConversation,
                 currentSelectedFileIds: currentConversation?.selectedFileIds ?? [],
+                currentSelectedMcpServerIds:
+                    currentConversation?.selectedMcpServerIds ?? null,
                 currentSelectedSkillIds: currentConversation?.selectedSkillIds ?? [],
                 memory,
                 mcpServers,
@@ -1365,6 +1371,7 @@ Your output must be:
             providerId: currentModel?.providerId ?? null,
             reasoningEffort: "medium",
             selectedFileIds: [],
+            selectedMcpServerIds: null,
             selectedSkillIds: [],
             title: "New chat",
             updatedAt: now,
@@ -1374,6 +1381,7 @@ Your output must be:
             ...current,
             currentConversation: conversation,
             currentSelectedFileIds: [],
+            currentSelectedMcpServerIds: null,
             currentSelectedSkillIds: [],
             messages: [],
             settings: {
@@ -1519,6 +1527,7 @@ Your output must be:
             ...current,
             currentConversation: nextConversation,
             currentSelectedFileIds: nextConversation.selectedFileIds,
+            currentSelectedMcpServerIds: nextConversation.selectedMcpServerIds,
             currentSelectedSkillIds: nextConversation.selectedSkillIds,
             messages,
             settings: {
@@ -1612,6 +1621,59 @@ Your output must be:
             ),
             currentConversation: updatedConversation,
             currentSelectedSkillIds: nextSelectedSkillIds,
+        }));
+    }
+
+    async function setCurrentSelectedMcpServerIds(
+        selectedMcpServerIds: string[] | null,
+    ) {
+        const repositories = repositoriesRef.current;
+        const currentConversation = snapshotRef.current.currentConversation;
+
+        if (!currentConversation) {
+            return;
+        }
+
+        await ensureConversationPersisted(currentConversation);
+
+        const existingServerIds = new Set(
+            snapshotRef.current.mcpServers.map((server) => server.id),
+        );
+        const nextSelectedMcpServerIds =
+            selectedMcpServerIds === null
+                ? null
+                : Array.from(
+                      new Set(
+                          selectedMcpServerIds.filter((serverId) =>
+                              existingServerIds.has(serverId),
+                          ),
+                      ),
+                  );
+        const updatedConversation: Conversation = {
+            ...currentConversation,
+            selectedMcpServerIds: nextSelectedMcpServerIds,
+            updatedAt: currentConversation.updatedAt,
+        };
+
+        await repositories.conversationRepository.updateMetadata(
+            currentConversation.id,
+            {
+                selectedMcpServerIds: nextSelectedMcpServerIds,
+            },
+        );
+
+        setSnapshot((current) => ({
+            ...current,
+            conversations: current.conversations.map((conversation) =>
+                conversation.id === currentConversation.id
+                    ? {
+                        ...conversation,
+                        selectedMcpServerIds: nextSelectedMcpServerIds,
+                    }
+                    : conversation,
+            ),
+            currentConversation: updatedConversation,
+            currentSelectedMcpServerIds: nextSelectedMcpServerIds,
         }));
     }
 
@@ -2092,6 +2154,10 @@ Your output must be:
                     current.currentConversation?.id === conversation.id
                         ? selectedFileIds
                         : current.currentSelectedFileIds,
+                currentSelectedMcpServerIds:
+                    current.currentConversation?.id === conversation.id
+                        ? conversation.selectedMcpServerIds
+                        : current.currentSelectedMcpServerIds,
                 currentSelectedSkillIds:
                     current.currentConversation?.id === conversation.id
                         ? conversation.selectedSkillIds
@@ -2158,6 +2224,7 @@ Your output must be:
                 currentExternalFolderSession:
                     snapshot.currentConversation?.externalFolderSession ?? null,
                 currentSelectedFileIds: snapshot.currentSelectedFileIds,
+                currentSelectedMcpServerIds: snapshot.currentSelectedMcpServerIds,
                 currentSelectedSkillIds: snapshot.currentSelectedSkillIds,
                 dismissInAppNotification,
                 pendingToolApproval,
@@ -2198,6 +2265,7 @@ Your output must be:
                     snapshot.currentConversation?.reasoningEffort ?? "medium",
                 setReasoningEffort,
                 setCurrentSelectedFileIds,
+                setCurrentSelectedMcpServerIds,
                 setCurrentSelectedSkillIds,
                 setDefaultModelPreset,
                 settings: snapshot.settings,
@@ -2271,6 +2339,8 @@ export function useConfig() {
         deleteSkill: context.deleteSkill,
         deleteWorkspaceFile: context.deleteWorkspaceFile,
         disconnectOpenAIOAuth: context.disconnectOpenAIOAuth,
+        currentSelectedMcpServerIds: context.currentSelectedMcpServerIds,
+        setCurrentSelectedMcpServerIds: context.setCurrentSelectedMcpServerIds,
         currentModelSupportsImageGeneration:
             context.resolvedConfig.currentModelSupportsImageGeneration,
         currentModelSupportsImageInput:
@@ -2319,6 +2389,7 @@ export function useChat() {
         currentConversationRunStatus,
         currentConversation: context.currentConversation,
         currentExternalFolderSession: context.currentExternalFolderSession,
+        currentSelectedMcpServerIds: context.currentSelectedMcpServerIds,
         currentSelectedSkillIds: context.currentSelectedSkillIds,
         pendingToolApproval: context.pendingToolApproval,
         approvePendingToolApproval: context.approvePendingToolApproval,
@@ -2348,6 +2419,7 @@ export function useChat() {
         reasoningEffort: context.reasoningEffort,
         setReasoningEffort: context.setReasoningEffort,
         setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
+        setCurrentSelectedMcpServerIds: context.setCurrentSelectedMcpServerIds,
         setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,
         refreshWorkspaceFiles: context.refreshWorkspaceFiles,
         workspaceFiles: context.workspaceFiles,

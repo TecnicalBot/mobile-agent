@@ -46,6 +46,7 @@ export interface ConversationRepository {
       providerId?: string | null;
       reasoningEffort?: ReasoningEffort;
       selectedFileIds?: string[];
+      selectedMcpServerIds?: string[] | null;
       selectedSkillIds?: string[];
       title?: string;
       updatedAt?: string;

@@ -14,6 +14,7 @@ import {
   Maximize2,
   Paperclip,
   Send,
+  Server,
   StopCircle,
   Trash2,
   Upload,
@@ -73,6 +74,7 @@ import { cn } from "@/core/utils";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
   ExternalFolderSession,
+  McpServerConfig,
   ModelRef,
   ReasoningEffort,
   SkillConfig,
@@ -171,7 +173,10 @@ export default function Screen() {
     currentModelSupportsImageGeneration,
     currentModelSupportsImageInput,
     currentModelSupportsTools,
+    currentSelectedMcpServerIds,
+    mcpServers,
     selectModel,
+    setCurrentSelectedMcpServerIds,
     toolApprovalMode,
     updateToolApprovalMode,
   } = useConfig();
@@ -338,6 +343,12 @@ export default function Screen() {
             supportsImageGeneration={currentModelSupportsImageGeneration}
             supportsImageInput={currentModelSupportsImageInput}
             supportsTools={currentModelSupportsTools}
+            mcpServers={mcpServers}
+            selectedMcpServerIds={currentSelectedMcpServerIds}
+            setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
+            onOpenMcpSettings={() => {
+              router.push("/settings/mcp" as never);
+            }}
             reasoningEffort={reasoningEffort}
             setReasoningEffort={setReasoningEffort}
             toolApprovalMode={toolApprovalMode}
@@ -593,7 +604,9 @@ function ChatInput({
   currentModelRef,
   importFiles,
   loading,
+  mcpServers,
   onCreateConversation,
+  onOpenMcpSettings,
   onOpenSettings,
   onSend,
   onStop,
@@ -604,6 +617,8 @@ function ChatInput({
   refreshWorkspaceFiles,
   selectModel,
   selectedFileIds,
+  selectedMcpServerIds,
+  setSelectedMcpServerIds,
   selectedSkillIds,
   setSelectedFileIds,
   setSelectedSkillIds,
@@ -635,7 +650,9 @@ function ChatInput({
       : never
     : never;
   loading: boolean;
+  mcpServers: McpServerConfig[];
   onCreateConversation: () => Promise<void>;
+  onOpenMcpSettings: () => void;
   onOpenSettings: () => void;
   onSend: (input: {
     content: string;
@@ -647,6 +664,10 @@ function ChatInput({
   refreshWorkspaceFiles: () => Promise<void>;
   selectModel: (modelRef: ModelRef) => Promise<void>;
   selectedFileIds: string[];
+  selectedMcpServerIds: string[] | null;
+  setSelectedMcpServerIds: (
+    selectedMcpServerIds: string[] | null,
+  ) => Promise<void>;
   selectedSkillIds: string[];
   setSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
   setSelectedSkillIds: (selectedSkillIds: string[]) => Promise<void>;
@@ -671,6 +692,7 @@ function ChatInput({
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
+  const [mcpServersDrawerOpen, setMcpServersDrawerOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<
     null | "clear" | "import" | "folder" | "paste"
   >(null);
@@ -750,6 +772,33 @@ function ChatInput({
   const selectedSkills = enabledSkills.filter((skill) =>
     selectedSkillIds.includes(skill.id),
   );
+  const enabledMcpServers = mcpServers.filter((server) => server.enabled);
+  const activeMcpServerIds = new Set(
+    selectedMcpServerIds === null
+      ? enabledMcpServers.map((server) => server.id)
+      : selectedMcpServerIds.filter((serverId) =>
+          enabledMcpServers.some((server) => server.id === serverId),
+        ),
+  );
+
+  const toggleMcpServer = async (serverId: string) => {
+    if (selectedMcpServerIds === null) {
+      await setSelectedMcpServerIds(
+        activeMcpServerIds.has(serverId)
+          ? enabledMcpServers
+              .map((server) => server.id)
+              .filter((id) => id !== serverId)
+          : [...new Set([...enabledMcpServers.map((server) => server.id), serverId])],
+      );
+      return;
+    }
+
+    await setSelectedMcpServerIds(
+      activeMcpServerIds.has(serverId)
+        ? selectedMcpServerIds.filter((id) => id !== serverId)
+        : [...new Set([...selectedMcpServerIds, serverId])],
+    );
+  };
 
   const canAttachSelectedFiles =
     !(selectedAttachmentBuckets.imageFiles.length > 0 && !supportsImageInput) &&
@@ -1154,6 +1203,19 @@ function ChatInput({
             : "Choose chat skills",
       },
       {
+        id: "select-mcp-servers",
+        icon: <Server color={theme.text} size={16} />,
+        label: "Select MCP servers",
+        onPress: () => {
+          clearTriggerText();
+          setMcpServersDrawerOpen(true);
+        },
+        subtitle:
+          enabledMcpServers.length > 0
+            ? `${activeMcpServerIds.size} of ${enabledMcpServers.length} servers for this chat`
+            : "No enabled MCP servers",
+      },
+      {
         id: "select-model",
         icon: <Check color={theme.text} size={16} />,
         label: "Select model",
@@ -1164,7 +1226,14 @@ function ChatInput({
         subtitle: currentModelLabel ?? "Choose the current chat model",
       },
     ],
-    [currentModelLabel, reasoningEffort, selectedSkills.length, theme.text],
+    [
+      activeMcpServerIds.size,
+      currentModelLabel,
+      enabledMcpServers.length,
+      reasoningEffort,
+      selectedSkills.length,
+      theme.text,
+    ],
   );
   const triggerMenuItems = useMemo(() => {
     if (!composerTrigger) {
@@ -1719,6 +1788,50 @@ function ChatInput({
               variant="outline"
             >
               Manage skills
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer
+        onOpenChange={setMcpServersDrawerOpen}
+        open={mcpServersDrawerOpen}
+      >
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>MCP servers</DrawerTitle>
+            <DrawerDescription>
+              {activeMcpServerIds.size} used in this chat.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            {enabledMcpServers.length > 0 ? (
+              enabledMcpServers.map((server) => (
+                <DrawerSelectRow
+                  key={server.id}
+                  onPress={() => {
+                    toggleMcpServer(server.id).catch(console.error);
+                  }}
+                  selected={activeMcpServerIds.has(server.id)}
+                  subtitle={server.url}
+                  title={server.label}
+                />
+              ))
+            ) : (
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                No enabled MCP servers. Enable one in MCP servers settings.
+              </Text>
+            )}
+          </DrawerBody>
+          <DrawerFooter>
+            <Button
+              onPress={() => {
+                setMcpServersDrawerOpen(false);
+                onOpenMcpSettings();
+              }}
+              variant="outline"
+            >
+              Manage MCP servers
             </Button>
           </DrawerFooter>
         </DrawerContent>

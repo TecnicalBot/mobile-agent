@@ -1280,7 +1280,7 @@ function ChatInput({
           </View>
         ) : null}
 
-        <View className="relative rounded-3xl border border-border bg-background dark:border-border-dark dark:bg-background-dark">
+        <View className="relative rounded-3xl border border-border bg-input dark:border-border-dark dark:bg-input-dark">
           <TextInputWrapper
             style={{ height: compactComposerHeight - 52, width: "100%" }}
             onPaste={(payload) => {
@@ -1288,7 +1288,7 @@ function ChatInput({
             }}
           >
             <Textarea
-              className="rounded-full border-0 bg-transparent px-0 py-0"
+              className="rounded-full border-0 bg-transparent px-0 py-0 dark:bg-transparent"
               onChangeText={setPrompt}
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);

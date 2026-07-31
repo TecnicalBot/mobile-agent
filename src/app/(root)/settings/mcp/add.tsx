@@ -104,6 +104,35 @@ export default function AddMcpServerScreen() {
     presetId?: string;
     serverId?: string;
   }>();
+
+  return (
+    <Container
+      scroll
+      contentClassName="gap-sp-4 py-sp-4"
+      includeBottomTabInset={false}
+    >
+      <McpScreenHeader
+        backHref={serverId ? "/settings/mcp/connected" : "/settings/mcp/list"}
+        title={serverId ? "Edit MCP server" : "Add MCP server"}
+      />
+      <McpServerForm
+        onSaved={() => router.replace("/settings/mcp/connected" as never)}
+        presetId={presetId}
+        serverId={serverId}
+      />
+    </Container>
+  );
+}
+
+export function McpServerForm({
+  onSaved,
+  presetId,
+  serverId,
+}: {
+  onSaved: () => void;
+  presetId?: string;
+  serverId?: string;
+}) {
   const { hydrating, ready } = useAppState();
   const { createMcpServer, mcpServers, updateMcpServer } = useConfig();
   const targetServer = serverId
@@ -212,22 +241,11 @@ export default function AddMcpServerScreen() {
       });
     }
 
-    router.replace("/settings/mcp/connected" as never);
+    onSaved();
   };
 
   return (
-    <Container
-      scroll
-      contentClassName="gap-sp-4 py-sp-4"
-      includeBottomTabInset={false}
-    >
-      <McpScreenHeader
-        backHref={
-          targetServer ? "/settings/mcp/connected" : "/settings/mcp/list"
-        }
-        title={targetServer ? "Edit MCP server" : "Add MCP server"}
-      />
-
+    <View className="gap-sp-4">
       {draft ? (
         <Card className="gap-sp-3 px-sp-4 py-sp-4">
           <Field label="Label">
@@ -442,7 +460,7 @@ export default function AddMcpServerScreen() {
           Save
         </Button>
       ) : null}
-    </Container>
+    </View>
   );
 }
 

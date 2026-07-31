@@ -22,12 +22,14 @@ class BackgroundAgentService : Service() {
 
   override fun onCreate() {
     super.onCreate()
+    instance = this
     ensureNotificationChannel()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_START -> {
+        waitingForApproval = false
         acquireWakeLocks()
         startForegroundNotification()
         isActive = true
@@ -44,6 +46,8 @@ class BackgroundAgentService : Service() {
 
   override fun onDestroy() {
     isActive = false
+    instance = null
+    waitingForApproval = false
     releaseWakeLocks()
     super.onDestroy()
   }
@@ -87,6 +91,15 @@ class BackgroundAgentService : Service() {
     }
   }
 
+  private fun updateNotification() {
+    if (!isActive) return
+
+    try {
+      val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      manager.notify(NOTIFICATION_ID, createNotification())
+    } catch (_: SecurityException) {}
+  }
+
   private fun createNotification(): Notification {
     val stopIntent = Intent(this, BackgroundAgentService::class.java).apply {
       action = ACTION_STOP
@@ -108,10 +121,19 @@ class BackgroundAgentService : Service() {
       )
     }
 
+    val contentTitle =
+      if (waitingForApproval) "Approval required" else "Agent is running"
+    val contentText =
+      if (waitingForApproval) {
+        "The agent is waiting for permission"
+      } else {
+        "Running in background"
+      }
+
     return NotificationCompat.Builder(this, CHANNEL_ID)
       .setSmallIcon(applicationInfo.icon)
-      .setContentTitle("Agent is running")
-      .setContentText("Running in background")
+      .setContentTitle(contentTitle)
+      .setContentText(contentText)
       .setContentIntent(contentIntent)
       .setCategory(NotificationCompat.CATEGORY_SERVICE)
       .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -144,6 +166,19 @@ class BackgroundAgentService : Service() {
   companion object {
     var isActive = false
       private set
+
+    @Volatile
+    var waitingForApproval = false
+      private set
+
+    @Volatile
+    private var instance: BackgroundAgentService? = null
+
+    fun setWaitingForApproval(waiting: Boolean) {
+      if (waitingForApproval == waiting) return
+      waitingForApproval = waiting
+      instance?.updateNotification()
+    }
 
     const val ACTION_START = "expo.modules.backgroundagentservice.START"
     const val ACTION_STOP = "expo.modules.backgroundagentservice.STOP"

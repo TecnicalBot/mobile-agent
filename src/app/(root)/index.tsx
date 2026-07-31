@@ -911,12 +911,6 @@ function ChatInput({
       await setSelectedFileIds([]);
       scrollToEnd();
 
-      logComposerDebug("handle-generate-send", {
-        cleanPromptLength: cleanPrompt.length,
-        fileContextSource: nextFileContextSource,
-        selectedFileIds: previousSelectedFileIds,
-      });
-
       await onSend({
         content: cleanPrompt,
         fileContextSource: nextFileContextSource,

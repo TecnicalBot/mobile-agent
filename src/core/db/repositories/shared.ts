@@ -25,6 +25,27 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
   const parsedMaxToolSteps = Number(settingsMap.get("max_tool_steps"));
   const storedThemeMode = settingsMap.get("theme_mode");
 
+  const parsedNotificationSettings = (() => {
+    const raw = settingsMap.get("notification_settings_json");
+
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<
+        AppSettings["notificationSettings"]
+      >;
+
+      return {
+        approvalRequests: parsed.approvalRequests !== false,
+        runFinished: parsed.runFinished !== false,
+      };
+    } catch {
+      return null;
+    }
+  })();
+
   return {
     activeConversationId: settingsMap.get("active_conversation_id") ?? null,
     activeModelRef:
@@ -62,5 +83,9 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ?? "ask",
     backgroundAgentEnabled:
       settingsMap.get("background_agent_enabled") !== "false",
+    notificationSettings: parsedNotificationSettings ?? {
+      approvalRequests: true,
+      runFinished: true,
+    },
   };
 }

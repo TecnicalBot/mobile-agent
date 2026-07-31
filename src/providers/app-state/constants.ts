@@ -55,6 +55,10 @@ export const EMPTY_SETTINGS: AppSettings = {
   themeMode: "system",
   toolApprovalMode: "ask",
   backgroundAgentEnabled: true,
+  notificationSettings: {
+    approvalRequests: true,
+    runFinished: true,
+  },
 };
 
 export const EMPTY_RESOLVED_CONFIG: ResolvedConfig = {

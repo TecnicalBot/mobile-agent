@@ -99,5 +99,10 @@ class BackgroundAgentModule : Module() {
         true
       }
     }
+
+    AsyncFunction("setNotificationState") { state: String ->
+      BackgroundAgentService.setWaitingForApproval(state == "waiting_approval")
+      Unit
+    }
   }
 }

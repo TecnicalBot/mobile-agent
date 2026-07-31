@@ -22,9 +22,13 @@ import { createExternalFolderService } from "@/core/services/external-folder/ext
 import { connectMcpOAuth } from "@/modules/mcp/oauth";
 import { testMcpServerConnection } from "@/modules/mcp/runtime-tools";
 import {
+    dismissApprovalNotification,
+    dismissStaleApprovalNotificationsAsync,
+    notifyApprovalRequestedAsync,
     notifyRunFinishedAsync,
     prepareRunNotificationsAsync,
 } from "@/modules/notifications/run-notifications";
+import { setBackgroundAgentNotificationState } from "background-agent-service";
 import {
     clearOpenAiTokens,
     getOpenAiAccessToken,
@@ -90,6 +94,14 @@ import {
 } from "./helpers";
 
 type AppStateContextValue = {
+    resolveNotificationApproval: (input: {
+        approvalId: string;
+        decision: "approve" | "deny";
+        runId: string;
+    }) => Promise<void>;
+    updateNotificationSettings: (
+        input: Partial<AppSettings["notificationSettings"]>,
+    ) => Promise<void>;
     approvePendingToolApproval: () => void;
     agentRuns: AgentRun[];
     cancelRun: (input?: {
@@ -330,10 +342,14 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         title: string;
     } | null>(null);
     const snapshotRef = useRef(snapshot);
+    const pendingToolApprovalsRef = useRef<PendingToolApproval[]>(
+        pendingToolApprovals,
+    );
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
 
     snapshotRef.current = snapshot;
+    pendingToolApprovalsRef.current = pendingToolApprovals;
 
     useEffect(() => {
         logMessageDebug("snapshot-updated", {
@@ -354,6 +370,32 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         setPendingToolApprovals((current) =>
             current.filter((item) => item.id !== approval.id),
         );
+        dismissApprovalNotification(approval.runId).catch(() => { });
+
+        if (snapshotRef.current.settings.backgroundAgentEnabled) {
+            setBackgroundAgentNotificationState("running").catch(() => { });
+        }
+    }
+
+    async function resolveNotificationApproval(input: {
+        approvalId: string;
+        decision: import("@/modules/runtime/run-manager").ToolApprovalDecision;
+        runId: string;
+    }) {
+        const approval = pendingToolApprovalsRef.current.find(
+            (item) =>
+                item.runId === input.runId && item.id === input.approvalId,
+        );
+
+        if (!approval) {
+            return;
+        }
+
+        if (snapshotRef.current.currentConversation?.id !== approval.conversationId) {
+            await selectConversation(approval.conversationId);
+        }
+
+        resolvePendingToolApproval(approval, input.decision);
     }
 
     async function requestToolApproval(
@@ -376,6 +418,21 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
         setPendingToolApprovals((current) => [...current, approval]);
 
+        if (snapshotRef.current.settings.notificationSettings.approvalRequests) {
+            notifyApprovalRequestedAsync({
+                approvalId: approval.id,
+                chatTitle: approval.chatTitle,
+                conversationId: approval.conversationId,
+                inputSummary: approval.inputSummary,
+                runId: approval.runId,
+                toolName: approval.toolName,
+            }).catch(() => { });
+        }
+
+        if (snapshotRef.current.settings.backgroundAgentEnabled) {
+            setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
+        }
+
         return await new Promise<
             import("@/modules/runtime/run-manager").ToolApprovalDecision
         >((resolve) => {
@@ -394,6 +451,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     async function notifyRunStateChange(input: {
         body: string;
         conversationId: string;
+        status: "success" | "failed";
         title: string;
     }) {
         const currentConversationId =
@@ -404,13 +462,24 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             currentConversationId !== input.conversationId
         ) {
             setInAppNotification({
-                ...input,
+                body: input.body,
+                conversationId: input.conversationId,
                 id: `${input.conversationId}:${Date.now()}`,
+                title: input.title,
             });
             return;
         }
 
-        await notifyRunFinishedAsync(input);
+        if (!snapshotRef.current.settings.notificationSettings.runFinished) {
+            return;
+        }
+
+        await notifyRunFinishedAsync({
+            body: input.body,
+            conversationId: input.conversationId,
+            status: input.status,
+            title: input.title,
+        });
     }
 
     async function updateRunRecord(
@@ -726,7 +795,19 @@ Your output must be:
             return;
         }
 
-        prepareRunNotificationsAsync().catch(() => { });
+        const alertsEnabled =
+            snapshotRef.current.settings.notificationSettings.approvalRequests ||
+            snapshotRef.current.settings.notificationSettings.runFinished;
+
+        prepareRunNotificationsAsync({
+            requestPermission: alertsEnabled,
+        }).catch(() => { });
+        dismissStaleApprovalNotificationsAsync(
+            pendingToolApprovalsRef.current.map((approval) => ({
+                approvalId: approval.id,
+                runId: approval.runId,
+            })),
+        ).catch(() => { });
         resumePendingRuns().catch(() => { });
     }, [hydrating, ready]);
 
@@ -1295,6 +1376,15 @@ Your output must be:
 
     async function updateBackgroundAgentEnabled(enabled: boolean) {
         await repositoriesRef.current.configRepository.setBackgroundAgentEnabled(enabled);
+        await hydrate();
+    }
+
+    async function updateNotificationSettings(
+        input: Partial<AppSettings["notificationSettings"]>,
+    ) {
+        await repositoriesRef.current.configRepository.setNotificationSettings(
+            input,
+        );
         await hydrate();
     }
 
@@ -2018,7 +2108,12 @@ Your output must be:
         await ensureConversationPersisted(conversation);
 
         setError(null);
-        prepareRunNotificationsAsync().catch(() => { });
+        prepareRunNotificationsAsync({
+            requestPermission:
+                snapshotRef.current.settings.notificationSettings
+                    .approvalRequests ||
+                snapshotRef.current.settings.notificationSettings.runFinished,
+        }).catch(() => { });
 
         const userSequence = await repositories.messageRepository.getNextSequence(
             conversation.id,
@@ -2197,6 +2292,8 @@ Your output must be:
     return (
         <AppStateContext.Provider
             value={{
+                resolveNotificationApproval,
+                updateNotificationSettings,
                 approvePendingToolApproval: () => {
                     if (pendingToolApproval) {
                         resolvePendingToolApproval(pendingToolApproval, "approve");
@@ -2370,6 +2467,8 @@ export function useConfig() {
         updateThemeMode: context.updateThemeMode,
         updateBackgroundAgentEnabled: context.updateBackgroundAgentEnabled,
         backgroundAgentEnabled: context.settings.backgroundAgentEnabled,
+        notificationSettings: context.settings.notificationSettings,
+        updateNotificationSettings: context.updateNotificationSettings,
         updateMaxToolSteps: context.updateMaxToolSteps,
         maxToolSteps: context.settings.maxToolSteps,
         updateProvider: context.updateProvider,
@@ -2394,6 +2493,7 @@ export function useChat() {
         pendingToolApproval: context.pendingToolApproval,
         approvePendingToolApproval: context.approvePendingToolApproval,
         denyPendingToolApproval: context.denyPendingToolApproval,
+        resolveNotificationApproval: context.resolveNotificationApproval,
         createConversation: context.createConversation,
         createWorkspaceFile: context.createWorkspaceFile,
         clearConversationFolder: context.clearConversationFolder,

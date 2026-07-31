@@ -2032,7 +2032,7 @@ Your output must be:
             title: nextTitle,
             providerId: model.providerId,
             modelId: model.modelId,
-            selectedFileIds,
+            selectedFileIds: [],
             selectedSkillIds: conversation.selectedSkillIds,
             updatedAt: timestamp,
         };
@@ -2041,7 +2041,7 @@ Your output must be:
             title: nextTitle,
             providerId: model.providerId,
             modelId: model.modelId,
-            selectedFileIds,
+            selectedFileIds: [],
             updatedAt: timestamp,
         });
 
@@ -2152,7 +2152,7 @@ Your output must be:
                         : current.currentConversation,
                 currentSelectedFileIds:
                     current.currentConversation?.id === conversation.id
-                        ? selectedFileIds
+                        ? []
                         : current.currentSelectedFileIds,
                 currentSelectedMcpServerIds:
                     current.currentConversation?.id === conversation.id

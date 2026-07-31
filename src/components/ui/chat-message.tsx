@@ -1,20 +1,36 @@
 import * as Clipboard from "expo-clipboard";
 import { Directory, File, Paths } from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
+import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import {
   Brain,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock3,
   Copy,
   Download,
   Share2,
 } from "lucide-react-native";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import Markdown from "react-native-markdown-display";
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import Markdown, {
+  type ASTNode,
+  type RenderRules,
+} from "react-native-markdown-display";
 
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
@@ -28,6 +44,10 @@ import {
 } from "@/components/ui/drawer";
 import { Loading } from "@/components/ui/loading";
 import { Message, MessageFooter } from "@/components/ui/message";
+import {
+  isTextWorkspaceFile,
+  resolveWorkspaceFile,
+} from "@/core/services/workspace-file-service";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/core/utils";
 import type {
@@ -35,15 +55,60 @@ import type {
   GeneratedImageAttachment,
   ReasoningBlock,
   StoredMessage,
+  WorkspaceFile,
 } from "@/core/types/app-state";
 import { Asset } from "expo-media-library";
 
 type ChatMessageProps = {
   message: StoredMessage;
+  workspaceFiles: WorkspaceFile[];
 };
+
+const MARKDOWN_RULES = {
+  table: (node, children, _parent, styles) => {
+    const columnCount = getTableColumnCount(node);
+
+    return (
+      <ScrollView
+        key={node.key}
+        directionalLockEnabled
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator
+        style={{ maxWidth: "100%" }}
+      >
+        <View
+          style={[
+            styles._VIEW_SAFE_table,
+            { width: Math.max(columnCount, 1) * 144 },
+          ]}
+        >
+          {children}
+        </View>
+      </ScrollView>
+    );
+  },
+} satisfies RenderRules;
+
+function getTableColumnCount(node: ASTNode): number {
+  if (node.type === "tr") {
+    return node.children.length;
+  }
+
+  for (const child of node.children) {
+    const columnCount = getTableColumnCount(child);
+
+    if (columnCount > 0) {
+      return columnCount;
+    }
+  }
+
+  return 0;
+}
 
 export const ChatMessage = memo(function ChatMessage({
   message,
+  workspaceFiles,
 }: ChatMessageProps) {
   const theme = useTheme();
   const [copied, setCopied] = useState(false);
@@ -51,6 +116,7 @@ export const ChatMessage = memo(function ChatMessage({
     null,
   );
   const [memoryExpanded, setMemoryExpanded] = useState(false);
+  const [openingFileId, setOpeningFileId] = useState<string | null>(null);
   const [reasoningExpanded, setReasoningExpanded] = useState(
     message.status === "streaming",
   );
@@ -201,6 +267,50 @@ export const ChatMessage = memo(function ChatMessage({
     }
   };
 
+  const handleOpenFile = async (workspaceFile: WorkspaceFile) => {
+    setOpeningFileId(workspaceFile.id);
+
+    try {
+      const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
+
+      if (!localFile.exists) {
+        throw new Error("This file is no longer available in the workspace.");
+      }
+
+      const mimeType = isTextWorkspaceFile(workspaceFile)
+        ? "text/plain"
+        : workspaceFile.mimeType || localFile.type || "*/*";
+
+      if (Platform.OS === "android") {
+        const contentUri = await LegacyFileSystem.getContentUriAsync(
+          localFile.uri,
+        );
+
+        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+          data: contentUri,
+          flags: 1,
+          type: mimeType,
+        });
+        return;
+      }
+
+      if (!(await Linking.canOpenURL(localFile.uri))) {
+        throw new Error("No compatible app is available to open this file.");
+      }
+
+      await Linking.openURL(localFile.uri);
+    } catch (error) {
+      Alert.alert(
+        "Unable to open file",
+        error instanceof Error
+          ? error.message
+          : "The file could not be opened.",
+      );
+    } finally {
+      setOpeningFileId(null);
+    }
+  };
+
   const getImageMimeType = (uri: string) => {
     const cleanUri = uri.split("?")[0].toLowerCase();
 
@@ -221,6 +331,11 @@ export const ChatMessage = memo(function ChatMessage({
       !(event.kind === "run" && event.status === "pending"),
   );
   const generatedImages = message.metadata?.generatedImages ?? [];
+  const attachedFiles = (message.metadata?.selectedFileIds ?? [])
+    .map((fileId) => workspaceFiles.find((file) => file.id === fileId))
+    .filter((file): file is WorkspaceFile => file !== undefined);
+  const hasUserAttachments = isUser && attachedFiles.length > 0;
+  const fileHeaderConnected = hasUserAttachments && Boolean(message.content);
   const reasoningBlocks = message.metadata?.reasoning ?? [];
   const reasoningText = reasoningBlocks
     .map((block) => block.text.trim())
@@ -255,123 +370,179 @@ export const ChatMessage = memo(function ChatMessage({
           "max-w-[80%]": !isAssistant,
         })}
       >
-        <Bubble
-          align={align}
-          className={cn("max-w-full", isAssistant && "w-full")}
-          variant={variant}
-        >
-          <BubbleContent>
-            {isAssistant ? (
-              <View className="gap-sp-3">
-                {reasoningLabel ? (
-                  <View className="gap-sp-2">
-                    <Pressable
-                      accessibilityRole="button"
-                      className="self-start flex-row items-center gap-sp-2"
-                      onPress={() => {
-                        setReasoningExpanded((current) => !current);
-                      }}
-                      style={({ pressed }) =>
-                        pressed ? { opacity: 0.72 } : null
-                      }
-                    >
-                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                        {reasoningLabel}
-                      </Text>
-                      <ChevronDown
-                        color={theme.textSecondary}
-                        size={14}
-                        style={{
-                          transform: [
-                            { rotate: reasoningExpanded ? "180deg" : "0deg" },
-                          ],
-                        }}
-                      />
-                    </Pressable>
+        {hasUserAttachments ? (
+          <View
+            className={cn(
+              "overflow-hidden border border-border bg-card dark:border-border-dark dark:bg-card-dark",
+              fileHeaderConnected
+                ? "max-w-full rounded-ui rounded-br-none"
+                : "max-w-full rounded-ui",
+            )}
+          >
+            {attachedFiles.map((file, index) => {
+              const opening = openingFileId === file.id;
 
-                    {reasoningExpanded ? (
-                      <View className="flex-row gap-sp-2">
-                        <View className="w-5 items-center">
-                          <Clock3 color={theme.textSecondary} size={16} />
-                          <View className="my-1 min-h-6 w-px flex-1 bg-border dark:bg-border-dark" />
-                          <Check color={theme.textSecondary} size={16} />
-                        </View>
-                        <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
-                          <Markdown
-                            mergeStyle={false}
-                            style={reasoningMarkdownStyles}
-                          >
-                            {reasoningText}
-                          </Markdown>
-                          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                            {reasoningInProgress ? "Working" : "Done"}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {message.content.trim() ? (
-                  <Markdown mergeStyle={false} style={markdownStyles}>
-                    {message.content}
-                  </Markdown>
-                ) : memoryEventLabel ? (
-                  <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                    {memoryEventLabel}
+              return (
+                <Pressable
+                  key={file.id}
+                  accessibilityHint="Opens the attached file"
+                  accessibilityLabel={file.displayName}
+                  accessibilityRole="button"
+                  className={cn(
+                    "w-full flex-row items-center gap-sp-2 px-sp-3 py-sp-2",
+                    index > 0 &&
+                      "border-t border-border dark:border-border-dark",
+                  )}
+                  disabled={opening}
+                  onPress={() => {
+                    handleOpenFile(file).catch(console.error);
+                  }}
+                  style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
+                >
+                  <Text
+                    className="min-w-0 shrink font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
+                    numberOfLines={1}
+                  >
+                    {file.displayName}
                   </Text>
-                ) : null}
-                {generatedImages.length > 0 ? (
-                  <View className="gap-sp-2">
-                    {generatedImages.map((image) => (
+                  {opening ? (
+                    <ActivityIndicator
+                      color={theme.textSecondary}
+                      size="small"
+                    />
+                  ) : (
+                    <ChevronRight color={theme.textSecondary} size={16} />
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {isAssistant || message.content ? (
+          <Bubble
+            align={align}
+            className={cn("max-w-full", isAssistant && "w-full")}
+            variant={variant}
+          >
+            <BubbleContent
+              className={fileHeaderConnected ? "rounded-tr-none" : undefined}
+            >
+              {isAssistant ? (
+                <View className="gap-sp-3">
+                  {reasoningLabel ? (
+                    <View className="gap-sp-2">
                       <Pressable
-                        key={image.id}
-                        accessibilityHint="Open the generated image preview"
                         accessibilityRole="button"
-                        className="overflow-hidden rounded-card border border-border dark:border-border-dark"
+                        className="self-start flex-row items-center gap-sp-2"
                         onPress={() => {
-                          setPreviewImage(image);
+                          setReasoningExpanded((current) => !current);
                         }}
+                        style={({ pressed }) =>
+                          pressed ? { opacity: 0.72 } : null
+                        }
                       >
-                        <Image
-                          contentFit="cover"
-                          source={{ uri: image.uri }}
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          {reasoningLabel}
+                        </Text>
+                        <ChevronDown
+                          color={theme.textSecondary}
+                          size={14}
                           style={{
-                            aspectRatio: 1,
-                            minHeight: 220,
-                            width: "100%",
+                            transform: [
+                              { rotate: reasoningExpanded ? "180deg" : "0deg" },
+                            ],
                           }}
                         />
-                        <View className="absolute inset-x-0 bottom-0 bg-black/45 px-sp-3 py-sp-2">
-                          <Text className="font-sans text-xs font-medium text-white">
-                            Tap to view, save, or share
-                          </Text>
-                        </View>
                       </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-                {message.status === "streaming" ? (
-                  <Loading label="Thinking..." />
-                ) : null}
-              </View>
-            ) : (
-              <Pressable
-                accessibilityHint="Long press to copy message"
-                accessibilityRole="button"
-                delayLongPress={220}
-                onLongPress={() => {
-                  handleCopy().catch(console.error);
-                }}
-                style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
-              >
-                <Text className="font-sans text-base text-background dark:text-background-dark">
-                  {message.content}
-                </Text>
-              </Pressable>
-            )}
-          </BubbleContent>
-        </Bubble>
+
+                      {reasoningExpanded ? (
+                        <View className="flex-row gap-sp-2">
+                          <View className="w-5 items-center">
+                            <Clock3 color={theme.textSecondary} size={16} />
+                            <View className="my-1 min-h-6 w-px flex-1 bg-border dark:bg-border-dark" />
+                            <Check color={theme.textSecondary} size={16} />
+                          </View>
+                          <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
+                            <Markdown
+                              mergeStyle={false}
+                              rules={MARKDOWN_RULES}
+                              style={reasoningMarkdownStyles}
+                            >
+                              {reasoningText}
+                            </Markdown>
+                            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                              {reasoningInProgress ? "Working" : "Done"}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {message.content.trim() ? (
+                    <Markdown
+                      mergeStyle={false}
+                      rules={MARKDOWN_RULES}
+                      style={markdownStyles}
+                    >
+                      {message.content}
+                    </Markdown>
+                  ) : memoryEventLabel ? (
+                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                      {memoryEventLabel}
+                    </Text>
+                  ) : null}
+                  {generatedImages.length > 0 ? (
+                    <View className="gap-sp-2">
+                      {generatedImages.map((image) => (
+                        <Pressable
+                          key={image.id}
+                          accessibilityHint="Open the generated image preview"
+                          accessibilityRole="button"
+                          className="overflow-hidden rounded-card border border-border dark:border-border-dark"
+                          onPress={() => {
+                            setPreviewImage(image);
+                          }}
+                        >
+                          <Image
+                            contentFit="cover"
+                            source={{ uri: image.uri }}
+                            style={{
+                              aspectRatio: 1,
+                              minHeight: 220,
+                              width: "100%",
+                            }}
+                          />
+                          <View className="absolute inset-x-0 bottom-0 bg-black/45 px-sp-3 py-sp-2">
+                            <Text className="font-sans text-xs font-medium text-white">
+                              Tap to view, save, or share
+                            </Text>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                  {message.status === "streaming" ? <Loading /> : null}
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityHint="Long press to copy message"
+                  accessibilityRole="button"
+                  delayLongPress={220}
+                  onLongPress={() => {
+                    handleCopy().catch(console.error);
+                  }}
+                  style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
+                >
+                  <Text className="font-sans text-base text-background dark:text-background-dark">
+                    {message.content}
+                  </Text>
+                </Pressable>
+              )}
+            </BubbleContent>
+          </Bubble>
+        ) : null}
 
         {isAssistant &&
         (message.content.trim() ||
@@ -742,11 +913,14 @@ function createMarkdownStyles(input: {
   return {
     body: {
       color: input.text,
+      flexShrink: 1,
       fontFamily: "System",
       fontSize: 16,
       lineHeight: 24,
       marginBottom: 0,
       marginTop: 0,
+      maxWidth: "100%",
+      width: "100%",
     },
     bullet_list: {
       marginBottom: 10,
@@ -870,20 +1044,30 @@ function createMarkdownStyles(input: {
     },
     table: {
       borderColor: input.borderColor,
-      borderWidth: 1,
+      borderLeftWidth: 1,
+      borderTopWidth: 1,
     },
     td: {
       borderColor: input.borderColor,
-      borderWidth: 1,
+      borderRightWidth: 1,
       color: input.text,
+      flexShrink: 0,
       padding: 8,
+      width: 144,
     },
     th: {
       borderColor: input.borderColor,
-      borderWidth: 1,
+      borderRightWidth: 1,
       color: input.text,
+      flexShrink: 0,
       fontWeight: "700",
       padding: 8,
+      width: 144,
+    },
+    tr: {
+      borderBottomWidth: 1,
+      borderColor: input.borderColor,
+      flexDirection: "row",
     },
   } satisfies StyleSheet.NamedStyles<any>;
 }

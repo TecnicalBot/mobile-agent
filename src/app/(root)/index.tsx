@@ -22,6 +22,7 @@ import {
 } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -210,7 +211,8 @@ export default function Screen() {
     currentConversationRunStatus === "queued" ||
     currentConversationRunStatus === "running" ||
     currentConversationRunStatus === "waiting_for_approval" ||
-    currentConversationRunStatus === "resumable";
+    currentConversationRunStatus === "resumable" ||
+    currentConversationRunStatus === "retrying";
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1">
@@ -238,56 +240,71 @@ export default function Screen() {
 
         <MessageScrollerProvider autoScroll>
           <MessageScroller className="flex-1 rounded-none border-0">
-            <MessageScrollerList
-              contentContainerClassName="py-sp-4 pb-16"
-              data={messages}
-              keyExtractor={(message) => message.id}
-              renderItem={({ index, item: message }) => (
-                <MessageScrollerItem
-                  index={index}
-                  messageId={message.id}
-                  scrollAnchor={message.role === "assistant"}
+            {!ready || hydrating ? (
+              <View
+                accessibilityLiveRegion="polite"
+                className="flex-1 items-center justify-center gap-sp-3"
+              >
+                <ActivityIndicator color={theme.textSecondary} size="small" />
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  Loading chat…
+                </Text>
+              </View>
+            ) : (
+              <>
+                <MessageScrollerList
+                  contentContainerClassName="py-sp-4 pb-16"
+                  data={messages}
+                  keyExtractor={(message) => message.id}
+                  renderItem={({ index, item: message }) => (
+                    <MessageScrollerItem
+                      index={index}
+                      messageId={message.id}
+                      scrollAnchor={message.role === "assistant"}
+                    >
+                      <ChatMessage
+                        message={message}
+                        workspaceFiles={workspaceFiles}
+                      />
+                    </MessageScrollerItem>
+                  )}
+                  showsVerticalScrollIndicator={false}
+                  ListEmptyComponent={
+                    currentModel ? (
+                      <View className="pb-sp-4">
+                        {STARTER_PROMPTS.map((prompt) => (
+                          <Button
+                            key={prompt}
+                            variant="ghost"
+                            className="justify-start"
+                            onPress={() =>
+                              sendMessage({
+                                content: prompt,
+                              }).catch(console.error)
+                            }
+                          >
+                            {prompt}
+                          </Button>
+                        ))}
+                      </View>
+                    ) : (
+                      <View className="px-sp-2 py-sp-8">
+                        <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
+                          Connect a model to start chatting.
+                        </Text>
+                      </View>
+                    )
+                  }
+                  ListFooterComponent={<View className="h-sp-1" />}
+                />
+                <MessageScrollerButton
+                  accessibilityLabel="Jump to latest"
+                  className="h-10 w-10 rounded-full px-0"
                 >
-                  <ChatMessage message={message} />
-                </MessageScrollerItem>
-              )}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                ready && !hydrating ? (
-                  currentModel ? (
-                    <View className="pb-sp-4">
-                      {STARTER_PROMPTS.map((prompt) => (
-                        <Button
-                          key={prompt}
-                          variant="ghost"
-                          className="justify-start"
-                          onPress={() =>
-                            sendMessage({
-                              content: prompt,
-                            }).catch(console.error)
-                          }
-                        >
-                          {prompt}
-                        </Button>
-                      ))}
-                    </View>
-                  ) : (
-                    <View className="px-sp-2 py-sp-8">
-                      <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                        Connect a model to start chatting.
-                      </Text>
-                    </View>
-                  )
-                ) : null
-              }
-              ListFooterComponent={<View className="h-sp-1" />}
-            />
-            <MessageScrollerButton
-              accessibilityLabel="Jump to latest"
-              className="h-10 w-10 rounded-full px-0"
-            >
-              <ArrowDown color={theme.text} size={18} />
-            </MessageScrollerButton>
+                  <ArrowDown color={theme.text} size={18} />
+                </MessageScrollerButton>
+              </>
+            )}
           </MessageScroller>
 
           {error ? (
@@ -788,7 +805,12 @@ function ChatInput({
           ? enabledMcpServers
               .map((server) => server.id)
               .filter((id) => id !== serverId)
-          : [...new Set([...enabledMcpServers.map((server) => server.id), serverId])],
+          : [
+              ...new Set([
+                ...enabledMcpServers.map((server) => server.id),
+                serverId,
+              ]),
+            ],
       );
       return;
     }
@@ -882,18 +904,19 @@ function ChatInput({
       }
     }
 
-    setPrompt("");
-    await setSelectedFileIds([]);
-    scrollToEnd();
-
-    logComposerDebug("handle-generate-send", {
-      cleanPromptLength: cleanPrompt.length,
-      fileContextSource: nextFileContextSource,
-      selectedFileIds: previousSelectedFileIds,
-    });
-
     sendingRef.current = true;
+    setPrompt("");
+
     try {
+      await setSelectedFileIds([]);
+      scrollToEnd();
+
+      logComposerDebug("handle-generate-send", {
+        cleanPromptLength: cleanPrompt.length,
+        fileContextSource: nextFileContextSource,
+        selectedFileIds: previousSelectedFileIds,
+      });
+
       await onSend({
         content: cleanPrompt,
         fileContextSource: nextFileContextSource,
@@ -1442,14 +1465,6 @@ function ChatInput({
                 }
                 handleGenerate().catch(console.error);
               }}
-              onPressIn={() => {
-                if (sendDisabled) return;
-                if (loading) {
-                  onStop().catch(console.error);
-                  return;
-                }
-                handleGenerate().catch(console.error);
-              }}
               style={({ pressed }) => ({
                 opacity: sendDisabled ? 0.5 : pressed ? 0.85 : 1,
               })}
@@ -1570,6 +1585,7 @@ function ChatInput({
                       ) : null
                     }
                     onPress={() => {
+                      setFilesDrawerOpen(false);
                       setSelectedFileIds(
                         selectedFileIds.includes(file.id)
                           ? selectedFileIds.filter((id) => id !== file.id)

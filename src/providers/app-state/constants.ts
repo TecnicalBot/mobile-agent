@@ -78,6 +78,7 @@ export const EMPTY_SNAPSHOT: AppStateSnapshot = {
   conversations: [],
   currentConversation: null,
   currentSelectedFileIds: [],
+  currentSelectedMcpServerIds: null,
   currentSelectedSkillIds: [],
   memory: null,
   mcpServers: [],

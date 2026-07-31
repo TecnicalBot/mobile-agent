@@ -422,6 +422,12 @@ export async function executeClaimedAgentRun(
     run.fileContextSource === "external-folder"
       ? run.externalFolderSession
       : null;
+  const runMcpServers =
+    conversation.selectedMcpServerIds === null
+      ? snapshotRef.current.mcpServers
+      : snapshotRef.current.mcpServers.filter((server) =>
+          conversation.selectedMcpServerIds!.includes(server.id),
+        );
   const selectedWorkspaceToolFileIds = currentRunWorkspaceFiles.map(
     (file) => file.id,
   );
@@ -738,9 +744,9 @@ export async function executeClaimedAgentRun(
             })()
           : undefined;
     mcpRuntime =
-      runtimeSupportsTools && snapshotRef.current.mcpServers.length > 0
+      runtimeSupportsTools && runMcpServers.length > 0
         ? await createMcpRuntimeTools({
-            servers: snapshotRef.current.mcpServers,
+            servers: runMcpServers,
             onRecord: handleToolExecutionRecord,
           })
         : null;
@@ -833,7 +839,7 @@ export async function executeClaimedAgentRun(
     }
     const skillsRuntimeSystem = buildSkillsSystemPrompt({
       builtInToolSettings: snapshotRef.current.settings.builtInToolSettings,
-      mcpServers: snapshotRef.current.mcpServers,
+      mcpServers: runMcpServers,
       skills: appliedSkills,
     });
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled

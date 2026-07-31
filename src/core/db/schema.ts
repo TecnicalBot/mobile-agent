@@ -32,6 +32,9 @@ export const conversations = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    selectedMcpServerIds: text("selected_mcp_server_ids_json", {
+      mode: "json",
+    }).$type<string[] | null>(),
     selectedSkillIds: text("selected_skill_ids_json", { mode: "json" })
       .$type<string[]>()
       .notNull()

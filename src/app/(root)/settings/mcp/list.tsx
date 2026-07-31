@@ -132,7 +132,7 @@ export default function McpCatalogScreen() {
         backHref={
           mcpServers.length > 0 ? "/settings/mcp/connected" : "/settings"
         }
-        title="Add MCP server"
+        title="MCP servers"
       />
 
       {catalogPresets.length > 0 ? (

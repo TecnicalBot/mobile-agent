@@ -67,9 +67,6 @@ export default function ConnectedMcpServersScreen() {
         </Card>
       ) : (
         <>
-          <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
-            Connected MCP servers
-          </Text>
           <Card className="overflow-hidden">
             {mcpServers.map((server, index) => (
               <View key={server.id}>

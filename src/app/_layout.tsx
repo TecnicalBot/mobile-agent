@@ -6,6 +6,10 @@ import { migrateAppDatabase } from "@/core/db/database";
 import { AppStateProvider } from "@/providers/app-state";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
 import { AppQueryProvider } from "@/providers/query-provider";
+import {
+  TOOL_APPROVAL_APPROVE_ACTION_ID,
+  TOOL_APPROVAL_REJECT_ACTION_ID,
+} from "@/modules/notifications/run-notifications";
 import * as Notifications from "expo-notifications";
 import {
   DarkTheme,
@@ -25,16 +29,24 @@ import "./global.css";
 SplashScreen.preventAutoHideAsync();
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as
+      | { type?: string }
+      | null;
+    const alertKind = data?.type;
+
+    return {
+      shouldPlaySound:
+        alertKind === "tool-approval" || alertKind === "run-finished",
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 function NotificationObserver() {
-  const { selectConversation } = useChat();
+  const { resolveNotificationApproval, selectConversation } = useChat();
 
   useEffect(() => {
     function openConversation(
@@ -51,22 +63,65 @@ function NotificationObserver() {
       }
     }
 
-    const response = Notifications.getLastNotificationResponse();
+    function handleResponse(
+      response: Notifications.NotificationResponse | null | undefined,
+    ) {
+      if (!response?.notification) {
+        return;
+      }
 
-    if (response?.notification) {
+      const data = response.notification.request.content.data as
+        | { approvalId?: string; runId?: string; type?: string }
+        | null;
+
+      if (
+        data?.type === "tool-approval" &&
+        response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
+      ) {
+        if (
+          typeof data.runId === "string" &&
+          typeof data.approvalId === "string"
+        ) {
+          if (
+            response.actionIdentifier === TOOL_APPROVAL_APPROVE_ACTION_ID
+          ) {
+            void resolveNotificationApproval({
+              approvalId: data.approvalId,
+              decision: "approve",
+              runId: data.runId,
+            });
+          } else if (
+            response.actionIdentifier === TOOL_APPROVAL_REJECT_ACTION_ID
+          ) {
+            void resolveNotificationApproval({
+              approvalId: data.approvalId,
+              decision: "deny",
+              runId: data.runId,
+            });
+          }
+        }
+
+        return;
+      }
+
       openConversation(response.notification);
     }
 
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        handleResponse(response);
+        Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      })
+      .catch(() => {});
+
     const subscription = Notifications.addNotificationResponseReceivedListener(
-      (nextResponse) => {
-        openConversation(nextResponse.notification);
-      },
+      handleResponse,
     );
 
     return () => {
       subscription.remove();
     };
-  }, [selectConversation]);
+  }, [resolveNotificationApproval, selectConversation]);
 
   return null;
 }

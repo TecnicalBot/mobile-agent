@@ -192,6 +192,18 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
     async setBackgroundAgentEnabled(enabled) {
       await this.setSetting("background_agent_enabled", enabled ? "true" : "false");
     },
+    async setNotificationSettings(input) {
+      const settings = await this.getSettings();
+      const nextSettings = {
+        ...settings.notificationSettings,
+        ...input,
+      };
+
+      await this.setSetting(
+        "notification_settings_json",
+        JSON.stringify(nextSettings),
+      );
+    },
     async setDefaultModelPreset(modelPresetId) {
       const targetPreset = (
         await db

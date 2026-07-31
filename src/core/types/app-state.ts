@@ -160,6 +160,11 @@ export type ReasoningBlock = {
   completedAt: string | null;
 };
 
+export type NotificationSettings = {
+  approvalRequests: boolean;
+  runFinished: boolean;
+};
+
 export type MessageMetadata = {
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];
@@ -307,6 +312,7 @@ export type AppSettings = {
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
   backgroundAgentEnabled: boolean;
+  notificationSettings: NotificationSettings;
 };
 
 export type CuratedModelDefinition = {

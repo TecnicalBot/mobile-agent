@@ -32,7 +32,13 @@ import { cn } from "@/core/utils";
 import { useUpdate } from "@/providers/check-for-updates";
 import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 
-type DrawerKey = "current-model" | "db" | "theme" | "background" | null;
+type DrawerKey =
+  | "current-model"
+  | "db"
+  | "theme"
+  | "background"
+  | "notifications"
+  | null;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -48,11 +54,13 @@ export default function SettingsScreen() {
     refresh,
     selectModel,
     mcpServers,
+    notificationSettings,
     skills,
     themeMode,
     toolSettings,
     updateBackgroundAgentEnabled,
     updateDatabaseSettings,
+    updateNotificationSettings,
     updateThemeMode,
     providers,
   } = useConfig();
@@ -216,6 +224,74 @@ export default function SettingsScreen() {
                   Enable notifications
                 </Button>
               ) : null}
+            </DrawerBody>
+          </DrawerContent>
+        </Drawer>
+        <Separator />
+        <Drawer
+          onOpenChange={(open) => {
+            setOpenDrawer(open ? "notifications" : null);
+          }}
+          open={openDrawer === "notifications"}
+        >
+          <DrawerTrigger asChild>
+            <SettingsLinkRow
+              label="Notifications"
+              value={
+                notificationSettings.approvalRequests ||
+                notificationSettings.runFinished
+                  ? "On"
+                  : "Off"
+              }
+            />
+          </DrawerTrigger>
+          <DrawerContent showCloseButton>
+            <DrawerHeader>
+              <DrawerTitle>Notifications</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-2">
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                Alerts sent even when the app is in the background.
+              </Text>
+
+              <View className="flex-row items-center justify-between">
+                <View className="min-w-0 flex-1">
+                  <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                    Approval requests
+                  </Text>
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    Alert when the agent asks permission to use a tool. Includes
+                    Approve / Reject actions.
+                  </Text>
+                </View>
+                <Checkbox
+                  checked={notificationSettings.approvalRequests}
+                  onCheckedChange={async (checked) => {
+                    await updateNotificationSettings({
+                      approvalRequests: checked,
+                    });
+                  }}
+                />
+              </View>
+
+              <View className="flex-row items-center justify-between">
+                <View className="min-w-0 flex-1">
+                  <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                    Run finished
+                  </Text>
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    Alert when the agent finishes a task or fails.
+                  </Text>
+                </View>
+                <Checkbox
+                  checked={notificationSettings.runFinished}
+                  onCheckedChange={async (checked) => {
+                    await updateNotificationSettings({
+                      runFinished: checked,
+                    });
+                  }}
+                />
+              </View>
             </DrawerBody>
           </DrawerContent>
         </Drawer>

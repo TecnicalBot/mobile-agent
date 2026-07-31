@@ -9,13 +9,14 @@ const MAX_MEMORY_DOCUMENT_LENGTH = 20_000;
 
 const MEMORY_GUIDANCE = `
 Maintain memory.md as concise Markdown containing only durable information that is likely to improve future conversations.
-Good candidates include explicit user preferences, stable personal facts, long-term goals, ongoing projects, recurring workflows, and persistent constraints.
+Good candidates include explicit user preferences, stable personal facts, long-term goals, and persistent constraints.
 Only save information that is useful beyond the current conversation. Do not save information merely because it is interesting or available.
 When the user explicitly asks you to remember, save, store, forget, or delete something, follow that request.
 When memory changes, revise the existing memory instead of blindly appending. Preserve all still-valid information and remove or update information that is outdated or contradicted.
 Never save entire conversations, assistant responses, tool results, temporary tasks, one-off requests, speculative conclusions, or information inferred only from context unless the user explicitly confirms it.
-Do not save secrets, passwords, API keys, authentication tokens, payment credentials, or other security-sensitive information.
-Do not save sensitive personal information, including health, legal, financial, political, religious, or sexual information, unless the user explicitly asks you to remember it.
+Do not save:
+    - secrets, passwords, API keys, authentication tokens, payment credentials, or other security-sensitive information.
+    - sensitive personal information, including health, legal, financial, political, religious, or sexual information, unless the user explicitly asks you to remember it.
 Prefer specific, factual statements over vague summaries. Avoid duplicating information already present in memory.
 If information is uncertain, temporary, or unlikely to be useful in future conversations, do not save it.
 Keep memory short, readable, and organized so another assistant can quickly understand the user's durable context.

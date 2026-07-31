@@ -8,6 +8,7 @@ type BackgroundAgentModule = {
   requestBatteryOptimizationExemption(): Promise<void>
   requestNotificationPermission(): Promise<void>
   hasNotificationPermission(): Promise<boolean>
+  setNotificationState(state: 'running' | 'waiting_approval'): Promise<void>
 }
 
 const BackgroundAgent = Platform.OS === 'android'
@@ -20,7 +21,6 @@ export async function startBackgroundAgent(): Promise<void> {
   try {
     await BackgroundAgent.requestBatteryOptimizationExemption()
     await BackgroundAgent.start()
-    console.log('[BackgroundAgent] start() succeeded')
   } catch (e) {
     console.error('[BackgroundAgent] start() failed:', e)
   }
@@ -31,7 +31,6 @@ export async function stopBackgroundAgent(): Promise<void> {
   if (!BackgroundAgent) { console.error('[BackgroundAgent] module is null!'); return }
   try {
     await BackgroundAgent.stop()
-    console.log('[BackgroundAgent] stop() succeeded')
   } catch (e) {
     console.error('[BackgroundAgent] stop() failed:', e)
   }
@@ -66,4 +65,12 @@ export async function hasNotificationPermission(): Promise<boolean> {
     return (await BackgroundAgent.hasNotificationPermission()) as boolean
   }
   return true
+}
+
+export async function setBackgroundAgentNotificationState(
+  state: 'running' | 'waiting_approval',
+): Promise<void> {
+  if (Platform.OS === 'android' && BackgroundAgent) {
+    await BackgroundAgent.setNotificationState(state)
+  }
 }

@@ -18,6 +18,7 @@ import type {
   McpServerTransport,
   MessageMetadata,
   ModelPreset,
+  NotificationSettings,
   ProviderConfig,
   ReasoningEffort,
   SkillConfig,
@@ -261,6 +262,7 @@ export interface ConfigRepository {
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
   setMaxToolSteps(maxToolSteps: number): Promise<void>;
   setBackgroundAgentEnabled(enabled: boolean): Promise<void>;
+  setNotificationSettings(input: Partial<NotificationSettings>): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;
   updateProvider(
     providerId: string,

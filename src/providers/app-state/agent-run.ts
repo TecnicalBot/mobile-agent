@@ -38,6 +38,7 @@ import {
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
+import { dismissApprovalNotification } from "@/modules/notifications/run-notifications";
 import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
   buildSelectedFilesInlineContext,
@@ -101,6 +102,7 @@ export type AgentRunDeps = {
   notifyRunStateChange: (input: {
     body: string;
     conversationId: string;
+    status: "success" | "failed";
     title: string;
   }) => Promise<void>;
   setSnapshot: Dispatch<SetStateAction<AppStateSnapshot>>;
@@ -1230,11 +1232,12 @@ export async function executeClaimedAgentRun(
       });
     }
 
-    // await notifyRunStateChange({
-    //   body: "Agent finished this task.",
-    //   conversationId: conversation.id,
-    //   title: conversation.title,
-    // }).catch(() => {});
+    await notifyRunStateChange({
+      body: "Agent finished this task.",
+      conversationId: conversation.id,
+      status: "success",
+      title: conversation.title,
+    }).catch(() => {});
   } catch (sendError) {
     await Promise.allSettled(pendingArtifactWrites);
     const requestAborted = abortController.signal.aborted;
@@ -1394,14 +1397,17 @@ export async function executeClaimedAgentRun(
       workspaceFiles,
     }));
 
-    // if (finalStatus === "failed") {
-    //   await notifyRunStateChange({
-    //     body: errorMessage,
-    //     conversationId: conversation.id,
-    //     title: conversation.title,
-    //   }).catch(() => {});
-    // }
+    if (finalStatus === "failed") {
+      await notifyRunStateChange({
+        body: errorMessage,
+        conversationId: conversation.id,
+        status: "failed",
+        title: conversation.title,
+      }).catch(() => {});
+    }
   } finally {
+    dismissApprovalNotification(run.id).catch(() => {});
+
     if (snapshotRef.current.settings.backgroundAgentEnabled) {
       stopBackgroundAgent();
     }

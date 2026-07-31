@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 13;
+const DATABASE_VERSION = 14;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -433,6 +433,25 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 13;
+  }
+
+  if (currentVersion === 13) {
+    const conversationColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(conversations)",
+    );
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "selected_mcp_server_ids_json",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN selected_mcp_server_ids_json TEXT;
+      `);
+    }
+
+    currentVersion = 14;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

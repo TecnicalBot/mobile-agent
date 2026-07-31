@@ -1,5 +1,6 @@
+import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
-import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { Check, ChevronLeft, ChevronRight, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, Text, View } from "react-native";
 import type { DownloadableModel } from "expo-ai-kit";
@@ -20,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { invalidateLiveModelCatalog } from "@/modules/config/live-model-catalog";
+import { getSupportedProviderDefinition } from "@/modules/config/registry";
 import { fetchOnDeviceModelCatalogCached } from "@/modules/on-device/catalog";
 import { getOnDeviceToolsMode } from "@/modules/on-device/runtime-policy";
 import {
@@ -56,7 +58,9 @@ export default function SettingsProvidersScreen() {
     clearProviderApiKey,
     connectOpenAIOAuth,
     createModelPreset,
+    createProvider,
     currentModel,
+    deleteProvider,
     disconnectOpenAIOAuth,
     providers,
     providerModelDiscovery,
@@ -67,6 +71,10 @@ export default function SettingsProvidersScreen() {
     updateProvider,
   } = useConfig();
   const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [customProviderName, setCustomProviderName] = useState("");
+  const [customProviderBaseUrl, setCustomProviderBaseUrl] = useState("");
+  const [customProviderApiKey, setCustomProviderApiKey] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [baseUrlInput, setBaseUrlInput] = useState("");
   const [customModelId, setCustomModelId] = useState("");
@@ -150,6 +158,9 @@ export default function SettingsProvidersScreen() {
   const selectedItem =
     providerItems.find((item) => item.key === selectedItemKey) ?? null;
   const selectedProvider = selectedItem?.provider ?? null;
+  const selectedProviderIsCustom = selectedProvider
+    ? getSupportedProviderDefinition(selectedProvider.id) === null
+    : false;
   useEffect(() => {
     if (selectedProvider?.family !== "on-device") {
       return;
@@ -297,6 +308,55 @@ export default function SettingsProvidersScreen() {
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const resetCustomProviderForm = () => {
+    setCustomProviderName("");
+    setCustomProviderBaseUrl("");
+    setCustomProviderApiKey("");
+  };
+
+  const addCustomProvider = async () => {
+    const apiKey = customProviderApiKey.trim();
+
+    await createProvider({
+      apiKey: apiKey || undefined,
+      authType: apiKey ? "apiKey" : "none",
+      baseUrl: customProviderBaseUrl.trim(),
+      enabled: true,
+      family: "openai-compatible",
+      id: `custom-${Crypto.randomUUID()}`,
+      label: customProviderName.trim(),
+    });
+    setAddProviderOpen(false);
+    resetCustomProviderForm();
+  };
+
+  const confirmDeleteProvider = () => {
+    if (!selectedProvider || !selectedProviderIsCustom) return;
+
+    Alert.alert(
+      `Delete ${selectedProvider.label}?`,
+      "Its model presets and saved API key will also be deleted. Conversations will remain.",
+      [
+        { style: "cancel", text: "Cancel" },
+        {
+          style: "destructive",
+          text: "Delete",
+          onPress: () => {
+            void runAction(`delete-provider:${selectedProvider.id}`, async () => {
+              await deleteProvider(selectedProvider.id);
+              setSelectedItemKey(null);
+            }).catch((error) => {
+              Alert.alert(
+                "Provider could not be deleted",
+                error instanceof Error ? error.message : "Please try again.",
+              );
+            });
+          },
+        },
+      ],
+    );
   };
 
   const downloadOnDeviceModel = async (modelId: string, label: string) => {
@@ -536,6 +596,15 @@ export default function SettingsProvidersScreen() {
         <Text className="font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
           Providers
         </Text>
+        <Button
+          className="ml-auto"
+          leftIcon={<Plus color={theme.text} size={16} />}
+          onPress={() => setAddProviderOpen(true)}
+          size="sm"
+          variant="outline"
+        >
+          Add custom
+        </Button>
       </View>
 
       <Card className="overflow-hidden">
@@ -557,6 +626,81 @@ export default function SettingsProvidersScreen() {
           </View>
         ))}
       </Card>
+
+      <Drawer
+        onOpenChange={(open) => {
+          setAddProviderOpen(open);
+          if (!open) resetCustomProviderForm();
+        }}
+        open={addProviderOpen}
+      >
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>Add custom provider</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              Connect an OpenAI-compatible endpoint. You can add multiple model
+              IDs after creating it.
+            </Text>
+            <Input
+              autoCapitalize="words"
+              onChangeText={setCustomProviderName}
+              placeholder="Provider name"
+              value={customProviderName}
+            />
+            <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              onChangeText={setCustomProviderBaseUrl}
+              placeholder="Base URL"
+              value={customProviderBaseUrl}
+            />
+            <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setCustomProviderApiKey}
+              placeholder="API key (optional)"
+              secureTextEntry
+              value={customProviderApiKey}
+            />
+          </DrawerBody>
+          <DrawerFooter>
+            <View className="flex-row gap-sp-2">
+              <Button
+                className="flex-1"
+                disabled={busyKey !== null}
+                onPress={() => setAddProviderOpen(false)}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={
+                  !customProviderName.trim() || !customProviderBaseUrl.trim()
+                }
+                loading={busyKey === "add-provider"}
+                onPress={() => {
+                  void runAction("add-provider", addCustomProvider).catch(
+                    (error) => {
+                      Alert.alert(
+                        "Provider could not be added",
+                        error instanceof Error
+                          ? error.message
+                          : "Please try again.",
+                      );
+                    },
+                  );
+                }}
+              >
+                Add provider
+              </Button>
+            </View>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
       <Drawer
         onOpenChange={(open) => {
@@ -689,7 +833,11 @@ export default function SettingsProvidersScreen() {
                       autoCorrect={false}
                       keyboardType="url"
                       onChangeText={setBaseUrlInput}
-                      placeholder="Ollama server URL"
+                      placeholder={
+                        selectedProvider.family === "ollama"
+                          ? "Ollama server URL"
+                          : "Base URL"
+                      }
                       value={baseUrlInput}
                     />
                     <Input
@@ -865,7 +1013,7 @@ export default function SettingsProvidersScreen() {
                       </Button>
                     ) : null}
                   </View>
-                  {selectedProvider.id !== "openai-compatible" ||
+                  {!selectedProviderIsCustom ||
                   selectedItem.models.length > 0 ? (
                     <Input
                       autoCapitalize="none"
@@ -876,7 +1024,7 @@ export default function SettingsProvidersScreen() {
                     />
                   ) : null}
 
-                  {selectedProvider.id === "openai-compatible" ? (
+                  {selectedProviderIsCustom ? (
                     <View className="flex-row gap-sp-2">
                       <Input
                         autoCapitalize="none"
@@ -1100,11 +1248,23 @@ export default function SettingsProvidersScreen() {
                 </View>
               </DrawerBody>
               <DrawerFooter>
-                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                  {selectedProvider.family === "on-device"
-                    ? "Downloads are verified and stored only on this device."
-                    : "Models from configured providers are available automatically."}
-                </Text>
+                {selectedProviderIsCustom ? (
+                  <Button
+                    loading={
+                      busyKey === `delete-provider:${selectedProvider.id}`
+                    }
+                    onPress={confirmDeleteProvider}
+                    variant="destructive"
+                  >
+                    Delete provider
+                  </Button>
+                ) : (
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    {selectedProvider.family === "on-device"
+                      ? "Downloads are verified and stored only on this device."
+                      : "Models from configured providers are available automatically."}
+                  </Text>
+                )}
               </DrawerFooter>
             </>
           ) : null}

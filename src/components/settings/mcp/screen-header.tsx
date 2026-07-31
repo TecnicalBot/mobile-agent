@@ -1,14 +1,17 @@
 import { useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
+import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 
 export function McpScreenHeader({
+  action,
   backHref,
   title,
 }: {
+  action?: ReactNode;
   backHref: string;
   title: string;
 }) {
@@ -26,6 +29,7 @@ export function McpScreenHeader({
       <Text className="min-w-0 flex-1 font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
         {title}
       </Text>
+      {action}
     </View>
   );
 }

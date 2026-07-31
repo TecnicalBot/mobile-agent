@@ -15,7 +15,10 @@ import {
   getOnDeviceModelDefinitions,
 } from "@/modules/on-device/catalog";
 import { fetchOllamaModels } from "@/modules/providers/ollama-models";
-import { resolveConfiguredModel } from "@/modules/config/registry";
+import {
+  getSupportedProviderDefinition,
+  resolveConfiguredModel,
+} from "@/modules/config/registry";
 import { secureSecretStore } from "@/core/services/secrets";
 import {
   hasEnabledFolderTools,
@@ -91,7 +94,7 @@ export async function resolveConfig(input: {
     (provider) =>
       activeProviderIds.includes(provider.id) &&
       (provider.family === "openai-compatible" || provider.family === "xai") &&
-      provider.id !== "openai-compatible",
+      getSupportedProviderDefinition(provider.id) !== null,
   );
 
   await Promise.all([

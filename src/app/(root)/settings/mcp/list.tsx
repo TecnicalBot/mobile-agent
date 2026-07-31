@@ -18,18 +18,10 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-<<<<<<< Updated upstream
-import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
+import { fetchMcpServerCatalogCached, type McpServerPreset } from "@/modules/mcp/catalog";
 import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
 
 import { McpServerForm } from "./add";
-=======
-import {
-  fetchMcpServerCatalogCached,
-  type McpServerPreset,
-} from "@/lib/mcp/catalog";
-import { isMcpOAuthCanceledError } from "@/lib/mcp/oauth";
->>>>>>> Stashed changes
 
 function normalizeMcpUrl(value: string) {
   try {
@@ -126,45 +118,68 @@ export default function McpCatalogScreen() {
       includeBottomTabInset={false}
     >
       <McpScreenHeader
-        action={
+        backHref="/settings"
+        title="MCP servers"
+        trailing={
           <Button
-            className="ml-auto"
-            leftIcon={<Plus color={theme.text} size={16} />}
             onPress={openCustomSetup}
-            size="sm"
-            variant="outline"
+            size="icon"
+            variant="ghost"
+            accessibilityLabel="Add custom MCP server"
           >
-            Add custom
+            <Plus className="text-foreground dark:text-foreground-dark" size={20} />
           </Button>
         }
-        backHref={
-          mcpServers.length > 0 ? "/settings/mcp/connected" : "/settings"
-        }
-        title="MCP servers"
       />
 
-      {catalogPresets.length > 0 ? (
-        <Card className="overflow-hidden">
-          {catalogPresets.map((preset, index) => {
-            const connected = mcpServers.some(
-              (server) =>
-                normalizeMcpUrl(server.url) === normalizeMcpUrl(preset.url),
-            );
-
-            return (
-              <View key={preset.id}>
-                {index > 0 ? <Separator /> : null}
-                <PresetRow
-                  busy={busyKey === preset.id}
-                  connected={connected}
-                  onPress={() => connectPreset(preset).catch(console.error)}
-                  preset={preset}
-                />
+      {mcpServers.length > 0 ? (
+        <Card className="px-sp-2 py-sp-2">
+          {mcpServers.map((server, index) => (
+            <View key={server.id}>
+              {index > 0 ? <Separator /> : null}
+              <View className="flex-row items-center gap-sp-3 px-sp-2 py-sp-3">
+                <View className="min-w-0 flex-1 gap-1">
+                  <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
+                    {server.label}
+                  </Text>
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    {server.url}
+                  </Text>
+                </View>
+                <Button
+                  onPress={() =>
+                    router.push(
+                      `/settings/mcp/add?serverId=${encodeURIComponent(server.id)}` as never,
+                    )
+                  }
+                  size="sm"
+                  variant="outline"
+                >
+                  Edit
+                </Button>
               </View>
-            );
-          })}
+            </View>
+          ))}
         </Card>
-      ) : catalogLoading ? (
+      ) : null}
+
+      <View className="flex-row items-center justify-between">
+        <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+          Preconfigured servers
+        </Text>
+        <Button
+          onPress={() => {
+            loadCatalog().catch(console.error);
+          }}
+          size="sm"
+          variant="ghost"
+          loading={catalogLoading}
+        >
+          Refresh
+        </Button>
+      </View>
+
+      {catalogLoading ? (
         <Card className="px-sp-4 py-sp-4">
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
             Loading preconfigured MCP servers…

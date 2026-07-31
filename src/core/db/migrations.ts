@@ -58,6 +58,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         model_id TEXT,
         reasoning_effort TEXT NOT NULL DEFAULT 'medium',
         selected_file_ids_json TEXT NOT NULL DEFAULT '[]',
+        selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
         external_folder_session_json TEXT,
         created_at TEXT NOT NULL,

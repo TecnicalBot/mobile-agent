@@ -188,14 +188,6 @@
       "authMode": "none"
     },
     {
-      "id": "youtube",
-      "label": "YouTube",
-      "description": "Search, manage, and upload to your YouTube channel.",
-      "url": "https://mcp.youtube.com/mcp",
-      "transport": "http",
-      "authMode": "oauth"
-    },
-    {
       "id": "alibaba-cloud",
       "label": "Alibaba Cloud",
       "description": "Manage cloud resources, databases, and services on Alibaba Cloud.",

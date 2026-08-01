@@ -11,7 +11,6 @@ import {
   Edit,
   FolderOpen,
   Info,
-  Maximize2,
   Paperclip,
   Send,
   Server,
@@ -701,7 +700,6 @@ function ChatInput({
   const [prompt, setPrompt] = useState("");
   const [composerContentHeight, setComposerContentHeight] = useState(0);
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
-  const [expandedComposerOpen, setExpandedComposerOpen] = useState(false);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
@@ -721,11 +719,12 @@ function ChatInput({
     selectedFileIds: string[];
   }>(null);
 
-  const compactComposerHeight = Math.min(
-    176,
-    Math.max(128, composerContentHeight + 52),
+  const maxComposerInputHeight = Math.min(320, screenHeight * 0.35);
+  const composerInputHeight = Math.min(
+    maxComposerInputHeight,
+    Math.max(76, composerContentHeight),
   );
-  const showExpandComposer = composerContentHeight + 52 > 176;
+  const composerScrollEnabled = composerContentHeight > maxComposerInputHeight;
 
   const composerTrigger = useMemo(() => getComposerTrigger(prompt), [prompt]);
   const modelGroups = useMemo(() => {
@@ -1364,13 +1363,13 @@ function ChatInput({
 
         <View className="relative rounded-3xl border border-border bg-input dark:border-border-dark dark:bg-input-dark">
           <TextInputWrapper
-            style={{ height: compactComposerHeight - 52, width: "100%" }}
+            style={{ height: composerInputHeight, width: "100%" }}
             onPaste={(payload) => {
               handlePaste(payload).catch(console.error);
             }}
           >
             <Textarea
-              className="rounded-full border-0 bg-transparent px-0 py-0 dark:bg-transparent"
+              className="min-h-0 rounded-full border-0 bg-transparent px-0 py-0 dark:bg-transparent"
               onChangeText={setPrompt}
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);
@@ -1380,33 +1379,15 @@ function ChatInput({
               }}
               placeholder="Type a message..."
               returnKeyType="send"
-              scrollEnabled={showExpandComposer}
+              scrollEnabled={composerScrollEnabled}
               submitBehavior="submit"
-              style={{ height: compactComposerHeight - 52 }}
+              style={{ height: composerInputHeight }}
               value={prompt}
               onSubmitEditing={() => {
                 handleGenerate().catch(console.error);
               }}
             />
           </TextInputWrapper>
-
-          {showExpandComposer ? (
-            <Pressable
-              accessibilityLabel="Expand message editor"
-              accessibilityRole="button"
-              className="absolute right-2 top-2 h-9 w-9 items-center justify-center rounded-full bg-card dark:bg-card-dark"
-              onPress={() => {
-                setExpandedComposerOpen(true);
-              }}
-              style={({ pressed }) => ({
-                elevation: 2,
-                opacity: pressed ? 0.72 : 1,
-                zIndex: 10,
-              })}
-            >
-              <Maximize2 color={theme.textSecondary} size={17} />
-            </Pressable>
-          ) : null}
 
           <View className="h-[52px] flex-row items-center gap-2 px-2 pb-2">
             <Pressable
@@ -1475,64 +1456,6 @@ function ChatInput({
             : ""}
         </Text>
       </View>
-
-      <Drawer
-        onOpenChange={setExpandedComposerOpen}
-        open={expandedComposerOpen}
-      >
-        <DrawerContent
-          showCloseButton
-          showHandle
-          size={Math.floor(screenHeight * 0.8)}
-        >
-          <DrawerHeader>
-            <DrawerTitle>Prompt</DrawerTitle>
-          </DrawerHeader>
-          <TextInputWrapper
-            style={{ flex: 1, minHeight: 0, width: "100%" }}
-            onPaste={(payload) => {
-              handlePaste(payload).catch(console.error);
-            }}
-          >
-            <Textarea
-              autoFocus
-              className="min-h-0 flex-1"
-              onChangeText={setPrompt}
-              placeholder="Type a message..."
-              style={{ flex: 1, minHeight: 0, width: "100%" }}
-              value={prompt}
-            />
-          </TextInputWrapper>
-          <DrawerFooter>
-            <View className="flex-row gap-sp-2">
-              <Button
-                className="flex-1"
-                onPress={() => {
-                  setExpandedComposerOpen(false);
-                }}
-                variant="secondary"
-              >
-                Done
-              </Button>
-              <Button
-                className="flex-1"
-                disabled={sendDisabled}
-                onPress={() => {
-                  if (loading) {
-                    onStop().catch(console.error);
-                    return;
-                  }
-
-                  setExpandedComposerOpen(false);
-                  handleGenerate().catch(console.error);
-                }}
-              >
-                {loading ? "Stop" : "Send"}
-              </Button>
-            </View>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
 
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
         <DrawerContent showCloseButton showHandle size={520}>

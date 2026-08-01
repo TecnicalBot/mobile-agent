@@ -15,7 +15,17 @@ import {
   Download,
   Share2,
 } from "lucide-react-native";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { refractor } from "refractor";
+import jsx from "refractor/jsx";
+import tsx from "refractor/tsx";
 import {
   ActivityIndicator,
   Alert,
@@ -59,36 +69,322 @@ import type {
 } from "@/core/types/app-state";
 import { Asset } from "expo-media-library";
 
+refractor.register(jsx);
+refractor.register(tsx);
+
 type ChatMessageProps = {
   message: StoredMessage;
   workspaceFiles: WorkspaceFile[];
 };
 
 const MARKDOWN_RULES = {
+  code_block: (node) => (
+    <CopyableCodeBlock code={trimCodeBlock(node.content)} key={node.key} />
+  ),
+  fence: (node) => (
+    <CopyableCodeBlock
+      code={trimCodeBlock(node.content)}
+      key={node.key}
+      language={getCodeLanguage(node)}
+    />
+  ),
   table: (node, children, _parent, styles) => {
     const columnCount = getTableColumnCount(node);
 
     return (
-      <ScrollView
+      <CopyableMarkdownBlock
+        copyLabel="Copy table"
+        copyValue={getTableText(node)}
         key={node.key}
-        directionalLockEnabled
+        label="Table"
+      >
+        <ScrollView
+          directionalLockEnabled
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator
+          style={{ maxWidth: "100%" }}
+        >
+          <View
+            style={[
+              styles._VIEW_SAFE_table,
+              { width: Math.max(columnCount, 1) * 144 },
+            ]}
+          >
+            {children}
+          </View>
+        </ScrollView>
+      </CopyableMarkdownBlock>
+    );
+  },
+} satisfies RenderRules;
+
+type SyntaxNode =
+  | { type: "text"; value: string }
+  | {
+      children: SyntaxNode[];
+      properties?: { className?: unknown };
+      type: "element";
+    };
+
+const ALLOWED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+function trimCodeBlock(content: string) {
+  return content.endsWith("\n") ? content.slice(0, -1) : content;
+}
+
+function getCodeLanguage(node: ASTNode) {
+  return node.sourceType === "fence"
+    ? String((node as ASTNode & { sourceInfo?: string }).sourceInfo ?? "")
+        .trim()
+        .split(/\s+/, 1)[0]
+        .toLowerCase()
+    : "";
+}
+
+function getNodeText(node: ASTNode): string {
+  if (node.type === "hardbreak" || node.type === "softbreak") {
+    return "\n";
+  }
+
+  if (node.children.length > 0) {
+    return node.children.map(getNodeText).join("");
+  }
+
+  return node.content || String(node.attributes.alt ?? "");
+}
+
+function getTableRows(node: ASTNode): ASTNode[] {
+  if (node.type === "tr") {
+    return [node];
+  }
+
+  return node.children.flatMap(getTableRows);
+}
+
+function getTableText(node: ASTNode) {
+  return getTableRows(node)
+    .map((row) =>
+      row.children
+        .filter((cell) => cell.type === "th" || cell.type === "td")
+        .map((cell) => getNodeText(cell).replace(/[\t\r\n]+/g, " ").trim())
+        .join("\t"),
+    )
+    .join("\n");
+}
+
+function CopyButton({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setCopied(false);
+    }, 1500);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [copied]);
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      className="flex-row items-center gap-1 rounded-full px-sp-2 py-1"
+      onPress={() => {
+        Clipboard.setStringAsync(value)
+          .then(() => {
+            setCopied(true);
+          })
+          .catch(() => {
+            Alert.alert("Copy failed", "The content could not be copied.");
+          });
+      }}
+      style={({ pressed }) => (pressed ? { opacity: 0.65 } : null)}
+    >
+      {copied ? (
+        <Check color={theme.textSecondary} size={13} />
+      ) : (
+        <Copy color={theme.textSecondary} size={13} />
+      )}
+      <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        {copied ? "Copied" : "Copy"}
+      </Text>
+    </Pressable>
+  );
+}
+
+function CopyableMarkdownBlock({
+  children,
+  copyLabel,
+  copyValue,
+  label,
+}: {
+  children: ReactNode;
+  copyLabel: string;
+  copyValue: string;
+  label: string;
+}) {
+  return (
+    <View className="my-1.5 max-w-full overflow-hidden rounded-2xl border border-border bg-secondary dark:border-border-dark dark:bg-secondary-dark">
+      <View className="h-10 flex-row items-center justify-between border-b border-border px-sp-3 dark:border-border-dark">
+        <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          {label}
+        </Text>
+        <CopyButton label={copyLabel} value={copyValue} />
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function CopyableCodeBlock({
+  code,
+  language = "",
+}: {
+  code: string;
+  language?: string;
+}) {
+  const theme = useTheme();
+  const highlighted = useMemo(() => {
+    if (!language || !refractor.registered(language)) {
+      return null;
+    }
+
+    try {
+      return refractor.highlight(code, language).children as SyntaxNode[];
+    } catch {
+      return null;
+    }
+  }, [code, language]);
+
+  return (
+    <CopyableMarkdownBlock
+      copyLabel="Copy code"
+      copyValue={code}
+      label={language || "Code"}
+    >
+      <ScrollView
         horizontal
         nestedScrollEnabled
         showsHorizontalScrollIndicator
         style={{ maxWidth: "100%" }}
       >
-        <View
-          style={[
-            styles._VIEW_SAFE_table,
-            { width: Math.max(columnCount, 1) * 144 },
-          ]}
+        <Text
+          selectable
+          style={{
+            color: theme.text,
+            fontFamily: "monospace",
+            fontSize: 14,
+            lineHeight: 22,
+            padding: 12,
+          }}
         >
-          {children}
-        </View>
+          {highlighted
+            ? renderSyntaxNodes(highlighted, theme.text, theme.textSecondary)
+            : code}
+        </Text>
       </ScrollView>
+    </CopyableMarkdownBlock>
+  );
+}
+
+function renderSyntaxNodes(
+  nodes: SyntaxNode[],
+  textColor: string,
+  mutedColor: string,
+  path = "token",
+): ReactNode[] {
+  return nodes.map((node, index) => {
+    const key = `${path}-${index}`;
+
+    if (node.type === "text") {
+      return node.value;
+    }
+
+    const classNames = Array.isArray(node.properties?.className)
+      ? node.properties.className.filter(
+          (className): className is string => typeof className === "string",
+        )
+      : [];
+
+    return (
+      <Text
+        key={key}
+        style={getSyntaxTokenStyle(classNames, textColor, mutedColor)}
+      >
+        {renderSyntaxNodes(node.children, textColor, mutedColor, key)}
+      </Text>
     );
-  },
-} satisfies RenderRules;
+  });
+}
+
+function getSyntaxTokenStyle(
+  classNames: string[],
+  textColor: string,
+  mutedColor: string,
+) {
+  if (
+    classNames.some((name) =>
+      ["comment", "prolog", "doctype", "cdata"].includes(name),
+    )
+  ) {
+    return { color: mutedColor, fontStyle: "italic" as const };
+  }
+
+  if (
+    classNames.some((name) =>
+      ["property", "tag", "constant", "symbol", "deleted"].includes(name),
+    )
+  ) {
+    return { color: "#e06c75" };
+  }
+
+  if (classNames.some((name) => ["boolean", "number"].includes(name))) {
+    return { color: "#d19a66" };
+  }
+
+  if (
+    classNames.some((name) =>
+      ["selector", "attr-name", "string", "char", "builtin", "inserted"].includes(
+        name,
+      ),
+    )
+  ) {
+    return { color: "#6aab73" };
+  }
+
+  if (
+    classNames.some((name) =>
+      ["operator", "entity", "url", "variable"].includes(name),
+    )
+  ) {
+    return { color: "#56b6c2" };
+  }
+
+  if (
+    classNames.some((name) =>
+      ["atrule", "attr-value", "keyword", "control", "directive"].includes(name),
+    )
+  ) {
+    return { color: "#c678dd" };
+  }
+
+  if (classNames.some((name) => ["function", "class-name"].includes(name))) {
+    return { color: "#61afef" };
+  }
+
+  if (classNames.some((name) => ["regex", "important"].includes(name))) {
+    return { color: "#e5c07b" };
+  }
+
+  return { color: textColor };
+}
 
 function getTableColumnCount(node: ASTNode): number {
   if (node.type === "tr") {
@@ -197,6 +493,10 @@ export const ChatMessage = memo(function ChatMessage({
 
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
+  };
+  const handleLinkPress = (url: string) => {
+    openMarkdownLink(url).catch(console.error);
+    return false;
   };
   const closePreview = () => {
     setImageAction(null);
@@ -466,6 +766,7 @@ export const ChatMessage = memo(function ChatMessage({
                           <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
                             <Markdown
                               mergeStyle={false}
+                              onLinkPress={handleLinkPress}
                               rules={MARKDOWN_RULES}
                               style={reasoningMarkdownStyles}
                             >
@@ -483,6 +784,7 @@ export const ChatMessage = memo(function ChatMessage({
                   {message.content.trim() ? (
                     <Markdown
                       mergeStyle={false}
+                      onLinkPress={handleLinkPress}
                       rules={MARKDOWN_RULES}
                       style={markdownStyles}
                     >
@@ -1103,3 +1405,21 @@ const getLocalImageFile = async (image: GeneratedImageAttachment) => {
 
   return localFile;
 };
+
+async function openMarkdownLink(url: string) {
+  const protocol = /^([a-z][a-z\d+.-]*):/i.exec(url)?.[1]?.toLowerCase();
+
+  if (!protocol || !ALLOWED_LINK_PROTOCOLS.has(`${protocol}:`)) {
+    Alert.alert("Unable to open link", "This link type is not supported.");
+    return;
+  }
+
+  try {
+    await Linking.openURL(url);
+  } catch (error) {
+    Alert.alert(
+      "Unable to open link",
+      error instanceof Error ? error.message : "No app could open this link.",
+    );
+  }
+}

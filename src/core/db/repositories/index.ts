@@ -6,6 +6,7 @@ import { createConversationRepository } from "@/core/db/repositories/conversatio
 import { createFileMemoryStore } from "@/modules/memory/file-memory-store";
 import { createMcpServerRepository } from "@/core/db/repositories/mcp-server-repository";
 import { createMessageRepository } from "@/core/db/repositories/message-repository";
+import { createSavedPromptRepository } from "@/core/db/repositories/saved-prompt-repository";
 import { createSkillRepository } from "@/core/db/repositories/skill-repository";
 import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import { createDrizzleDb } from "@/core/db/repositories/shared";
@@ -21,6 +22,7 @@ export function createRepositories(sqliteDb: SQLiteDatabase): Repositories {
     memoryStore: createFileMemoryStore(db),
     mcpServerRepository: createMcpServerRepository(db),
     messageRepository: createMessageRepository(db),
+    savedPromptRepository: createSavedPromptRepository(db),
     skillRepository: createSkillRepository(db),
     workspaceRepository: createWorkspaceRepository(db),
   };

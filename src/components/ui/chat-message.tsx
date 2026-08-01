@@ -13,6 +13,7 @@ import {
   Clock3,
   Copy,
   Download,
+  Bookmark,
   Share2,
 } from "lucide-react-native";
 import {
@@ -74,6 +75,7 @@ refractor.register(tsx);
 
 type ChatMessageProps = {
   message: StoredMessage;
+  onSavePrompt?: (content: string) => void;
   workspaceFiles: WorkspaceFile[];
 };
 
@@ -167,7 +169,11 @@ function getTableText(node: ASTNode) {
     .map((row) =>
       row.children
         .filter((cell) => cell.type === "th" || cell.type === "td")
-        .map((cell) => getNodeText(cell).replace(/[\t\r\n]+/g, " ").trim())
+        .map((cell) =>
+          getNodeText(cell)
+            .replace(/[\t\r\n]+/g, " ")
+            .trim(),
+        )
         .join("\t"),
     )
     .join("\n");
@@ -351,9 +357,14 @@ function getSyntaxTokenStyle(
 
   if (
     classNames.some((name) =>
-      ["selector", "attr-name", "string", "char", "builtin", "inserted"].includes(
-        name,
-      ),
+      [
+        "selector",
+        "attr-name",
+        "string",
+        "char",
+        "builtin",
+        "inserted",
+      ].includes(name),
     )
   ) {
     return { color: "#6aab73" };
@@ -369,7 +380,9 @@ function getSyntaxTokenStyle(
 
   if (
     classNames.some((name) =>
-      ["atrule", "attr-value", "keyword", "control", "directive"].includes(name),
+      ["atrule", "attr-value", "keyword", "control", "directive"].includes(
+        name,
+      ),
     )
   ) {
     return { color: "#c678dd" };
@@ -404,6 +417,7 @@ function getTableColumnCount(node: ASTNode): number {
 
 export const ChatMessage = memo(function ChatMessage({
   message,
+  onSavePrompt,
   workspaceFiles,
 }: ChatMessageProps) {
   const theme = useTheme();
@@ -885,6 +899,17 @@ export const ChatMessage = memo(function ChatMessage({
                 {memoryEventLabel}
               </Button>
             ) : null}
+            {message.content.trim() && onSavePrompt ? (
+              <Button
+                leftIcon={<Bookmark color={theme.textSecondary} size={14} />}
+                onPress={() => onSavePrompt(message.content)}
+                size="xs"
+                textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+                variant="ghost"
+              >
+                Save prompt
+              </Button>
+            ) : null}
             {timelineLabel ? (
               <Button
                 leftIcon={<Clock3 color={theme.textSecondary} size={14} />}
@@ -898,6 +923,20 @@ export const ChatMessage = memo(function ChatMessage({
                 {timelineLabel}
               </Button>
             ) : null}
+          </MessageFooter>
+        ) : null}
+
+        {isUser && message.content.trim() && onSavePrompt ? (
+          <MessageFooter>
+            <Button
+              leftIcon={<Bookmark color={theme.textSecondary} size={14} />}
+              onPress={() => onSavePrompt(message.content)}
+              size="xs"
+              textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+              variant="ghost"
+            >
+              Save prompt
+            </Button>
           </MessageFooter>
         ) : null}
 

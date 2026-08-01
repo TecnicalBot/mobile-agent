@@ -3,15 +3,12 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "@/assets/*": [
-        "./assets/*"
-      ],
+      "@/*": ["./src/*"],
+      "@/assets/*": ["./assets/*"],
       "background-agent-service": [
         "./modules/background-agent-service/index.ts"
-      ]
+      ],
+      "process-text": ["./modules/process-text/index.ts"]
     }
   },
   "include": [

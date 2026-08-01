@@ -5,6 +5,7 @@ import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useRouter } from "expo-router";
 import {
   ArrowDown,
+  Bookmark,
   Brain,
   Check,
   ChevronDown,
@@ -77,6 +78,7 @@ import type {
   McpServerConfig,
   ModelRef,
   ReasoningEffort,
+  SavedPrompt,
   SkillConfig,
   WorkspaceFile,
 } from "@/core/types/app-state";
@@ -204,6 +206,7 @@ export default function Screen() {
     importFiles,
     refreshWorkspaceFiles,
     reasoningEffort,
+    savedPrompts,
     setReasoningEffort,
   } = useChat();
   const currentConversationBusy =
@@ -237,7 +240,7 @@ export default function Screen() {
               <Info color={theme.text} size={18} />
             </Button>
           </View>
-  
+
           <MessageScrollerProvider autoScroll>
             <MessageScroller className="flex-1 rounded-none border-0">
               {!ready || hydrating ? (
@@ -259,6 +262,12 @@ export default function Screen() {
                     renderItem={({ item: message }) => (
                       <ChatMessage
                         message={message}
+                        onSavePrompt={(content) => {
+                          router.push({
+                            pathname: "/settings/prompts",
+                            params: { text: content },
+                          } as never);
+                        }}
                         workspaceFiles={workspaceFiles}
                       />
                     )}
@@ -300,13 +309,13 @@ export default function Screen() {
                 </>
               )}
             </MessageScroller>
-  
+
             {error ? (
               <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
                 {error}
               </Text>
             ) : null}
-  
+
             {!currentModel && ready && !hydrating ? (
               <Button
                 onPress={() => {
@@ -317,7 +326,7 @@ export default function Screen() {
                 Open settings
               </Button>
             ) : null}
-  
+
             <ChatInput
               canSend={ready && !hydrating && currentModel !== null}
               currentModelLabel={
@@ -361,13 +370,14 @@ export default function Screen() {
                 router.push("/settings/mcp" as never);
               }}
               reasoningEffort={reasoningEffort}
+              savedPrompts={savedPrompts}
               setReasoningEffort={setReasoningEffort}
               toolApprovalMode={toolApprovalMode}
               updateToolApprovalMode={updateToolApprovalMode}
               workspaceFiles={workspaceFiles}
             />
           </MessageScrollerProvider>
-  
+
           <Drawer dismissible={false} open={pendingToolApproval !== null}>
             <DrawerContent
               closeOnOverlayPress={false}
@@ -377,11 +387,14 @@ export default function Screen() {
               <DrawerHeader>
                 <DrawerTitle>Tool approval</DrawerTitle>
                 <DrawerDescription>
-                  Paused in {pendingToolApproval?.chatTitle ?? "this chat"} until
-                  you decide.
+                  Paused in {pendingToolApproval?.chatTitle ?? "this chat"}{" "}
+                  until you decide.
                 </DrawerDescription>
               </DrawerHeader>
-              <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
+              <DrawerBody
+                className="flex-0"
+                contentContainerClassName="gap-sp-3"
+              >
                 <View className="gap-sp-2 rounded-ui border border-border bg-card px-sp-4 py-sp-3 dark:border-border-dark dark:bg-card-dark">
                   <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
                     {formatToolName(pendingToolApproval?.toolName ?? "")}
@@ -402,14 +415,17 @@ export default function Screen() {
                   >
                     Deny
                   </Button>
-                  <Button className="flex-1" onPress={approvePendingToolApproval}>
+                  <Button
+                    className="flex-1"
+                    onPress={approvePendingToolApproval}
+                  >
                     Allow once
                   </Button>
                 </View>
               </DrawerFooter>
             </DrawerContent>
           </Drawer>
-  
+
           <Drawer onOpenChange={setInfoDrawerOpen} open={infoDrawerOpen}>
             <DrawerContent showCloseButton showHandle>
               <DrawerHeader>
@@ -422,7 +438,9 @@ export default function Screen() {
                 <InfoSection title="Model">
                   <InfoRow
                     label="Provider"
-                    value={chatInfo.currentModel?.providerLabel ?? "Unavailable"}
+                    value={
+                      chatInfo.currentModel?.providerLabel ?? "Unavailable"
+                    }
                   />
                   <InfoRow
                     label="Selected model"
@@ -433,7 +451,7 @@ export default function Screen() {
                     value={getReasoningEffortLabel(reasoningEffort)}
                   />
                 </InfoSection>
-  
+
                 <InfoSection title="Latest turn">
                   <InfoRow
                     label="Input tokens"
@@ -455,10 +473,12 @@ export default function Screen() {
                   />
                   <InfoRow
                     label="Cost"
-                    value={formatCurrency(chatInfo.latestTurn?.costTotal ?? null)}
+                    value={formatCurrency(
+                      chatInfo.latestTurn?.costTotal ?? null,
+                    )}
                   />
                 </InfoSection>
-  
+
                 <InfoSection
                   subtitle={
                     chatInfo.conversationTotals?.isPartial
@@ -492,7 +512,7 @@ export default function Screen() {
                     )}
                   />
                 </InfoSection>
-  
+
                 <InfoSection title="Context">
                   <InfoRow
                     label="Context window"
@@ -639,6 +659,7 @@ function ChatInput({
   supportsImageInput,
   supportsTools,
   reasoningEffort,
+  savedPrompts,
   setReasoningEffort,
   toolApprovalMode,
   updateToolApprovalMode,
@@ -688,6 +709,7 @@ function ChatInput({
   supportsImageInput: boolean;
   supportsTools: boolean;
   reasoningEffort: ReasoningEffort;
+  savedPrompts: SavedPrompt[];
   setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
   toolApprovalMode: "ask" | "auto";
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
@@ -1191,6 +1213,20 @@ function ChatInput({
   );
   const slashMenuItems = useMemo(
     () => [
+      ...savedPrompts.map((savedPrompt) => ({
+        id: `saved-prompt:${savedPrompt.id}`,
+        icon: <Bookmark color={theme.text} size={16} />,
+        label: savedPrompt.title,
+        onPress: () => {
+          setPrompt((current) => {
+            const withoutTrigger = clearComposerTrigger(current);
+            return withoutTrigger
+              ? `${withoutTrigger} ${savedPrompt.content}`
+              : savedPrompt.content;
+          });
+        },
+        subtitle: savedPrompt.content.replace(/\s+/g, " ").trim(),
+      })),
       {
         id: "reasoning-level",
         icon: <Brain color={theme.text} size={16} />,
@@ -1243,6 +1279,7 @@ function ChatInput({
       currentModelLabel,
       enabledMcpServers.length,
       reasoningEffort,
+      savedPrompts,
       selectedSkills.length,
       theme.text,
     ],

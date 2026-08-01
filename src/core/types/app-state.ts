@@ -68,6 +68,13 @@ export type SkillConfig = {
   createdAt: string;
   updatedAt: string;
 };
+export type SavedPrompt = {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type MemoryEntry = {
   id: string;
   content: string;
@@ -375,6 +382,7 @@ export type AppStateSnapshot = {
   memory: MemoryEntry | null;
   mcpServers: McpServerConfig[];
   messages: StoredMessage[];
+  savedPrompts: SavedPrompt[];
   skills: SkillConfig[];
   workspaceFiles: WorkspaceFile[];
   resolvedConfig: ResolvedConfig;

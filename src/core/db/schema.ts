@@ -223,6 +223,18 @@ export const skills = sqliteTable(
   (table) => [index("idx_skills_updated_at").on(table.updatedAt)],
 );
 
+export const savedPrompts = sqliteTable(
+  "saved_prompts",
+  {
+    id: text("id").primaryKey().notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("idx_saved_prompts_updated_at").on(table.updatedAt)],
+);
+
 export const memories = sqliteTable(
   "memories",
   {
@@ -252,6 +264,7 @@ export const schema = {
   mcpServers,
   modelPresets,
   providerConfigs,
+  savedPrompts,
   skills,
   workspaceFiles,
 };

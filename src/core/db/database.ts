@@ -6,5 +6,6 @@ export type {
   ConversationRepository,
   MessageRepository,
   Repositories,
+  SavedPromptRepository,
   WorkspaceRepository,
 } from "@/core/db/repositories/types";

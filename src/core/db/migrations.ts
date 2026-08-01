@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 14;
+const DATABASE_VERSION = 15;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -173,6 +173,14 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS saved_prompts (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY NOT NULL,
         content TEXT NOT NULL,
@@ -218,6 +226,9 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
 
       CREATE INDEX IF NOT EXISTS idx_skills_updated_at
       ON skills(updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_saved_prompts_updated_at
+      ON saved_prompts(updated_at);
 
       CREATE INDEX IF NOT EXISTS idx_memories_updated_at
       ON memories(updated_at);
@@ -468,6 +479,23 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     }
 
     currentVersion = 14;
+  }
+
+  if (currentVersion === 14) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS saved_prompts (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_saved_prompts_updated_at
+      ON saved_prompts(updated_at);
+    `);
+
+    currentVersion = 15;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

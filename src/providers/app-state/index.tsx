@@ -67,6 +67,7 @@ import type {
     ReasoningEffort,
     ResolvedConfig,
     ResolvedModel,
+    SavedPrompt,
     SendMessageInput,
     SkillConfig,
     StoredMessage,
@@ -174,6 +175,10 @@ type AppStateContextValue = {
         recommendedMcpServerIds?: string[];
         title: string;
     }) => Promise<SkillConfig>;
+    createSavedPrompt: (input: {
+        content: string;
+        title: string;
+    }) => Promise<SavedPrompt>;
     writeMemory: (content: string) => Promise<MemoryEntry>;
     currentConversation: Conversation | null;
     currentExternalFolderSession: ExternalFolderSession | null;
@@ -184,6 +189,7 @@ type AppStateContextValue = {
     deleteModelPreset: (modelPresetId: string) => Promise<void>;
     clearMemory: () => Promise<void>;
     deleteSkill: (skillId: string) => Promise<void>;
+    deleteSavedPrompt: (savedPromptId: string) => Promise<void>;
     disconnectOpenAIOAuth: () => Promise<void>;
     error: string | null;
     hydrating: boolean;
@@ -199,6 +205,7 @@ type AppStateContextValue = {
     currentSelectedSkillIds: string[];
     memory: MemoryEntry | null;
     messages: StoredMessage[];
+    savedPrompts: SavedPrompt[];
     mcpServers: McpServerConfig[];
     resumePendingRuns: () => Promise<void>;
     retryRun: (runId: string) => Promise<void>;
@@ -279,6 +286,13 @@ type AppStateContextValue = {
             matchKeywords?: string[];
             recommendedBuiltInToolKeys?: SkillConfig["recommendedBuiltInToolKeys"];
             recommendedMcpServerIds?: string[];
+            title?: string;
+        },
+    ) => Promise<void>;
+    updateSavedPrompt: (
+        savedPromptId: string,
+        input: {
+            content?: string;
             title?: string;
         },
     ) => Promise<void>;
@@ -747,6 +761,7 @@ Your output must be:
                 : [];
             const memory = await repositories.memoryStore.read();
             const mcpServers = await repositories.mcpServerRepository.list();
+            const savedPrompts = await repositories.savedPromptRepository.list();
             const skills = await repositories.skillRepository.list();
             const workspaceFiles = await repositories.workspaceRepository.list();
             const nextSnapshot = {
@@ -760,6 +775,7 @@ Your output must be:
                 memory,
                 mcpServers,
                 messages,
+                savedPrompts,
                 skills,
                 workspaceFiles,
                 resolvedConfig,
@@ -1336,6 +1352,35 @@ Your output must be:
 
     async function deleteSkill(skillId: string) {
         await repositoriesRef.current.skillRepository.delete(skillId);
+        await hydrate();
+    }
+
+    async function createSavedPrompt(input: {
+        content: string;
+        title: string;
+    }) {
+        const savedPrompt =
+            await repositoriesRef.current.savedPromptRepository.create(input);
+        await hydrate();
+        return savedPrompt;
+    }
+
+    async function updateSavedPrompt(
+        savedPromptId: string,
+        input: {
+            content?: string;
+            title?: string;
+        },
+    ) {
+        await repositoriesRef.current.savedPromptRepository.update(
+            savedPromptId,
+            input,
+        );
+        await hydrate();
+    }
+
+    async function deleteSavedPrompt(savedPromptId: string) {
+        await repositoriesRef.current.savedPromptRepository.delete(savedPromptId);
         await hydrate();
     }
 
@@ -2334,6 +2379,7 @@ Your output must be:
                 deleteProvider,
                 deleteConversation,
                 createModelPreset,
+                createSavedPrompt,
                 createSkill,
                 createWorkspaceFile,
                 currentConversation: snapshot.currentConversation,
@@ -2352,6 +2398,7 @@ Your output must be:
                 deleteMcpServer,
                 clearMemory,
                 deleteModelPreset,
+                deleteSavedPrompt,
                 deleteSkill,
                 deleteWorkspaceFile,
                 disconnectOpenAIOAuth,
@@ -2360,6 +2407,7 @@ Your output must be:
                 importFiles,
                 inAppNotification,
                 messages: snapshot.messages,
+                savedPrompts: snapshot.savedPrompts,
                 memory: snapshot.memory,
                 mcpServers: snapshot.mcpServers,
                 pickConversationFolder,
@@ -2392,6 +2440,7 @@ Your output must be:
                 updateDatabaseSettings,
                 updateBuiltInToolSettings,
                 updateMemoryEnabled,
+                updateSavedPrompt,
                 updateSkill,
                 updateToolApprovalMode,
                 updateThemeMode,
@@ -2446,12 +2495,14 @@ export function useConfig() {
         writeMemory: context.writeMemory,
         createProvider: context.createProvider,
         createModelPreset: context.createModelPreset,
+        createSavedPrompt: context.createSavedPrompt,
         createSkill: context.createSkill,
         createWorkspaceFile: context.createWorkspaceFile,
         deleteMcpServer: context.deleteMcpServer,
         deleteProvider: context.deleteProvider,
         clearMemory: context.clearMemory,
         deleteModelPreset: context.deleteModelPreset,
+        deleteSavedPrompt: context.deleteSavedPrompt,
         deleteSkill: context.deleteSkill,
         deleteWorkspaceFile: context.deleteWorkspaceFile,
         disconnectOpenAIOAuth: context.disconnectOpenAIOAuth,
@@ -2469,6 +2520,7 @@ export function useConfig() {
         selectModel: context.selectModel,
         saveMcpServerHeaderValues: context.saveMcpServerHeaderValues,
         saveProviderApiKey: context.saveProviderApiKey,
+        savedPrompts: context.savedPrompts,
         setDefaultModelPreset: context.setDefaultModelPreset,
         skills: context.skills,
         refresh: context.refresh,
@@ -2481,6 +2533,7 @@ export function useConfig() {
         updateMcpServer: context.updateMcpServer,
         updateBuiltInToolSettings: context.updateBuiltInToolSettings,
         updateMemoryEnabled: context.updateMemoryEnabled,
+        updateSavedPrompt: context.updateSavedPrompt,
         updateSkill: context.updateSkill,
         updateToolApprovalMode: context.updateToolApprovalMode,
         updateThemeMode: context.updateThemeMode,
@@ -2514,6 +2567,7 @@ export function useChat() {
         denyPendingToolApproval: context.denyPendingToolApproval,
         resolveNotificationApproval: context.resolveNotificationApproval,
         createConversation: context.createConversation,
+        createSavedPrompt: context.createSavedPrompt,
         createWorkspaceFile: context.createWorkspaceFile,
         clearConversationFolder: context.clearConversationFolder,
         clearWorkspaceFiles: context.clearWorkspaceFiles,
@@ -2521,6 +2575,7 @@ export function useChat() {
         currentSelectedFileIds: context.currentSelectedFileIds,
         importFiles: context.importFiles,
         messages: context.messages,
+        savedPrompts: context.savedPrompts,
         pickConversationFolder: context.pickConversationFolder,
         resumePendingRuns: context.resumePendingRuns,
         retryRun: context.retryRun,
@@ -2528,6 +2583,8 @@ export function useChat() {
         selectConversation: context.selectConversation,
         sendMessage: context.sendMessage,
         skills: context.skills,
+        updateSavedPrompt: context.updateSavedPrompt,
+        deleteSavedPrompt: context.deleteSavedPrompt,
         sending:
             currentConversationRunStatus === "queued" ||
             currentConversationRunStatus === "running" ||

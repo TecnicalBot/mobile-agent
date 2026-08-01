@@ -89,6 +89,7 @@ export const EMPTY_SNAPSHOT: AppStateSnapshot = {
   memory: null,
   mcpServers: [],
   messages: [],
+  savedPrompts: [],
   skills: [],
   workspaceFiles: [],
   resolvedConfig: EMPTY_RESOLVED_CONFIG,

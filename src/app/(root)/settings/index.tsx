@@ -33,12 +33,7 @@ import { useUpdate } from "@/providers/check-for-updates";
 import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 
 type DrawerKey =
-  | "current-model"
-  | "db"
-  | "theme"
-  | "background"
-  | "notifications"
-  | null;
+  "current-model" | "db" | "theme" | "background" | "notifications" | null;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -55,6 +50,7 @@ export default function SettingsScreen() {
     selectModel,
     mcpServers,
     notificationSettings,
+    savedPrompts,
     skills,
     themeMode,
     toolSettings,
@@ -161,6 +157,14 @@ export default function SettingsScreen() {
         />
         <Separator />
         <SettingsLinkRow
+          label="Saved prompts"
+          onPress={() => {
+            router.push("/settings/prompts" as never);
+          }}
+          value={`${savedPrompts.length}`}
+        />
+        <Separator />
+        <SettingsLinkRow
           label="Memory"
           onPress={() => {
             router.push("/settings/memory" as never);
@@ -192,8 +196,8 @@ export default function SettingsScreen() {
             </DrawerHeader>
             <DrawerBody contentContainerClassName="gap-sp-2">
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                Keeps the agent running when the app is in the background.
-                Uses a foreground service + wake lock (Android).
+                Keeps the agent running when the app is in the background. Uses
+                a foreground service + wake lock (Android).
               </Text>
 
               <View className="flex-row items-center justify-between">
@@ -215,9 +219,7 @@ export default function SettingsScreen() {
                 <Button
                   onPress={async () => {
                     await requestNotificationPermission();
-                    setNotificationGranted(
-                      await hasNotificationPermission(),
-                    );
+                    setNotificationGranted(await hasNotificationPermission());
                   }}
                   variant="outline"
                 >

@@ -21,6 +21,7 @@ import type {
   NotificationSettings,
   ProviderConfig,
   ReasoningEffort,
+  SavedPrompt,
   SkillConfig,
   StoredMessage,
   ToolApprovalMode,
@@ -229,6 +230,24 @@ export interface SkillRepository {
   ): Promise<void>;
 }
 
+export interface SavedPromptRepository {
+  create(input: {
+    content: string;
+    id?: string;
+    title: string;
+  }): Promise<SavedPrompt>;
+  delete(id: string): Promise<void>;
+  getById(id: string): Promise<SavedPrompt | null>;
+  list(): Promise<SavedPrompt[]>;
+  update(
+    id: string,
+    input: {
+      content?: string;
+      title?: string;
+    },
+  ): Promise<void>;
+}
+
 export interface ConfigRepository {
   createProvider(input: {
     authType: ProviderConfig["authType"];
@@ -287,6 +306,7 @@ export type Repositories = {
   memoryStore: MemoryStore;
   mcpServerRepository: McpServerRepository;
   messageRepository: MessageRepository;
+  savedPromptRepository: SavedPromptRepository;
   skillRepository: SkillRepository;
   workspaceRepository: WorkspaceRepository;
 };

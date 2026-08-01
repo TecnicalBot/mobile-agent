@@ -1,5 +1,5 @@
 import type { ToolSet } from "ai";
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { RefObject } from "react";
 
 import { fetchLiveModelCatalogCached } from "@/modules/config/live-model-catalog";
 import { resolveConfiguredModel } from "@/modules/config/registry";
@@ -28,6 +28,7 @@ import {
   shouldAutoResumeRun,
 } from "@/modules/runtime/run-manager";
 import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
+import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import {
@@ -52,7 +53,6 @@ import type {
   ExternalFolderSession,
   MemoryEvent,
   MessageMetadata,
-  PendingToolApproval,
   PendingToolApprovalRequest,
   PromptArtifact,
   ProviderConfig,
@@ -65,6 +65,7 @@ import type {
 import {
   BASE_AGENT_SYSTEM_PROMPT,
   REQUEST_INACTIVITY_TIMEOUT_MS,
+  STREAMING_SNAPSHOT_INTERVAL_MS,
   buildCurrentDateTimeSystemPrompt,
 } from "./constants";
 import {
@@ -78,6 +79,7 @@ import {
   upsertAgentRun,
   upsertMessages,
 } from "./helpers";
+import { isUiProjectionFailure, type RunUiPublisher } from "./run-ui-publisher";
 
 export type AgentRunDeps = {
   repositories: Repositories;
@@ -105,9 +107,7 @@ export type AgentRunDeps = {
     status: "success" | "failed";
     title: string;
   }) => Promise<void>;
-  setSnapshot: Dispatch<SetStateAction<AppStateSnapshot>>;
-  setError: Dispatch<SetStateAction<string | null>>;
-  setPendingToolApprovals: Dispatch<SetStateAction<PendingToolApproval[]>>;
+  ui: RunUiPublisher;
   retryRun: (runId: string, delayMs: number) => void;
 };
 
@@ -168,9 +168,7 @@ export async function executeClaimedAgentRun(
     requestToolApproval,
     generateAndApplyConversationTitle,
     notifyRunStateChange,
-    setSnapshot,
-    setError,
-    setPendingToolApprovals,
+    ui,
     retryRun,
   } = deps;
 
@@ -183,6 +181,32 @@ export async function executeClaimedAgentRun(
     return;
   }
 
+  const reportProjectionFailure = (context: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : null;
+    void appendChatRenderError({
+      context,
+      message,
+      runId: run.id,
+      stack,
+    });
+  };
+
+  const safeUpdateRunRecord: typeof updateRunRecord = async (
+    safeRunId,
+    input,
+  ) => {
+    try {
+      return await updateRunRecord(safeRunId, input);
+    } catch (error) {
+      if (!isUiProjectionFailure(error)) {
+        throw error;
+      }
+      reportProjectionFailure("updateRunRecord", error);
+      return (await repositories.agentRunRepository.getById(safeRunId)) ?? null;
+    }
+  };
+
   const conversation =
     snapshotRef.current.conversations.find(
       (item) => item.id === run.conversationId,
@@ -190,7 +214,7 @@ export async function executeClaimedAgentRun(
     (await repositories.conversationRepository.getById(run.conversationId));
 
   if (!conversation) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: "Chat not found.",
       status: "failed",
@@ -204,7 +228,7 @@ export async function executeClaimedAgentRun(
   );
 
   if (!provider) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: `Provider ${run.providerId} is unavailable.`,
       status: "failed",
@@ -228,7 +252,7 @@ export async function executeClaimedAgentRun(
     });
 
   if (!resolvedModel) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: `Model ${run.modelId} is unavailable for ${provider.label}.`,
       status: "failed",
@@ -267,7 +291,7 @@ export async function executeClaimedAgentRun(
     scheduleInactivityTimeout();
   };
 
-  const resumedRun = await updateRunRecord(run.id, {
+  const resumedRun = await safeUpdateRunRecord(run.id, {
     completedAt: null,
     lastError: null,
     resumeCount:
@@ -285,7 +309,7 @@ export async function executeClaimedAgentRun(
   );
 
   if (!assistantMessage) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: "Assistant message not found.",
       status: "failed",
@@ -309,7 +333,7 @@ export async function executeClaimedAgentRun(
     status: "streaming",
   });
 
-  setSnapshot((current) => ({
+  ui.publishSnapshot((current) => ({
     ...current,
     messages:
       current.currentConversation?.id === conversation.id
@@ -351,7 +375,7 @@ export async function executeClaimedAgentRun(
   const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError:
         "The current model does not support image input. Switch to a vision-capable model to send images.",
@@ -362,7 +386,7 @@ export async function executeClaimedAgentRun(
   }
 
   if (binaryFiles.length > 0 && !runtimeSupportsTools) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError:
         onDevicePolicy.memoryConstrained && onDevicePolicy.toolsMode === "auto"
@@ -383,7 +407,7 @@ export async function executeClaimedAgentRun(
   });
 
   if (runtimeMessageResult.unsupportedImageAttachments.length > 0) {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError:
         "This conversation includes image attachments, but the current model cannot read images.",
@@ -452,7 +476,7 @@ export async function executeClaimedAgentRun(
     });
 
   const setRunWaitingForApproval = async () => {
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       lastError: null,
       status: "waiting_for_approval",
     });
@@ -470,11 +494,26 @@ export async function executeClaimedAgentRun(
     refreshAssistantState?.();
     await setRunWaitingForApproval();
 
-    const decision = await requestToolApproval(run, request);
+    let decision: import("@/modules/runtime/run-manager").ToolApprovalDecision;
+    try {
+      decision = await requestToolApproval(run, request);
+    } catch (error) {
+      if (!isUiProjectionFailure(error)) {
+        throw error;
+      }
+      reportProjectionFailure("request-tool-approval", error);
+      runRegistry.stopRun(run.id);
+      await safeUpdateRunRecord(run.id, {
+        completedAt: new Date().toISOString(),
+        lastError: null,
+        status: "canceled",
+      });
+      return "abort";
+    }
     markActivity();
 
     if (decision !== "abort") {
-      await updateRunRecord(run.id, {
+      await safeUpdateRunRecord(run.id, {
         lastError: null,
         status: "running",
       });
@@ -487,6 +526,9 @@ export async function executeClaimedAgentRun(
   let assistantText = startingAssistantText;
   let persistTimeout: ReturnType<typeof setTimeout> | null = null;
   let lastSnapshotTime = 0;
+  let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingSnapshotStatus: StoredMessage["status"] | null = null;
+  let pendingSnapshotError: string | null = null;
 
   const syncAssistantSnapshot = (
     status: StoredMessage["status"],
@@ -494,7 +536,7 @@ export async function executeClaimedAgentRun(
   ) => {
     const metadata = buildLiveAssistantMetadata();
 
-    setSnapshot((current) => {
+    ui.publishSnapshot((current) => {
       if (current.currentConversation?.id !== conversation.id) {
         return current;
       }
@@ -516,16 +558,30 @@ export async function executeClaimedAgentRun(
     });
   };
 
-  const throttleSnapshot = (
+  const scheduleSnapshot = (
     status: StoredMessage["status"],
     errorMessage: string | null = null,
   ) => {
-    const now = Date.now();
-    if (now - lastSnapshotTime < 32) {
+    pendingSnapshotStatus = status;
+    pendingSnapshotError = errorMessage;
+
+    if (snapshotTimer) {
       return;
     }
-    lastSnapshotTime = now;
-    syncAssistantSnapshot(status, errorMessage);
+
+    const delay = Math.max(
+      0,
+      STREAMING_SNAPSHOT_INTERVAL_MS - (Date.now() - lastSnapshotTime),
+    );
+
+    snapshotTimer = setTimeout(() => {
+      snapshotTimer = null;
+      lastSnapshotTime = Date.now();
+      syncAssistantSnapshot(
+        pendingSnapshotStatus ?? "streaming",
+        pendingSnapshotError,
+      );
+    }, delay);
   };
 
   const schedulePersist = (status: StoredMessage["status"]) => {
@@ -556,6 +612,11 @@ export async function executeClaimedAgentRun(
       persistTimeout = null;
     }
 
+    if (status !== "streaming" && snapshotTimer) {
+      clearTimeout(snapshotTimer);
+      snapshotTimer = null;
+    }
+
     await repositories.messageRepository.updateContent({
       id: assistantMessage.id,
       content: assistantText,
@@ -567,7 +628,7 @@ export async function executeClaimedAgentRun(
 
   refreshAssistantState = () => {
     schedulePersist("streaming");
-    throttleSnapshot("streaming");
+    scheduleSnapshot("streaming");
   };
 
   refreshAssistantState();
@@ -995,7 +1056,7 @@ export async function executeClaimedAgentRun(
         markActivity();
         assistantText += delta;
         schedulePersist("streaming");
-        throttleSnapshot("streaming");
+        scheduleSnapshot("streaming");
       },
       onEvent: (eventName, data) => {
         markActivity();
@@ -1193,7 +1254,7 @@ export async function executeClaimedAgentRun(
     });
 
     await flushPersist("completed", null, assistantMetadata);
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: null,
       status: "completed",
@@ -1204,23 +1265,26 @@ export async function executeClaimedAgentRun(
       repositories.workspaceRepository.list(),
     ]);
 
-    setSnapshot((current) => ({
-      ...current,
-      messages:
-        current.currentConversation?.id === conversation.id
-          ? upsertMessages(current.messages, [
-              {
-                ...assistantMessage,
-                content: assistantText,
-                error: null,
-                metadata: assistantMetadata,
-                status: "completed",
-              },
-            ])
-          : current.messages,
-      memory,
-      workspaceFiles,
-    }));
+    ui.publishSnapshot(
+      (current) => ({
+        ...current,
+        messages:
+          current.currentConversation?.id === conversation.id
+            ? upsertMessages(current.messages, [
+                {
+                  ...assistantMessage,
+                  content: assistantText,
+                  error: null,
+                  metadata: assistantMetadata,
+                  status: "completed",
+                },
+              ])
+            : current.messages,
+        memory,
+        workspaceFiles,
+      }),
+      { force: true },
+    );
 
     if (conversation.title === "New chat") {
       void generateAndApplyConversationTitle({
@@ -1229,6 +1293,10 @@ export async function executeClaimedAgentRun(
         model: resolvedModel,
         provider,
         runId: run.id,
+      }).catch((error) => {
+        if (isUiProjectionFailure(error)) {
+          reportProjectionFailure("conversation-title", error);
+        }
       });
     }
 
@@ -1269,7 +1337,7 @@ export async function executeClaimedAgentRun(
         retryClassification.category,
       );
 
-      await updateRunRecord(run.id, {
+      await safeUpdateRunRecord(run.id, {
         completedAt: null,
         lastError: errorMessage,
         status: "retrying",
@@ -1299,29 +1367,32 @@ export async function executeClaimedAgentRun(
 
       await flushPersist("streaming", null, retryMeta);
 
-      setSnapshot((current) => ({
-        ...current,
-        agentRuns: upsertAgentRun(current.agentRuns, {
-          ...run,
-          lastError: errorMessage,
-          retryCount: nextRetryCount,
-          status: "retrying",
+      ui.publishSnapshot(
+        (current) => ({
+          ...current,
+          agentRuns: upsertAgentRun(current.agentRuns, {
+            ...run,
+            lastError: errorMessage,
+            retryCount: nextRetryCount,
+            status: "retrying",
+          }),
+          messages:
+            current.currentConversation?.id === conversation.id
+              ? upsertMessages(current.messages, [
+                  {
+                    ...assistantMessage,
+                    content:
+                      assistantText ||
+                      `Retrying (${nextRetryCount}/${maxRetries})...`,
+                    error: null,
+                    metadata: retryMeta,
+                    status: "streaming",
+                  },
+                ])
+              : current.messages,
         }),
-        messages:
-          current.currentConversation?.id === conversation.id
-            ? upsertMessages(current.messages, [
-                {
-                  ...assistantMessage,
-                  content:
-                    assistantText ||
-                    `Retrying (${nextRetryCount}/${maxRetries})...`,
-                  error: null,
-                  metadata: retryMeta,
-                  status: "streaming",
-                },
-              ])
-            : current.messages,
-      }));
+        { force: true },
+      );
 
       retryRun(run.id, delayMs);
 
@@ -1361,7 +1432,7 @@ export async function executeClaimedAgentRun(
       finalStatus === "canceled" ? null : errorMessage,
       assistantMetadata,
     );
-    await updateRunRecord(run.id, {
+    await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: finalStatus === "canceled" ? null : errorMessage,
       status: finalStatus,
@@ -1371,7 +1442,7 @@ export async function executeClaimedAgentRun(
       finalStatus === "failed" &&
       snapshotRef.current.currentConversation?.id === conversation.id
     ) {
-      setError(errorMessage);
+      ui.publishError(errorMessage);
     }
 
     const [memory, workspaceFiles] = await Promise.all([
@@ -1379,23 +1450,26 @@ export async function executeClaimedAgentRun(
       repositories.workspaceRepository.list(),
     ]);
 
-    setSnapshot((current) => ({
-      ...current,
-      messages:
-        current.currentConversation?.id === conversation.id
-          ? upsertMessages(current.messages, [
-              {
-                ...assistantMessage,
-                content: assistantText,
-                error: finalStatus === "canceled" ? null : errorMessage,
-                metadata: assistantMetadata,
-                status: "failed",
-              },
-            ])
-          : current.messages,
-      memory,
-      workspaceFiles,
-    }));
+    ui.publishSnapshot(
+      (current) => ({
+        ...current,
+        messages:
+          current.currentConversation?.id === conversation.id
+            ? upsertMessages(current.messages, [
+                {
+                  ...assistantMessage,
+                  content: assistantText,
+                  error: finalStatus === "canceled" ? null : errorMessage,
+                  metadata: assistantMetadata,
+                  status: "failed",
+                },
+              ])
+            : current.messages,
+        memory,
+        workspaceFiles,
+      }),
+      { force: true },
+    );
 
     if (finalStatus === "failed") {
       await notifyRunStateChange({
@@ -1419,7 +1493,7 @@ export async function executeClaimedAgentRun(
     }
 
     runRegistry.clear(run.id);
-    setPendingToolApprovals((current) =>
+    ui.publishApprovals((current) =>
       current.filter((approval) => approval.runId !== run.id),
     );
   }

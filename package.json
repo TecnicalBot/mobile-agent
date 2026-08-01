@@ -97,7 +97,8 @@
   "pnpm": {
     "patchedDependencies": {
       "@ai-sdk/mcp@2.0.7": "patches/@ai-sdk__mcp@2.0.7.patch",
-      "expo-ai-kit@0.11.1": "patches/expo-ai-kit@0.11.1.patch"
+      "expo-ai-kit@0.11.1": "patches/expo-ai-kit@0.11.1.patch",
+      "react-native-css-interop@0.2.6": "patches/react-native-css-interop@0.2.6.patch"
     }
   },
   "expo": {

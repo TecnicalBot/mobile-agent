@@ -21,7 +21,7 @@ import {
 import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider } from "expo-sqlite";
 import { X } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import "./global.css";
@@ -47,6 +47,11 @@ Notifications.setNotificationHandler({
 
 function NotificationObserver() {
   const { resolveNotificationApproval, selectConversation } = useChat();
+  const callbacksRef = useRef({
+    resolveNotificationApproval,
+    selectConversation,
+  });
+  callbacksRef.current = { resolveNotificationApproval, selectConversation };
 
   useEffect(() => {
     function openConversation(
@@ -55,7 +60,8 @@ function NotificationObserver() {
       const conversationId = notification?.request.content.data?.conversationId;
 
       if (typeof conversationId === "string") {
-        selectConversation(conversationId)
+        callbacksRef.current
+          .selectConversation(conversationId)
           .then(() => {
             router.push("/");
           })
@@ -85,7 +91,7 @@ function NotificationObserver() {
           if (
             response.actionIdentifier === TOOL_APPROVAL_APPROVE_ACTION_ID
           ) {
-            void resolveNotificationApproval({
+            void callbacksRef.current.resolveNotificationApproval({
               approvalId: data.approvalId,
               decision: "approve",
               runId: data.runId,
@@ -93,7 +99,7 @@ function NotificationObserver() {
           } else if (
             response.actionIdentifier === TOOL_APPROVAL_REJECT_ACTION_ID
           ) {
-            void resolveNotificationApproval({
+            void callbacksRef.current.resolveNotificationApproval({
               approvalId: data.approvalId,
               decision: "deny",
               runId: data.runId,
@@ -121,7 +127,7 @@ function NotificationObserver() {
     return () => {
       subscription.remove();
     };
-  }, [resolveNotificationApproval, selectConversation]);
+  }, []);
 
   return null;
 }

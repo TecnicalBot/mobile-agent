@@ -7,6 +7,8 @@ import type {
 
 export const REQUEST_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
+export const STREAMING_SNAPSHOT_INTERVAL_MS = 96;
+
 export const BASE_AGENT_SYSTEM_PROMPT = `
 You are Mobile Agent, a capable assistant that helps the user complete tasks on their device and in their selected workspace.
 `;

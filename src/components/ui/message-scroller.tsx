@@ -8,20 +8,23 @@ import type {
   RefObject,
 } from "react";
 import {
-  Fragment,
   createContext,
   forwardRef,
+  useCallback,
   useContext,
   useEffect,
-  useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import {
+  FlatList,
   Keyboard,
   Platform,
-  ScrollView,
   View,
+  type FlatListProps,
+  type LayoutChangeEvent,
+  type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -34,28 +37,19 @@ type ScrollState = {
   start: boolean;
 };
 
-type ItemLayout = {
-  anchor: boolean;
-  height: number;
-  id: string;
-  index?: number;
-  messageId?: string;
-  y: number;
-};
-
 type MessageScrollerContextValue = {
-  currentAnchorId: string | null;
-  listRef: RefObject<ScrollView | null>;
-  onListLayout: (height: number) => void;
-  onListScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  registerItem: (item: ItemLayout) => void;
+  listRef: RefObject<FlatList<unknown> | null>;
+  onListContentSizeChange: (contentHeight: number) => void;
+  onListLayout: (viewportHeight: number) => void;
+  onListScroll: (
+    offsetY: number,
+    viewportHeight: number,
+    contentHeight: number,
+  ) => void;
+  scheduleFollowToEnd: () => void;
   scrollToEnd: () => void;
-  scrollToMessage: (messageId: string) => void;
   scrollToStart: () => void;
   scrollable: ScrollState;
-  setContentHeight: (height: number) => void;
-  unregisterItem: (id: string) => void;
-  visibleMessageIds: string[];
 };
 
 const MessageScrollerContext =
@@ -81,145 +75,103 @@ export function MessageScrollerProvider({
   autoScroll = false,
   children,
 }: MessageScrollerProviderProps) {
-  const listRef = useRef<ScrollView>(null);
-  const itemLayoutsRef = useRef<Map<string, ItemLayout>>(new Map());
+  const listRef = useRef<FlatList<unknown>>(null);
   const followRef = useRef(autoScroll);
-  const [contentHeight, setContentHeight] = useState(0);
-  const [currentAnchorId, setCurrentAnchorId] = useState<string | null>(null);
-  const [offsetY, setOffsetY] = useState(0);
+  const pendingFollowRef = useRef(false);
+  const lastScrollableRef = useRef<ScrollState>({ end: false, start: false });
+  const metricsRef = useRef({
+    contentHeight: 0,
+    offsetY: 0,
+    viewportHeight: 0,
+  });
   const [scrollable, setScrollable] = useState<ScrollState>({
     end: false,
     start: false,
   });
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([]);
 
-  function recompute(
-    nextOffsetY = offsetY,
-    nextViewportHeight = viewportHeight,
-    nextContentHeight = contentHeight,
-    options?: {
-      updateFollow?: boolean;
+  const recomputeScrollable = useCallback(
+    (offsetY: number, viewportHeight: number, contentHeight: number) => {
+      metricsRef.current = {
+        contentHeight,
+        offsetY,
+        viewportHeight,
+      };
+
+      const maxOffset = Math.max(contentHeight - viewportHeight, 0);
+      const next: ScrollState = {
+        end: offsetY < maxOffset - 8,
+        start: offsetY > 8,
+      };
+
+      followRef.current = next.end;
+
+      const previous = lastScrollableRef.current;
+
+      if (previous.start === next.start && previous.end === next.end) {
+        return;
+      }
+
+      lastScrollableRef.current = next;
+      setScrollable(next);
     },
-  ) {
-    const items = Array.from(itemLayoutsRef.current.values()).sort(
-      (left, right) => left.y - right.y,
-    );
-    const maxOffset = Math.max(nextContentHeight - nextViewportHeight, 0);
-    const nextScrollable = {
-      start: nextOffsetY > 8,
-      end: nextOffsetY < maxOffset - 8,
-    };
+    [],
+  );
 
-    if (options?.updateFollow ?? false) {
-      followRef.current = !nextScrollable.end;
-    }
-    setScrollable((current) =>
-      current.start === nextScrollable.start &&
-      current.end === nextScrollable.end
-        ? current
-        : nextScrollable,
-    );
+  const onListScroll = useCallback(
+    (offsetY: number, viewportHeight: number, contentHeight: number) => {
+      recomputeScrollable(offsetY, viewportHeight, contentHeight);
+    },
+    [recomputeScrollable],
+  );
 
-    const nextVisibleIds = items
-      .filter(
-        (item) =>
-          item.messageId &&
-          item.y + item.height >= nextOffsetY &&
-          item.y <= nextOffsetY + nextViewportHeight,
-      )
-      .map((item) => item.messageId as string);
+  const onListLayout = useCallback(
+    (viewportHeight: number) => {
+      const { contentHeight, offsetY } = metricsRef.current;
 
-    setVisibleMessageIds((current) =>
-      current.length === nextVisibleIds.length &&
-      current.every((id, index) => id === nextVisibleIds[index])
-        ? current
-        : nextVisibleIds,
-    );
+      recomputeScrollable(offsetY, viewportHeight, contentHeight);
+    },
+    [recomputeScrollable],
+  );
 
-    const anchors = items.filter((item) => item.anchor);
-    const anchorId =
-      anchors
-        .filter((item) => item.y <= nextOffsetY + nextViewportHeight * 0.25)
-        .at(-1)?.id ?? null;
-
-    setCurrentAnchorId(anchorId);
-  }
-
-  function onListLayout(height: number) {
-    setViewportHeight(height);
-
-    if (autoScroll && followRef.current) {
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: false });
-      });
-    }
-  }
-
-  function onListScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const nextOffsetY = event.nativeEvent.contentOffset.y;
-    const nextViewportHeight = event.nativeEvent.layoutMeasurement.height;
-    const nextContentHeight = event.nativeEvent.contentSize.height;
-
-    setOffsetY(nextOffsetY);
-    setViewportHeight(nextViewportHeight);
-    setContentHeight(nextContentHeight);
-    recompute(nextOffsetY, nextViewportHeight, nextContentHeight, {
-      updateFollow: true,
-    });
-  }
-
-  function registerItem(item: ItemLayout) {
-    itemLayoutsRef.current.set(item.id, item);
-    recompute(offsetY, viewportHeight, contentHeight);
-  }
-
-  function unregisterItem(id: string) {
-    if (!itemLayoutsRef.current.has(id)) {
-      return;
-    }
-
-    itemLayoutsRef.current.delete(id);
-    recompute(offsetY, viewportHeight, contentHeight);
-  }
-
-  function scrollToStart() {
-    listRef.current?.scrollTo({ animated: true, y: 0 });
-  }
-
-  function scrollToEnd() {
+  const scrollToEnd = useCallback(() => {
+    pendingFollowRef.current = false;
     followRef.current = true;
     listRef.current?.scrollToEnd({ animated: true });
-  }
+  }, []);
 
-  function scrollToMessage(messageId: string) {
-    const item = Array.from(itemLayoutsRef.current.values()).find(
-      (entry) => entry.messageId === messageId,
-    );
+  const scrollToStart = useCallback(() => {
+    followRef.current = false;
+    listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+  }, []);
 
-    if (!item) {
+  const followToEnd = useCallback(() => {
+    pendingFollowRef.current = false;
+
+    if (!followRef.current) {
       return;
     }
 
-    listRef.current?.scrollTo({
-      animated: true,
-      y: Math.max(item.y - viewportHeight * 0.18, 0),
-    });
-  }
+    listRef.current?.scrollToEnd({ animated: false });
+  }, []);
 
-  useEffect(() => {
-    recompute(offsetY, viewportHeight, contentHeight);
-  }, [contentHeight, offsetY, viewportHeight]);
-
-  useEffect(() => {
-    if (!autoScroll || !followRef.current) {
+  const scheduleFollowToEnd = useCallback(() => {
+    if (!autoScroll || !followRef.current || pendingFollowRef.current) {
       return;
     }
 
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    });
-  }, [autoScroll, contentHeight]);
+    pendingFollowRef.current = true;
+    requestAnimationFrame(followToEnd);
+  }, [autoScroll, followToEnd]);
+
+  const onListContentSizeChange = useCallback(
+    (contentHeight: number) => {
+      const { offsetY, viewportHeight } = metricsRef.current;
+
+      recomputeScrollable(offsetY, viewportHeight, contentHeight);
+      scheduleFollowToEnd();
+    },
+    [recomputeScrollable, scheduleFollowToEnd],
+  );
 
   useEffect(() => {
     if (!autoScroll) {
@@ -232,9 +184,7 @@ export function MessageScrollerProvider({
       }
 
       requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({
-          animated: Platform.OS === "ios",
-        });
+        listRef.current?.scrollToEnd({ animated: Platform.OS === "ios" });
       });
     };
 
@@ -253,23 +203,30 @@ export function MessageScrollerProvider({
     };
   }, [autoScroll]);
 
+  const value = useMemo<MessageScrollerContextValue>(
+    () => ({
+      listRef,
+      onListContentSizeChange,
+      onListLayout,
+      onListScroll,
+      scheduleFollowToEnd,
+      scrollToEnd,
+      scrollToStart,
+      scrollable,
+    }),
+    [
+      onListContentSizeChange,
+      onListLayout,
+      onListScroll,
+      scheduleFollowToEnd,
+      scrollToEnd,
+      scrollToStart,
+      scrollable,
+    ],
+  );
+
   return (
-    <MessageScrollerContext.Provider
-      value={{
-        currentAnchorId,
-        listRef,
-        onListLayout,
-        onListScroll,
-        registerItem,
-        scrollToEnd,
-        scrollToMessage,
-        scrollToStart,
-        scrollable,
-        setContentHeight,
-        unregisterItem,
-        visibleMessageIds,
-      }}
-    >
+    <MessageScrollerContext.Provider value={value}>
       {children}
     </MessageScrollerContext.Provider>
   );
@@ -296,183 +253,103 @@ export const MessageScroller = forwardRef<
 MessageScroller.displayName = "MessageScroller";
 
 export type MessageScrollerListProps<ItemT> = Omit<
-  ComponentPropsWithoutRef<typeof ScrollView>,
-  "children" | "onContentSizeChange" | "onLayout" | "onScroll"
+  FlatListProps<ItemT>,
+  "data" | "keyExtractor" | "onContentSizeChange" | "onScroll" | "renderItem"
 > & {
   className?: string;
   contentContainerClassName?: string;
-  data: ItemT[];
+  data: ArrayLike<ItemT> | null | undefined;
   keyExtractor?: (item: ItemT, index: number) => string;
-  ListEmptyComponent?: ReactNode;
-  ListFooterComponent?: ReactNode;
-  ListHeaderComponent?: ReactNode;
-  onContentSizeChange?: ComponentPropsWithoutRef<
-    typeof ScrollView
-  >["onContentSizeChange"];
-  onLayout?: ComponentPropsWithoutRef<typeof ScrollView>["onLayout"];
-  onScroll?: ComponentPropsWithoutRef<typeof ScrollView>["onScroll"];
-  renderItem: (input: { index: number; item: ItemT }) => ReactNode;
+  onContentSizeChange?: FlatListProps<ItemT>["onContentSizeChange"];
+  onScroll?: FlatListProps<ItemT>["onScroll"];
+  renderItem: ListRenderItem<ItemT>;
 };
 
 function MessageScrollerListInner<ItemT>(
   {
     className,
     contentContainerClassName,
-    data,
     keyboardShouldPersistTaps = "handled",
-    keyExtractor,
-    ListEmptyComponent,
-    ListFooterComponent,
-    ListHeaderComponent,
     onContentSizeChange,
     onLayout,
     onScroll,
-    renderItem,
     scrollEventThrottle = 16,
     ...props
   }: MessageScrollerListProps<ItemT>,
-  ref: ForwardedRef<ScrollView>,
+  ref: ForwardedRef<FlatList<ItemT>>,
 ) {
-  const context = useMessageScrollerContext();
+  const { listRef, onListContentSizeChange, onListLayout, onListScroll } =
+    useMessageScrollerContext();
+
+  const handleContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      onListContentSizeChange(height);
+      onContentSizeChange?.(width, height);
+    },
+    [onContentSizeChange, onListContentSizeChange],
+  );
+
+  const handleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      onListLayout(event.nativeEvent.layout.height);
+      onLayout?.(event);
+    },
+    [onLayout, onListLayout],
+  );
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+
+      onListScroll(
+        contentOffset.y,
+        layoutMeasurement.height,
+        contentSize.height,
+      );
+      onScroll?.(event);
+    },
+    [onListScroll, onScroll],
+  );
+
+  const handleRef = useCallback(
+    (node: FlatList<ItemT> | null) => {
+      listRef.current = node as FlatList<unknown> | null;
+
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [listRef, ref],
+  );
 
   return (
-    <ScrollView
-      ref={(node) => {
-        context.listRef.current = node;
-
-        if (typeof ref === "function") {
-          ref(node);
-        } else if (ref) {
-          ref.current = node;
-        }
-      }}
+    <FlatList<ItemT>
+      ref={handleRef}
       accessibilityLiveRegion="polite"
       className={cn("flex-1", className)}
       contentContainerClassName={cn("gap-sp-3", contentContainerClassName)}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
-      onContentSizeChange={(width, height) => {
-        context.setContentHeight(height);
-        onContentSizeChange?.(width, height);
-      }}
-      onLayout={(event) => {
-        context.onListLayout(event.nativeEvent.layout.height);
-        onLayout?.(event);
-      }}
-      onScroll={(event) => {
-        context.onListScroll(event);
-        onScroll?.(event);
-      }}
+      onContentSizeChange={handleContentSizeChange}
+      onLayout={handleLayout}
+      onScroll={handleScroll}
       scrollEventThrottle={scrollEventThrottle}
       {...props}
-    >
-      <View className={cn("gap-sp-3", contentContainerClassName)}>
-        {ListHeaderComponent}
-        {data.length === 0
-          ? ListEmptyComponent
-          : data.map((item, index) => (
-              <Fragment key={keyExtractor?.(item, index) ?? String(index)}>
-                {renderItem({ index, item })}
-              </Fragment>
-            ))}
-        {ListFooterComponent}
-      </View>
-    </ScrollView>
+    />
   );
 }
 
 type MessageScrollerListComponent = <ItemT>(
   props: MessageScrollerListProps<ItemT> & {
-    ref?: ForwardedRef<ScrollView>;
+    ref?: ForwardedRef<FlatList<ItemT>>;
   },
 ) => ReactElement;
 
 export const MessageScrollerList = forwardRef(
   MessageScrollerListInner,
 ) as MessageScrollerListComponent;
-
-export type MessageScrollerViewportProps = ComponentPropsWithoutRef<
-  typeof View
-> & {
-  className?: string;
-};
-
-export const MessageScrollerViewport = forwardRef<
-  ComponentRef<typeof View>,
-  MessageScrollerViewportProps
->(({ className, ...props }, ref) => (
-  <View ref={ref} className={cn("flex-1", className)} {...props} />
-));
-
-MessageScrollerViewport.displayName = "MessageScrollerViewport";
-
-export type MessageScrollerContentProps = ComponentPropsWithoutRef<
-  typeof View
-> & {
-  className?: string;
-};
-
-export const MessageScrollerContent = forwardRef<
-  ComponentRef<typeof View>,
-  MessageScrollerContentProps
->(({ className, ...props }, ref) => (
-  <View
-    ref={ref}
-    accessibilityLiveRegion="polite"
-    className={cn("gap-sp-3", className)}
-    {...props}
-  />
-));
-
-MessageScrollerContent.displayName = "MessageScrollerContent";
-
-export type MessageScrollerItemProps = ComponentPropsWithoutRef<typeof View> & {
-  className?: string;
-  index?: number;
-  messageId?: string;
-  scrollAnchor?: boolean;
-};
-
-export const MessageScrollerItem = forwardRef<
-  ComponentRef<typeof View>,
-  MessageScrollerItemProps
->(
-  (
-    { className, index, messageId, onLayout, scrollAnchor = false, ...props },
-    ref,
-  ) => {
-    const fallbackId = useId();
-    const context = useMessageScrollerContext();
-    const layoutId = messageId ?? fallbackId;
-    const unregisterItemRef = useRef(context.unregisterItem);
-
-    useEffect(() => {
-      unregisterItemRef.current = context.unregisterItem;
-    }, [context.unregisterItem]);
-
-    useEffect(() => () => unregisterItemRef.current(layoutId), [layoutId]);
-
-    return (
-      <View
-        ref={ref}
-        className={cn("w-full", className)}
-        onLayout={(event) => {
-          context.registerItem({
-            anchor: scrollAnchor,
-            height: event.nativeEvent.layout.height,
-            id: layoutId,
-            index,
-            messageId,
-            y: event.nativeEvent.layout.y,
-          });
-          onLayout?.(event);
-        }}
-        {...props}
-      />
-    );
-  },
-);
-
-MessageScrollerItem.displayName = "MessageScrollerItem";
 
 export type MessageScrollerButtonProps = Omit<
   ComponentPropsWithoutRef<typeof Button>,
@@ -513,23 +390,12 @@ export const MessageScrollerButton = forwardRef<
 MessageScrollerButton.displayName = "MessageScrollerButton";
 
 export function useMessageScroller() {
-  const {
-    currentAnchorId,
-    scrollToEnd,
-    scrollToMessage,
-    scrollToStart,
-    visibleMessageIds,
-  } = useMessageScrollerContext();
+  const { scrollToEnd, scrollToStart, scrollable } =
+    useMessageScrollerContext();
 
   return {
-    currentAnchorId,
     scrollToEnd,
-    scrollToMessage,
     scrollToStart,
-    visibleMessageIds,
+    scrollable,
   };
-}
-
-export function useMessageScrollerScrollable() {
-  return useMessageScrollerContext().scrollable;
 }

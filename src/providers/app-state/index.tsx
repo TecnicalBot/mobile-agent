@@ -75,6 +75,7 @@ import type {
 import { createModelRef } from "@/core/types/app-state";
 
 import { executeClaimedAgentRun, type AgentRunDeps } from "./agent-run";
+import { createRunUiPublisher } from "./run-ui-publisher";
 import { resolveConfig } from "./config-resolution";
 import {
     EMPTY_SNAPSHOT,
@@ -1838,6 +1839,12 @@ Your output must be:
         }
 
         try {
+            const ui = createRunUiPublisher({
+                runId,
+                setError,
+                setPendingToolApprovals,
+                setSnapshot,
+            });
             const deps: AgentRunDeps = {
                 repositories: repositoriesRef.current,
                 snapshotRef,
@@ -1847,9 +1854,7 @@ Your output must be:
                 requestToolApproval,
                 generateAndApplyConversationTitle,
                 notifyRunStateChange,
-                setSnapshot,
-                setError,
-                setPendingToolApprovals,
+                ui,
                 retryRun: (retryRunId, delayMs) => {
                     setTimeout(() => {
                         executeAgentRun(retryRunId).catch(() => {});

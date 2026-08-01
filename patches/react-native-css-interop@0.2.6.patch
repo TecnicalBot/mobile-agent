@@ -1,0 +1,26 @@
+diff --git a/dist/runtime/native/native-interop.js b/dist/runtime/native/native-interop.js
+index 254b7ba65bd7e77982db73d793b157b15272f434..43a7157e8997b76645842f2fb5c8b128821931cd 100644
+--- a/dist/runtime/native/native-interop.js
++++ b/dist/runtime/native/native-interop.js
+@@ -132,7 +132,7 @@ function interop(component, configs, originalProps, ref) {
+                 sharedState.originalProps?.onLayout?.(event);
+                 const layout = event.nativeEvent.layout;
+                 const prevLayout = sharedState.layout.get();
+-                if (layout.width !== prevLayout[0] || layout.height !== prevLayout[0]) {
++                if (layout.width !== prevLayout[0] || layout.height !== prevLayout[1]) {
+                     sharedState.layout.set([layout.width, layout.height]);
+                 }
+             };
+diff --git a/src/runtime/native/native-interop.ts b/src/runtime/native/native-interop.ts
+index 3dee8a1301d8d1faf6f8513351741ef9ad174795..a142fe40c9cb76b74a233dc1ad2acb36a616b135 100644
+--- a/src/runtime/native/native-interop.ts
++++ b/src/runtime/native/native-interop.ts
+@@ -248,7 +248,7 @@ export function interop(
+         sharedState.originalProps?.onLayout?.(event);
+         const layout = event.nativeEvent.layout;
+         const prevLayout = sharedState.layout!.get();
+-        if (layout.width !== prevLayout[0] || layout.height !== prevLayout[0]) {
++        if (layout.width !== prevLayout[0] || layout.height !== prevLayout[1]) {
+           sharedState.layout!.set([layout.width, layout.height]);
+         }
+       };

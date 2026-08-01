@@ -53,10 +53,10 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { ChatErrorBoundary } from "@/components/ui/chat-error-boundary";
 import {
   MessageScroller,
   MessageScrollerButton,
-  MessageScrollerItem,
   MessageScrollerList,
   MessageScrollerProvider,
   useMessageScroller,
@@ -215,323 +215,319 @@ export default function Screen() {
     currentConversationRunStatus === "retrying";
 
   return (
-    <KeyboardAvoidingView behavior="padding" className="flex-1">
-      <Container
-        contentClassName="flex-1 gap-sp-4"
-        includeBottomTabInset={false}
-      >
-        <View className="flex-row items-center justify-between gap-sp-3">
-          <View className="flex flex-row gap-2">
-            <SidebarTrigger />
-            <Button onPress={createConversation} size="icon" variant="ghost">
-              <Edit color={theme.text} />
+    <ChatErrorBoundary>
+      <KeyboardAvoidingView behavior="padding" className="flex-1">
+        <Container
+          contentClassName="flex-1 gap-sp-4"
+          includeBottomTabInset={false}
+        >
+          <View className="flex-row items-center justify-between gap-sp-3">
+            <View className="flex flex-row gap-2">
+              <SidebarTrigger />
+              <Button onPress={createConversation} size="icon" variant="ghost">
+                <Edit color={theme.text} />
+              </Button>
+            </View>
+            <Button
+              onPress={() => {
+                setInfoDrawerOpen(true);
+              }}
+              size="icon"
+              variant="ghost"
+            >
+              <Info color={theme.text} size={18} />
             </Button>
           </View>
-          <Button
-            onPress={() => {
-              setInfoDrawerOpen(true);
-            }}
-            size="icon"
-            variant="ghost"
-          >
-            <Info color={theme.text} size={18} />
-          </Button>
-        </View>
-
-        <MessageScrollerProvider autoScroll>
-          <MessageScroller className="flex-1 rounded-none border-0">
-            {!ready || hydrating ? (
-              <View
-                accessibilityLiveRegion="polite"
-                className="flex-1 items-center justify-center gap-sp-3"
-              >
-                <ActivityIndicator color={theme.textSecondary} size="small" />
-                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                  Loading chat…
-                </Text>
-              </View>
-            ) : (
-              <>
-                <MessageScrollerList
-                  contentContainerClassName="py-sp-4 pb-16"
-                  data={messages}
-                  keyExtractor={(message) => message.id}
-                  renderItem={({ index, item: message }) => (
-                    <MessageScrollerItem
-                      index={index}
-                      messageId={message.id}
-                      scrollAnchor={message.role === "assistant"}
-                    >
+  
+          <MessageScrollerProvider autoScroll>
+            <MessageScroller className="flex-1 rounded-none border-0">
+              {!ready || hydrating ? (
+                <View
+                  accessibilityLiveRegion="polite"
+                  className="flex-1 items-center justify-center gap-sp-3"
+                >
+                  <ActivityIndicator color={theme.textSecondary} size="small" />
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    Loading chat…
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <MessageScrollerList
+                    contentContainerClassName="py-sp-4 pb-16"
+                    data={messages}
+                    keyExtractor={(message) => message.id}
+                    renderItem={({ item: message }) => (
                       <ChatMessage
                         message={message}
                         workspaceFiles={workspaceFiles}
                       />
-                    </MessageScrollerItem>
-                  )}
-                  showsVerticalScrollIndicator={false}
-                  ListEmptyComponent={
-                    currentModel ? (
-                      <View className="pb-sp-4">
-                        {STARTER_PROMPTS.map((prompt) => (
-                          <Button
-                            key={prompt}
-                            variant="ghost"
-                            className="justify-start"
-                            onPress={() =>
-                              sendMessage({
-                                content: prompt,
-                              }).catch(console.error)
-                            }
-                          >
-                            {prompt}
-                          </Button>
-                        ))}
-                      </View>
-                    ) : (
-                      <View className="px-sp-2 py-sp-8">
-                        <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                          Connect a model to start chatting.
-                        </Text>
-                      </View>
-                    )
-                  }
-                  ListFooterComponent={<View className="h-sp-1" />}
-                />
-                <MessageScrollerButton
-                  accessibilityLabel="Jump to latest"
-                  className="h-10 w-10 rounded-full px-0"
-                >
-                  <ArrowDown color={theme.text} size={18} />
-                </MessageScrollerButton>
-              </>
-            )}
-          </MessageScroller>
-
-          {error ? (
-            <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-              {error}
-            </Text>
-          ) : null}
-
-          {!currentModel && ready && !hydrating ? (
-            <Button
-              onPress={() => {
+                    )}
+                    showsVerticalScrollIndicator={false}
+                    ListEmptyComponent={
+                      currentModel ? (
+                        <View className="pb-sp-4">
+                          {STARTER_PROMPTS.map((prompt) => (
+                            <Button
+                              key={prompt}
+                              variant="ghost"
+                              className="justify-start"
+                              onPress={() =>
+                                sendMessage({
+                                  content: prompt,
+                                }).catch(console.error)
+                              }
+                            >
+                              {prompt}
+                            </Button>
+                          ))}
+                        </View>
+                      ) : (
+                        <View className="px-sp-2 py-sp-8">
+                          <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
+                            Connect a model to start chatting.
+                          </Text>
+                        </View>
+                      )
+                    }
+                    ListFooterComponent={<View className="h-sp-1" />}
+                  />
+                  <MessageScrollerButton
+                    accessibilityLabel="Jump to latest"
+                    className="h-10 w-10 rounded-full px-0"
+                  >
+                    <ArrowDown color={theme.text} size={18} />
+                  </MessageScrollerButton>
+                </>
+              )}
+            </MessageScroller>
+  
+            {error ? (
+              <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                {error}
+              </Text>
+            ) : null}
+  
+            {!currentModel && ready && !hydrating ? (
+              <Button
+                onPress={() => {
+                  router.push("/settings");
+                }}
+                variant="outline"
+              >
+                Open settings
+              </Button>
+            ) : null}
+  
+            <ChatInput
+              canSend={ready && !hydrating && currentModel !== null}
+              currentModelLabel={
+                currentModel
+                  ? `${currentModel.providerLabel} · ${currentModel.label}`
+                  : null
+              }
+              activeModels={activeModels.map((model) => ({
+                label: model.label,
+                providerLabel: model.providerLabel,
+                ref: model.ref,
+              }))}
+              currentModelRef={currentModel?.ref ?? null}
+              importFiles={importFiles}
+              loading={currentConversationBusy}
+              onCreateConversation={createConversation}
+              onOpenSettings={() => {
                 router.push("/settings");
               }}
-              variant="outline"
+              currentExternalFolderSession={currentExternalFolderSession}
+              onSend={sendMessage}
+              onStop={stopSending}
+              pickConversationFolder={pickConversationFolder}
+              clearConversationFolder={clearConversationFolder}
+              clearWorkspaceFiles={clearWorkspaceFiles}
+              deleteWorkspaceFile={deleteWorkspaceFile}
+              refreshWorkspaceFiles={refreshWorkspaceFiles}
+              selectModel={selectModel}
+              selectedFileIds={currentSelectedFileIds}
+              setSelectedFileIds={setCurrentSelectedFileIds}
+              selectedSkillIds={currentSelectedSkillIds}
+              setSelectedSkillIds={setCurrentSelectedSkillIds}
+              skills={skills}
+              supportsImageGeneration={currentModelSupportsImageGeneration}
+              supportsImageInput={currentModelSupportsImageInput}
+              supportsTools={currentModelSupportsTools}
+              mcpServers={mcpServers}
+              selectedMcpServerIds={currentSelectedMcpServerIds}
+              setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
+              onOpenMcpSettings={() => {
+                router.push("/settings/mcp" as never);
+              }}
+              reasoningEffort={reasoningEffort}
+              setReasoningEffort={setReasoningEffort}
+              toolApprovalMode={toolApprovalMode}
+              updateToolApprovalMode={updateToolApprovalMode}
+              workspaceFiles={workspaceFiles}
+            />
+          </MessageScrollerProvider>
+  
+          <Drawer dismissible={false} open={pendingToolApproval !== null}>
+            <DrawerContent
+              closeOnOverlayPress={false}
+              showCloseButton={false}
+              showHandle={false}
             >
-              Open settings
-            </Button>
-          ) : null}
-
-          <ChatInput
-            canSend={ready && !hydrating && currentModel !== null}
-            currentModelLabel={
-              currentModel
-                ? `${currentModel.providerLabel} · ${currentModel.label}`
-                : null
-            }
-            activeModels={activeModels.map((model) => ({
-              label: model.label,
-              providerLabel: model.providerLabel,
-              ref: model.ref,
-            }))}
-            currentModelRef={currentModel?.ref ?? null}
-            importFiles={importFiles}
-            loading={currentConversationBusy}
-            onCreateConversation={createConversation}
-            onOpenSettings={() => {
-              router.push("/settings");
-            }}
-            currentExternalFolderSession={currentExternalFolderSession}
-            onSend={sendMessage}
-            onStop={stopSending}
-            pickConversationFolder={pickConversationFolder}
-            clearConversationFolder={clearConversationFolder}
-            clearWorkspaceFiles={clearWorkspaceFiles}
-            deleteWorkspaceFile={deleteWorkspaceFile}
-            refreshWorkspaceFiles={refreshWorkspaceFiles}
-            selectModel={selectModel}
-            selectedFileIds={currentSelectedFileIds}
-            setSelectedFileIds={setCurrentSelectedFileIds}
-            selectedSkillIds={currentSelectedSkillIds}
-            setSelectedSkillIds={setCurrentSelectedSkillIds}
-            skills={skills}
-            supportsImageGeneration={currentModelSupportsImageGeneration}
-            supportsImageInput={currentModelSupportsImageInput}
-            supportsTools={currentModelSupportsTools}
-            mcpServers={mcpServers}
-            selectedMcpServerIds={currentSelectedMcpServerIds}
-            setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
-            onOpenMcpSettings={() => {
-              router.push("/settings/mcp" as never);
-            }}
-            reasoningEffort={reasoningEffort}
-            setReasoningEffort={setReasoningEffort}
-            toolApprovalMode={toolApprovalMode}
-            updateToolApprovalMode={updateToolApprovalMode}
-            workspaceFiles={workspaceFiles}
-          />
-        </MessageScrollerProvider>
-
-        <Drawer dismissible={false} open={pendingToolApproval !== null}>
-          <DrawerContent
-            closeOnOverlayPress={false}
-            showCloseButton={false}
-            showHandle={false}
-          >
-            <DrawerHeader>
-              <DrawerTitle>Tool approval</DrawerTitle>
-              <DrawerDescription>
-                Paused in {pendingToolApproval?.chatTitle ?? "this chat"} until
-                you decide.
-              </DrawerDescription>
-            </DrawerHeader>
-            <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
-              <View className="gap-sp-2 rounded-ui border border-border bg-card px-sp-4 py-sp-3 dark:border-border-dark dark:bg-card-dark">
-                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                  {formatToolName(pendingToolApproval?.toolName ?? "")}
-                </Text>
-                {pendingToolApproval?.inputSummary ? (
-                  <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                    {pendingToolApproval.inputSummary}
+              <DrawerHeader>
+                <DrawerTitle>Tool approval</DrawerTitle>
+                <DrawerDescription>
+                  Paused in {pendingToolApproval?.chatTitle ?? "this chat"} until
+                  you decide.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerBody className="flex-0" contentContainerClassName="gap-sp-3">
+                <View className="gap-sp-2 rounded-ui border border-border bg-card px-sp-4 py-sp-3 dark:border-border-dark dark:bg-card-dark">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    {formatToolName(pendingToolApproval?.toolName ?? "")}
                   </Text>
-                ) : null}
-              </View>
-            </DrawerBody>
-            <DrawerFooter>
-              <View className="flex-row gap-sp-2">
-                <Button
-                  className="flex-1"
-                  onPress={denyPendingToolApproval}
-                  variant="outline"
+                  {pendingToolApproval?.inputSummary ? (
+                    <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {pendingToolApproval.inputSummary}
+                    </Text>
+                  ) : null}
+                </View>
+              </DrawerBody>
+              <DrawerFooter>
+                <View className="flex-row gap-sp-2">
+                  <Button
+                    className="flex-1"
+                    onPress={denyPendingToolApproval}
+                    variant="outline"
+                  >
+                    Deny
+                  </Button>
+                  <Button className="flex-1" onPress={approvePendingToolApproval}>
+                    Allow once
+                  </Button>
+                </View>
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
+  
+          <Drawer onOpenChange={setInfoDrawerOpen} open={infoDrawerOpen}>
+            <DrawerContent showCloseButton showHandle>
+              <DrawerHeader>
+                <DrawerTitle>Chat info</DrawerTitle>
+                <DrawerDescription>
+                  Model, usage, context, and cost for this conversation.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+                <InfoSection title="Model">
+                  <InfoRow
+                    label="Provider"
+                    value={chatInfo.currentModel?.providerLabel ?? "Unavailable"}
+                  />
+                  <InfoRow
+                    label="Selected model"
+                    value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
+                  />
+                  <InfoRow
+                    label="Reasoning"
+                    value={getReasoningEffortLabel(reasoningEffort)}
+                  />
+                </InfoSection>
+  
+                <InfoSection title="Latest turn">
+                  <InfoRow
+                    label="Input tokens"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.inputTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Output tokens"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.outputTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Total tokens"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.totalTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Cost"
+                    value={formatCurrency(chatInfo.latestTurn?.costTotal ?? null)}
+                  />
+                </InfoSection>
+  
+                <InfoSection
+                  subtitle={
+                    chatInfo.conversationTotals?.isPartial
+                      ? "Partial data"
+                      : undefined
+                  }
+                  title="Conversation totals"
                 >
-                  Deny
-                </Button>
-                <Button className="flex-1" onPress={approvePendingToolApproval}>
-                  Allow once
-                </Button>
-              </View>
-            </DrawerFooter>
-          </DrawerContent>
-        </Drawer>
-
-        <Drawer onOpenChange={setInfoDrawerOpen} open={infoDrawerOpen}>
-          <DrawerContent showCloseButton showHandle>
-            <DrawerHeader>
-              <DrawerTitle>Chat info</DrawerTitle>
-              <DrawerDescription>
-                Model, usage, context, and cost for this conversation.
-              </DrawerDescription>
-            </DrawerHeader>
-            <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-              <InfoSection title="Model">
-                <InfoRow
-                  label="Provider"
-                  value={chatInfo.currentModel?.providerLabel ?? "Unavailable"}
-                />
-                <InfoRow
-                  label="Selected model"
-                  value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
-                />
-                <InfoRow
-                  label="Reasoning"
-                  value={getReasoningEffortLabel(reasoningEffort)}
-                />
-              </InfoSection>
-
-              <InfoSection title="Latest turn">
-                <InfoRow
-                  label="Input tokens"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.inputTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Output tokens"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.outputTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Total tokens"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.totalTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Cost"
-                  value={formatCurrency(chatInfo.latestTurn?.costTotal ?? null)}
-                />
-              </InfoSection>
-
-              <InfoSection
-                subtitle={
-                  chatInfo.conversationTotals?.isPartial
-                    ? "Partial data"
-                    : undefined
-                }
-                title="Conversation totals"
-              >
-                <InfoRow
-                  label="Input tokens"
-                  value={formatTokenCount(
-                    chatInfo.conversationTotals?.inputTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Output tokens"
-                  value={formatTokenCount(
-                    chatInfo.conversationTotals?.outputTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Total tokens"
-                  value={formatTokenCount(
-                    chatInfo.conversationTotals?.totalTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Cost"
-                  value={formatCurrency(
-                    chatInfo.conversationTotals?.costTotal ?? null,
-                  )}
-                />
-              </InfoSection>
-
-              <InfoSection title="Context">
-                <InfoRow
-                  label="Context window"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.contextWindow ??
-                      chatInfo.currentModel?.contextWindow ??
-                      null,
-                  )}
-                />
-                <InfoRow
-                  label="Used"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.totalTokens ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Remaining"
-                  value={formatTokenCount(
-                    chatInfo.latestTurn?.remainingContext ?? null,
-                  )}
-                />
-                <InfoRow
-                  label="Usage"
-                  value={formatPercent(
-                    chatInfo.latestTurn?.contextUsagePercent ?? null,
-                  )}
-                />
-              </InfoSection>
-            </DrawerBody>
-          </DrawerContent>
-        </Drawer>
-      </Container>
-    </KeyboardAvoidingView>
+                  <InfoRow
+                    label="Input tokens"
+                    value={formatTokenCount(
+                      chatInfo.conversationTotals?.inputTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Output tokens"
+                    value={formatTokenCount(
+                      chatInfo.conversationTotals?.outputTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Total tokens"
+                    value={formatTokenCount(
+                      chatInfo.conversationTotals?.totalTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Cost"
+                    value={formatCurrency(
+                      chatInfo.conversationTotals?.costTotal ?? null,
+                    )}
+                  />
+                </InfoSection>
+  
+                <InfoSection title="Context">
+                  <InfoRow
+                    label="Context window"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.contextWindow ??
+                        chatInfo.currentModel?.contextWindow ??
+                        null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Used"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.totalTokens ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Remaining"
+                    value={formatTokenCount(
+                      chatInfo.latestTurn?.remainingContext ?? null,
+                    )}
+                  />
+                  <InfoRow
+                    label="Usage"
+                    value={formatPercent(
+                      chatInfo.latestTurn?.contextUsagePercent ?? null,
+                    )}
+                  />
+                </InfoSection>
+              </DrawerBody>
+            </DrawerContent>
+          </Drawer>
+        </Container>
+      </KeyboardAvoidingView>
+    </ChatErrorBoundary>
   );
 }
 

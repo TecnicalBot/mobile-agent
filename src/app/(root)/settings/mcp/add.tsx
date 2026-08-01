@@ -11,14 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
-<<<<<<< Updated upstream
-import { fetchMcpServerCatalog, type McpServerPreset } from "@/modules/mcp/catalog";
-=======
 import {
   fetchMcpServerCatalogCached,
   type McpServerPreset,
-} from "@/lib/mcp/catalog";
->>>>>>> Stashed changes
+} from "@/modules/mcp/catalog";
 import type {
   McpServerAuthMode,
   McpServerConfig,

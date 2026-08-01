@@ -279,6 +279,47 @@
       "url": "https://mcp.context7.com/mcp",
       "transport": "http",
       "authMode": "none"
+    },
+    {
+      "id": "excalidraw",
+      "label": "Excalidraw",
+      "description": "Create and stream hand-drawn diagrams directly in the chat.",
+      "url": "https://mcp.excalidraw.com",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "excalidraw-plus",
+      "label": "Excalidraw+",
+      "description": "Read, edit, and automate Excalidraw+ workspace files and diagrams.",
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Excalidraw+ API key>"
+    },
+    {
+      "id": "tldraw",
+      "label": "tldraw",
+      "description": "Draw, diagram, and collaborate on an interactive tldraw canvas.",
+      "url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "conversion-tools",
+      "label": "Conversion Tools",
+      "description": "Convert documents, PDFs, images, audio, video, and data across 140+ formats.",
+      "url": "https://mcp.conversiontools.io/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "convertapi",
+      "label": "ConvertAPI",
+      "description": "Convert PDFs, Office documents, images, and 200+ formats, including SVG to PNG.",
+      "url": "https://mcp.convertapi.io",
+      "transport": "http",
+      "authMode": "oauth"
     }
   ]
 }

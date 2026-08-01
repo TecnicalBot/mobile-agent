@@ -419,7 +419,21 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
         setPendingToolApprovals((current) => [...current, approval]);
 
-        if (snapshotRef.current.settings.notificationSettings.approvalRequests) {
+        if (appStateRef.current === "active") {
+            if (
+                snapshotRef.current.currentConversation?.id !==
+                approval.conversationId
+            ) {
+                setInAppNotification({
+                    body: `${approval.toolName}: ${approval.inputSummary}`,
+                    conversationId: approval.conversationId,
+                    id: `${approval.conversationId}:approval:${approval.id}`,
+                    title: `${approval.chatTitle} needs approval`,
+                });
+            }
+        } else if (
+            snapshotRef.current.settings.notificationSettings.approvalRequests
+        ) {
             notifyApprovalRequestedAsync({
                 approvalId: approval.id,
                 chatTitle: approval.chatTitle,
@@ -458,16 +472,16 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         const currentConversationId =
             snapshotRef.current.currentConversation?.id ?? null;
 
-        if (
-            appStateRef.current === "active" &&
-            currentConversationId !== input.conversationId
-        ) {
-            setInAppNotification({
-                body: input.body,
-                conversationId: input.conversationId,
-                id: `${input.conversationId}:${Date.now()}`,
-                title: input.title,
-            });
+        if (appStateRef.current === "active") {
+            if (currentConversationId !== input.conversationId) {
+                setInAppNotification({
+                    body: input.body,
+                    conversationId: input.conversationId,
+                    id: `${input.conversationId}:${Date.now()}`,
+                    title: input.title,
+                });
+            }
+
             return;
         }
 

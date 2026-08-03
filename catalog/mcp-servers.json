@@ -67,6 +67,23 @@
       "authMode": "none"
     },
     {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "description": "Manage Cloudflare services across DNS, Workers, R2, Zero Trust, and more.",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
+      "id": "cloudflare-api-token",
+      "label": "Cloudflare (API Token)",
+      "description": "Automate Cloudflare API operations in CI/CD with explicitly scoped permissions.",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "transport": "http",
+      "authMode": "headers",
+      "headerTemplate": "Authorization: Bearer <your Cloudflare API token>"
+    },
+    {
       "id": "microsoft-learn",
       "label": "Microsoft Learn",
       "description": "Search Microsoft documentation, full articles, and official code samples.",
@@ -273,6 +290,14 @@
       "authMode": "oauth"
     },
     {
+      "id": "apify",
+      "label": "Apify",
+      "description": "Discover and run Apify Actors, access results and storage, and search Apify docs.",
+      "url": "https://mcp.apify.com",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
       "id": "context7",
       "label": "Context7",
       "description": "Look up up-to-date documentation and code examples for any library.",
@@ -312,15 +337,6 @@
       "url": "https://mcp.conversiontools.io/mcp",
       "transport": "http",
       "authMode": "oauth"
-    },
-    {
-      "id": "convertapi",
-      "label": "ConvertAPI",
-      "description": "Convert PDFs, Office documents, images, and 200+ formats, including SVG to PNG.",
-      "url": "https://mcp.convertapi.io",
-      "transport": "http",
-      "authMode": "oauth",
-      "oauthAllowedAuthOrigin": "https://www.convertapi.com"
     }
   ]
 }

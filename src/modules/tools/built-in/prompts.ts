@@ -4,6 +4,17 @@ import {
   isTextWorkspaceFile,
 } from "@/core/services/workspace-file-service";
 
+export function buildWorkspaceSystemPrompt() {
+  return [
+    "The shared workspace contains user-visible files.",
+    "Answer in chat by default. Only create a workspace file when the user explicitly asks to create, save, or export a file.",
+    "Only write to an existing workspace file when the user explicitly asks to modify that file.",
+    "Do not create or modify workspace files merely to preserve a response, keep scratch notes, archive a conversation, or store context for your own future use.",
+    "Internal runtime artifacts are stored separately, and durable user facts belong in memory rather than workspace files.",
+    "If a file request is ambiguous, respond in chat and ask whether the user wants it saved as a file.",
+  ].join("\n");
+}
+
 export async function buildSelectedFilesInlineContext(input: {
   repository: WorkspaceRepository;
   selectedFileIds: string[];

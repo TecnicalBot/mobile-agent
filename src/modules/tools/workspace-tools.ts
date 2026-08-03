@@ -1,6 +1,9 @@
 import { createCreateFileTool } from "@/modules/tools/built-in/create-file";
 import { createListFilesTool } from "@/modules/tools/built-in/list-files";
-import { buildSelectedFilesInlineContext } from "@/modules/tools/built-in/prompts";
+import {
+  buildSelectedFilesInlineContext,
+  buildWorkspaceSystemPrompt,
+} from "@/modules/tools/built-in/prompts";
 import { createReadFileTool } from "@/modules/tools/built-in/read-file";
 import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
 import { createWriteFileTool } from "@/modules/tools/built-in/write-file";
@@ -18,4 +21,4 @@ export function createWorkspaceTools(params: WorkspaceToolFactoryParams) {
   };
 }
 
-export { buildSelectedFilesInlineContext };
+export { buildSelectedFilesInlineContext, buildWorkspaceSystemPrompt };

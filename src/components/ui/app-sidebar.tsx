@@ -79,7 +79,6 @@ export function AppSidebar() {
       <SidebarMenuItem key={conversation.id}>
         <SidebarClose asChild>
           <SidebarMenuButton
-            className="min-h-11 rounded-lg !px-sp-2 !py-2.5"
             isActive={active}
             onPress={() => {
               selectConversation(conversation.id)
@@ -92,7 +91,7 @@ export function AppSidebar() {
             <View className="min-w-0 flex-1 flex-row items-center gap-sp-2">
               <Text
                 className={cn(
-                  "min-w-0 flex-1 font-sans text-sm font-normal",
+                  "min-w-0 flex-1 font-sans text-sm font-medium",
                   active
                     ? "text-background dark:text-background-dark"
                     : "text-foreground dark:text-foreground-dark",
@@ -161,8 +160,8 @@ export function AppSidebar() {
 
   return (
     <>
-      <Sidebar showCloseButton>
-        <SidebarHeader className="min-h-8 justify-center pr-10">
+      <Sidebar>
+        <SidebarHeader className="min-h-8 justify-center">
           <Text className="font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark">
             Mobile Agent
           </Text>
@@ -176,7 +175,7 @@ export function AppSidebar() {
                     className="min-h-10 rounded-lg !px-0 !py-sp-1"
                     isActive={pathname === "/library"}
                     leftIcon={
-                    <Library
+                      <Library
                         color={
                           pathname === "/library"
                             ? theme.background
@@ -210,7 +209,7 @@ export function AppSidebar() {
               <SidebarGroupLabel className="!px-0 text-sm font-semibold normal-case tracking-normal text-foreground dark:text-foreground-dark">
                 Pinned
               </SidebarGroupLabel>
-              <SidebarMenu className="gap-0">
+              <SidebarMenu>
                 {pinnedConversations.map(renderConversation)}
               </SidebarMenu>
             </SidebarGroup>
@@ -219,7 +218,7 @@ export function AppSidebar() {
             <SidebarGroupLabel className="!px-0 text-sm font-semibold normal-case tracking-normal text-foreground dark:text-foreground-dark">
               Chats
             </SidebarGroupLabel>
-            <SidebarMenu className="gap-0">
+            <SidebarMenu>
               {otherConversations.map(renderConversation)}
               {conversations.length === 0 ? (
                 <SidebarMenuItem>

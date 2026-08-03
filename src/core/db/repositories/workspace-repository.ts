@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne, notLike } from "drizzle-orm";
 
 import { workspaceFiles } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -53,7 +53,17 @@ export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository 
         .sort((left, right) => ids.indexOf(left.id) - ids.indexOf(right.id));
     },
     async list() {
-      return db.select().from(workspaceFiles).orderBy(desc(workspaceFiles.updatedAt));
+      return db
+        .select()
+        .from(workspaceFiles)
+        .where(
+          and(
+            ne(workspaceFiles.sourceKind, "artifact"),
+            notLike(workspaceFiles.relativePath, "prompts/%"),
+            notLike(workspaceFiles.relativePath, "tools/%"),
+          ),
+        )
+        .orderBy(desc(workspaceFiles.updatedAt));
     },
     async deleteAll() {
       await db.delete(workspaceFiles);

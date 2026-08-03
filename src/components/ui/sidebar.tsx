@@ -254,7 +254,7 @@ export const Sidebar = forwardRef<ComponentRef<typeof View>, SidebarProps>(
             entering={reduceMotion ? undefined : FadeIn.duration(160)}
           >
             <Pressable
-              className={cn("flex-1 bg-black/40", overlayClassName)}
+              className={cn("flex-1 bg-black/50", overlayClassName)}
               onPress={closeOnOverlayPress ? () => setOpen(false) : undefined}
             />
           </Animated.View>
@@ -295,11 +295,11 @@ export const Sidebar = forwardRef<ComponentRef<typeof View>, SidebarProps>(
                 <Pressable
                   accessibilityLabel="Close sidebar"
                   accessibilityRole="button"
-                  className="h-8 w-8 items-center justify-center rounded-full  bg-background dark:bg-background-dark"
+                  className="h-10 w-10 items-center justify-center rounded-full bg-secondary dark:bg-secondary-dark"
                   onPress={() => setOpen(false)}
                   style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
                 >
-                  <X color={theme.textSecondary} size={16} />
+                  <X color={theme.text} size={18} />
                 </Pressable>
               </View>
             ) : null}

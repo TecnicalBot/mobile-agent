@@ -12,7 +12,8 @@ export function createCreateFileTool({
   const workspaceService = createWorkspaceFileService(repository);
 
   return tool({
-    description: "Create a new text file in the shared workspace.",
+    description:
+      "Create a user-visible text file in the shared workspace. Use only when the user explicitly asks to create, save, or export a file. Do not use for scratch work, internal notes, future context, or as a duplicate of a response that belongs in chat.",
     inputSchema: z.object({
       name: z.string().min(1),
       content: z.string().default(""),

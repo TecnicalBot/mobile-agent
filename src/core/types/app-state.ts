@@ -39,7 +39,7 @@ export type AgentRunStatus =
   | "canceled"
   | "resumable"
   | "retrying";
-export type WorkspaceFileSourceKind = "imported" | "created";
+export type WorkspaceFileSourceKind = "artifact" | "created" | "imported";
 export type ExternalFolderPlatform = "android" | "ios" | "web";
 export type BuiltInToolKey =
   | "workspaceListFiles"

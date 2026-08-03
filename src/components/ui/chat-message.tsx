@@ -14,6 +14,7 @@ import {
   Copy,
   Download,
   Bookmark,
+  Pencil,
   Share2,
 } from "lucide-react-native";
 import {
@@ -53,6 +54,12 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Loading } from "@/components/ui/loading";
 import { Message, MessageFooter } from "@/components/ui/message";
 import {
@@ -129,7 +136,9 @@ MARKDOWN_PARSER.core.ruler.after(
 );
 
 type ChatMessageProps = {
+  canEditAndResend?: boolean;
   message: StoredMessage;
+  onEditMessage?: (content: string) => void;
   onSavePrompt?: (content: string) => void;
   workspaceFiles: WorkspaceFile[];
 };
@@ -565,7 +574,9 @@ function getTableColumnCount(node: ASTNode): number {
 }
 
 export const ChatMessage = memo(function ChatMessage({
+  canEditAndResend = false,
   message,
+  onEditMessage,
   onSavePrompt,
   workspaceFiles,
 }: ChatMessageProps) {
@@ -1048,19 +1059,65 @@ export const ChatMessage = memo(function ChatMessage({
                   {message.status === "streaming" ? <Loading /> : null}
                 </View>
               ) : (
-                <Pressable
-                  accessibilityHint="Long press to copy message"
-                  accessibilityRole="button"
-                  delayLongPress={220}
-                  onLongPress={() => {
-                    handleCopy().catch(console.error);
-                  }}
-                  style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
-                >
-                  <Text className="font-sans text-base text-background dark:text-background-dark">
-                    {message.content}
-                  </Text>
-                </Pressable>
+                <DropdownMenu>
+                  <DropdownMenuTrigger triggerOn="longPress">
+                    <Pressable
+                      accessibilityHint="Long press to open message actions"
+                      accessibilityRole="button"
+                      delayLongPress={220}
+                      style={({ pressed }) =>
+                        pressed ? { opacity: 0.9 } : null
+                      }
+                    >
+                      <Text className="font-sans text-base text-background dark:text-background-dark">
+                        {message.content}
+                      </Text>
+                    </Pressable>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    alignOffset={52}
+                    sideOffset={16}
+                    width={200}
+                  >
+                    <DropdownMenuItem
+                      className="flex-row items-center gap-sp-3"
+                      onPress={() => {
+                        handleCopy().catch(console.error);
+                      }}
+                    >
+                      <Copy color={theme.textSecondary} size={18} />
+                      <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                        Copy
+                      </Text>
+                    </DropdownMenuItem>
+                    {onSavePrompt ? (
+                      <DropdownMenuItem
+                        className="flex-row items-center gap-sp-3"
+                        onPress={() => onSavePrompt(message.content)}
+                      >
+                        <Bookmark color={theme.textSecondary} size={18} />
+                        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                          Save prompt
+                        </Text>
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canEditAndResend && onEditMessage ? (
+                      <DropdownMenuItem
+                        className="flex-row items-center gap-sp-3"
+                        onPress={() => {
+                          setTimeout(() => {
+                            onEditMessage(message.content);
+                          }, 180);
+                        }}
+                      >
+                        <Pencil color={theme.textSecondary} size={18} />
+                        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                          Edit & resend
+                        </Text>
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </BubbleContent>
           </Bubble>
@@ -1129,20 +1186,6 @@ export const ChatMessage = memo(function ChatMessage({
                 {timelineLabel}
               </Button>
             ) : null}
-          </MessageFooter>
-        ) : null}
-
-        {isUser && message.content.trim() && onSavePrompt ? (
-          <MessageFooter>
-            <Button
-              leftIcon={<Bookmark color={theme.textSecondary} size={14} />}
-              onPress={() => onSavePrompt(message.content)}
-              size="xs"
-              textClassName="text-muted-foreground dark:text-muted-foreground-dark"
-              variant="ghost"
-            >
-              Save prompt
-            </Button>
           </MessageFooter>
         ) : null}
 

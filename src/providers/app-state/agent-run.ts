@@ -43,6 +43,7 @@ import { dismissApprovalNotification } from "@/modules/notifications/run-notific
 import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
   buildSelectedFilesInlineContext,
+  buildWorkspaceSystemPrompt,
   createWorkspaceTools,
 } from "@/modules/tools/workspace-tools";
 import type { WorkspaceFileService } from "@/core/services/workspace-file-service";
@@ -891,6 +892,12 @@ export async function executeClaimedAgentRun(
             externalFolderSession as ExternalFolderSession,
           )
         : undefined;
+    const workspaceRuntimeSystem =
+      run.fileContextSource !== "external-folder" &&
+      builtInRuntimeTools &&
+      ("createFile" in builtInRuntimeTools || "writeFile" in builtInRuntimeTools)
+        ? buildWorkspaceSystemPrompt()
+        : undefined;
     const selectedFilesContext = useInlineFileContext
       ? await buildSelectedFilesInlineContext({
           repository: repositories.workspaceRepository,
@@ -927,6 +934,7 @@ export async function executeClaimedAgentRun(
         BASE_AGENT_SYSTEM_PROMPT,
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,
+        workspaceRuntimeSystem,
         mcpRuntime?.systemPrompt,
         memoryRuntimeSystem,
         skillsRuntimeSystem,

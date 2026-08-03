@@ -222,7 +222,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
         originalName: displayName,
         relativePath,
         size: file.size ?? input.content.length,
-        sourceKind: "created",
+        sourceKind: "artifact",
       });
     },
     async readTextFile(workspaceFile: WorkspaceFile) {

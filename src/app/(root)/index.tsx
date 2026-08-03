@@ -28,10 +28,14 @@ import {
   Platform,
   Pressable,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  KeyboardController,
+} from "react-native-keyboard-controller";
 
 import { Container } from "@/components/shared/container";
 import {
@@ -195,6 +199,7 @@ export default function Screen() {
     currentExternalFolderSession,
     currentSelectedFileIds,
     currentSelectedSkillIds,
+    editAndResendMessage,
     messages,
     pendingToolApproval,
     pickConversationFolder,
@@ -217,6 +222,75 @@ export default function Screen() {
     currentConversationRunStatus === "waiting_for_approval" ||
     currentConversationRunStatus === "resumable" ||
     currentConversationRunStatus === "retrying";
+  const latestUserMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role === "user")?.id;
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<string | null>(null);
+  const [editNonce, setEditNonce] = useState(0);
+
+  useEffect(() => {
+    setEditDraft(null);
+    setEditingMessageId(null);
+  }, [currentConversation?.id]);
+
+  const handleEditMessage = (content: string) => {
+    setEditDraft(content);
+    setEditNonce((current) => current + 1);
+    setEditingMessageId(latestUserMessageId ?? null);
+  };
+  const handleEditSend = async (content: string) => {
+    const message = messages.find((item) => item.id === editingMessageId);
+
+    if (!message) {
+      setEditingMessageId(null);
+      return;
+    }
+
+    const hasSideEffects = messages.some(
+      (candidate) =>
+        candidate.role === "assistant" &&
+        candidate.sequence > message.sequence &&
+        Boolean(
+          candidate.metadata?.toolExecutions?.length ||
+            candidate.metadata?.memoryEvents?.length ||
+            candidate.metadata?.promptArtifacts?.length ||
+            candidate.metadata?.generatedImages?.length,
+        ),
+    );
+    const performEdit = async () => {
+      try {
+        await editAndResendMessage(message.id, content);
+        setEditDraft(null);
+        setEditNonce((current) => current + 1);
+        setEditingMessageId(null);
+      } catch (error) {
+        Alert.alert(
+          "Edit failed",
+          error instanceof Error ? error.message : "Failed to resend message.",
+        );
+      }
+    };
+
+    if (hasSideEffects) {
+      Alert.alert(
+        "Previous actions are not undone",
+        "Files, memory changes, and other tool actions from the previous response may remain and could run again.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Continue",
+            onPress: () => {
+              void performEdit();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    await performEdit();
+  };
 
   return (
     <ChatErrorBoundary>
@@ -266,7 +340,12 @@ export default function Screen() {
                     keyExtractor={(message) => message.id}
                     renderItem={({ item: message }) => (
                       <ChatMessage
+                        canEditAndResend={
+                          message.id === latestUserMessageId &&
+                          !currentConversationBusy
+                        }
                         message={message}
+                        onEditMessage={handleEditMessage}
                         onSavePrompt={(content) => {
                           router.push({
                             pathname: "/settings/prompts",
@@ -298,19 +377,10 @@ export default function Screen() {
                           </View>
                         </View>
                       ) : (
-                        <View className="items-center gap-sp-3 px-sp-3 py-sp-8">
-                          <Text className="font-sans text-lg font-semibold text-foreground dark:text-foreground-dark">
-                            Connect your first model
-                          </Text>
+                        <View className="px-sp-2 py-sp-8">
                           <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                            Choose a provider to start chatting.
+                            Connect a model to start chatting.
                           </Text>
-                          <Button
-                            onPress={() => router.push("/settings")}
-                            variant="ghost"
-                          >
-                            Manage providers
-                          </Button>
                         </View>
                       )
                     }
@@ -334,6 +404,17 @@ export default function Screen() {
               </Text>
             ) : null}
 
+            {!currentModel && ready ? (
+              <Button
+                onPress={() => {
+                  router.push("/settings");
+                }}
+                variant="outline"
+              >
+                Open settings
+              </Button>
+            ) : null}
+
             <ChatInput
               canSend={ready && currentModel !== null}
               currentModelLabel={
@@ -347,8 +428,11 @@ export default function Screen() {
                 ref: model.ref,
               }))}
               currentModelRef={currentModel?.ref ?? null}
+              editDraft={editDraft}
+              editNonce={editNonce}
               importFiles={importFiles}
               loading={currentConversationBusy}
+              onEditSend={handleEditSend}
               onCreateConversation={createConversation}
               onOpenSettings={() => {
                 router.push("/settings");
@@ -641,10 +725,13 @@ function ChatInput({
   currentExternalFolderSession,
   currentModelLabel,
   currentModelRef,
+  editDraft,
+  editNonce,
   importFiles,
   loading,
   mcpServers,
   onCreateConversation,
+  onEditSend,
   onOpenMcpSettings,
   onOpenSettings,
   onSend,
@@ -684,6 +771,8 @@ function ChatInput({
   currentExternalFolderSession: ExternalFolderSession | null;
   currentModelLabel: string | null;
   currentModelRef: ModelRef | null;
+  editDraft: string | null;
+  editNonce: number;
   importFiles: typeof useChat extends () => infer T
     ? T extends { importFiles: infer F }
       ? F
@@ -692,6 +781,7 @@ function ChatInput({
   loading: boolean;
   mcpServers: McpServerConfig[];
   onCreateConversation: () => Promise<void>;
+  onEditSend: (content: string) => Promise<void>;
   onOpenMcpSettings: () => void;
   onOpenSettings: () => void;
   onSend: (input: {
@@ -726,6 +816,7 @@ function ChatInput({
   const { height: screenHeight } = useWindowDimensions();
   const { scrollToEnd } = useMessageScroller();
   const sendingRef = useRef(false);
+  const composerRef = useRef<TextInput>(null);
   const [prompt, setPrompt] = useState("");
   const [composerContentHeight, setComposerContentHeight] = useState(0);
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
@@ -750,6 +841,27 @@ function ChatInput({
     content: string;
     selectedFileIds: string[];
   }>(null);
+
+  useEffect(() => {
+    if (editDraft !== null) {
+      setPrompt(editDraft);
+      const focusComposer = () => {
+        composerRef.current?.focus();
+        KeyboardController.setFocusTo("current");
+      };
+
+      focusComposer();
+      const focusTimeout = setTimeout(() => {
+        focusComposer();
+      }, 320);
+
+      return () => {
+        clearTimeout(focusTimeout);
+      };
+    }
+
+    setPrompt("");
+  }, [editDraft, editNonce]);
 
   const maxComposerInputHeight = Math.min(320, screenHeight * 0.35);
   const composerInputHeight = Math.min(
@@ -1470,20 +1582,18 @@ function ChatInput({
             }}
           >
             <Textarea
+              ref={composerRef}
               className="min-h-0 rounded-full border-0 bg-transparent px-0 py-0 dark:bg-transparent"
               onChangeText={setPrompt}
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);
               }}
               placeholder="Type a message..."
-              returnKeyType="send"
+              returnKeyType="default"
               scrollEnabled={composerScrollEnabled}
-              submitBehavior="submit"
+              submitBehavior="newline"
               style={{ height: composerInputHeight }}
               value={prompt}
-              onSubmitEditing={() => {
-                handleGenerate().catch(console.error);
-              }}
             />
           </TextInputWrapper>
 
@@ -1530,6 +1640,12 @@ function ChatInput({
                 if (sendDisabled) return;
                 if (loading) {
                   onStop().catch(console.error);
+                  return;
+                }
+                if (editDraft !== null) {
+                  const cleanEditPrompt = prompt.trim();
+                  if (!cleanEditPrompt) return;
+                  onEditSend(cleanEditPrompt).catch(console.error);
                   return;
                 }
                 handleGenerate().catch(console.error);

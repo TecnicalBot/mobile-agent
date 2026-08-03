@@ -12,7 +12,8 @@ export function createWriteFileTool({
   const workspaceService = createWorkspaceFileService(repository);
 
   return tool({
-    description: "Write text content into a workspace file.",
+    description:
+      "Modify a user-visible workspace file. Use only when the user explicitly asks to update, append to, or overwrite that file. Do not write internal notes or duplicate an answer that belongs in chat.",
     inputSchema: z.object({
       fileId: z.string().min(1),
       content: z.string(),

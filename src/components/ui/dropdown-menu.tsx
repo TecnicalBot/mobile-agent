@@ -10,7 +10,7 @@ import {
   type ComponentPropsWithoutRef,
   type ComponentRef,
 } from "react";
-import { Modal, Pressable, Text, View } from "react-native";
+import { Modal, Pressable, Text, View, useWindowDimensions } from "react-native";
 
 import { cn } from "@/core/utils";
 
@@ -58,25 +58,46 @@ export function DropdownMenu({ children }: { children: ReactNode }) {
   );
 }
 
-export function DropdownMenuTrigger({ children }: { children: ReactElement }) {
+export function DropdownMenuTrigger({
+  children,
+  triggerOn = "press",
+}: {
+  children: ReactElement;
+  triggerOn?: "press" | "longPress";
+}) {
   const ref = useRef<View>(null);
 
   const { open, setOpen, setPosition } = useDropdown("DropdownMenuTrigger");
   const child = children as ReactElement<any>;
+  const openMenu = () => {
+    ref.current?.measureInWindow((x, y, width, height) => {
+      setPosition({
+        x,
+        y,
+        width,
+        height,
+      });
+    });
+  };
+
+  if (triggerOn === "longPress") {
+    return cloneElement(child, {
+      ref,
+
+      onLongPress: (...args: any[]) => {
+        openMenu();
+        setOpen(true);
+        child.props.onLongPress?.(...args);
+      },
+    });
+  }
+
   return cloneElement(child, {
     ref,
 
     onPress: (...args: any[]) => {
-      ref.current?.measureInWindow((x, y, width, height) => {
-        setPosition({
-          x,
-          y,
-          width,
-          height,
-        });
-
-        setOpen(!open);
-      });
+      openMenu();
+      setOpen(!open);
 
       child.props.onPress?.(...args);
     },
@@ -84,17 +105,28 @@ export function DropdownMenuTrigger({ children }: { children: ReactElement }) {
 }
 
 export function DropdownMenuContent({
+  alignOffset = 0,
   children,
+  sideOffset = 4,
   width = 180,
 }: {
+  alignOffset?: number;
   children: ReactNode;
+  sideOffset?: number;
   width?: number;
 }) {
   const { open, setOpen, position } = useDropdown("DropdownMenuContent");
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const [menuHeight, setMenuHeight] = useState(0);
 
   if (!open || !position) {
     return null;
   }
+
+  const top = Math.min(
+    position.y + position.height + sideOffset,
+    screenHeight - menuHeight - 8,
+  );
 
   return (
     <Modal
@@ -105,14 +137,23 @@ export function DropdownMenuContent({
     >
       <Pressable className="flex-1" onPress={() => setOpen(false)}>
         <View
+          onLayout={(event) => {
+            setMenuHeight(event.nativeEvent.layout.height);
+          }}
           style={{
             position: "absolute",
 
             // align menu to the trigger
-            top: position.y + position.height + 4,
+            top,
 
             // right-align with trigger
-            left: position.x + position.width - width,
+            left: Math.min(
+              screenWidth - width - 8,
+              Math.max(
+                8,
+                position.x + position.width - width + alignOffset,
+              ),
+            ),
 
             width,
           }}

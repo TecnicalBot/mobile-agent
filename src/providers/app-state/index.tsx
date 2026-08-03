@@ -205,6 +205,7 @@ type AppStateContextValue = {
     currentSelectedSkillIds: string[];
     memory: MemoryEntry | null;
     messages: StoredMessage[];
+    editAndResendMessage: (messageId: string, content: string) => Promise<void>;
     savedPrompts: SavedPrompt[];
     mcpServers: McpServerConfig[];
     resumePendingRuns: () => Promise<void>;
@@ -943,7 +944,7 @@ Your output must be:
         const file =
             await repositoriesRef.current.workspaceRepository.getById(fileId);
 
-        if (!file || file.sourceKind !== "imported") {
+        if (!file || file.sourceKind === "artifact") {
             return;
         }
 
@@ -2118,6 +2119,139 @@ Your output must be:
         await executeAgentRun(runId);
     }
 
+    async function editAndResendMessage(messageId: string, content: string) {
+        const cleanContent = content.trim();
+        const current = snapshotRef.current;
+        const message = current.messages.find((item) => item.id === messageId);
+
+        if (!cleanContent) {
+            throw new Error("Message cannot be empty.");
+        }
+
+        if (!message || message.role !== "user") {
+            throw new Error("Message not found.");
+        }
+
+        const latestUserMessage = [...current.messages]
+            .reverse()
+            .find((item) => item.role === "user");
+
+        if (latestUserMessage?.id !== messageId) {
+            throw new Error("Only the latest message can be edited.");
+        }
+
+        const run = current.agentRuns.find(
+            (item) => item.userMessageId === messageId,
+        );
+
+        if (!run) {
+            throw new Error("The response for this message cannot be regenerated.");
+        }
+
+        if (isActiveAgentRunStatus(run.status)) {
+            throw new Error("Wait for the current response to finish first.");
+        }
+
+        const assistantMessage = current.messages.find(
+            (item) => item.id === run.assistantMessageId,
+        );
+
+        if (!assistantMessage) {
+            throw new Error("Assistant response not found.");
+        }
+
+        const timestamp = new Date().toISOString();
+        const model = current.resolvedConfig.availableModels.find(
+            (item) =>
+                item.providerId === run.providerId && item.modelId === run.modelId,
+        );
+        const assistantMetadata = buildAssistantMetadata({
+            appliedSkillIds: message.metadata?.appliedSkillIds,
+            executionTimeline: [
+                createExecutionTimelineEvent({
+                    createdAt: timestamp,
+                    detail: model
+                        ? `${model.providerLabel} · ${model.label}`
+                        : `${run.providerId} · ${run.modelId}`,
+                    kind: "run",
+                    status: "pending",
+                    title: "Run queued",
+                }),
+            ],
+            runId: run.id,
+            toolExecutions: [],
+        });
+        const updatedUserMessage: StoredMessage = {
+            ...message,
+            content: cleanContent,
+            error: null,
+            status: "completed",
+            updatedAt: timestamp,
+        };
+        const updatedAssistantMessage: StoredMessage = {
+            ...assistantMessage,
+            content: "",
+            error: null,
+            metadata: assistantMetadata,
+            status: "streaming",
+            updatedAt: timestamp,
+        };
+        const updatedRun: AgentRun = {
+            ...run,
+            completedAt: null,
+            input: cleanContent,
+            lastError: null,
+            lastRetryAt: null,
+            retryCount: 0,
+            startedAt: timestamp,
+            status: "resumable",
+            updatedAt: timestamp,
+        };
+
+        await repositoriesRef.current.messageRepository.updateContent({
+            id: message.id,
+            content: cleanContent,
+            error: null,
+            status: "completed",
+        });
+        await repositoriesRef.current.messageRepository.updateContent({
+            id: assistantMessage.id,
+            content: "",
+            error: null,
+            metadata: assistantMetadata,
+            status: "streaming",
+        });
+        await repositoriesRef.current.agentRunRepository.update(run.id, {
+            completedAt: null,
+            input: cleanContent,
+            lastError: null,
+            lastRetryAt: null,
+            retryCount: 0,
+            startedAt: timestamp,
+            status: "resumable",
+            updatedAt: timestamp,
+        });
+
+        const nextSnapshot = {
+            ...snapshotRef.current,
+            agentRuns: upsertAgentRun(snapshotRef.current.agentRuns, updatedRun),
+            messages: upsertMessages(snapshotRef.current.messages, [
+                updatedUserMessage,
+                updatedAssistantMessage,
+            ]),
+        };
+        snapshotRef.current = nextSnapshot;
+        setSnapshot(nextSnapshot);
+
+        void executeAgentRun(run.id).catch((runError) => {
+            setError(
+                runError instanceof Error
+                    ? runError.message
+                    : "Failed to restart run.",
+            );
+        });
+    }
+
     async function cancelRun(input?: {
         conversationId?: string;
         runId?: string;
@@ -2541,6 +2675,7 @@ Your output must be:
                 importFiles,
                 inAppNotification,
                 messages: snapshot.messages,
+                editAndResendMessage,
                 savedPrompts: snapshot.savedPrompts,
                 memory: snapshot.memory,
                 mcpServers: snapshot.mcpServers,
@@ -2711,6 +2846,7 @@ export function useChat() {
         currentSelectedFileIds: context.currentSelectedFileIds,
         importFiles: context.importFiles,
         messages: context.messages,
+        editAndResendMessage: context.editAndResendMessage,
         savedPrompts: context.savedPrompts,
         pickConversationFolder: context.pickConversationFolder,
         resumePendingRuns: context.resumePendingRuns,

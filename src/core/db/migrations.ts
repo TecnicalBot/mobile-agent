@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 16;
+const DATABASE_VERSION = 17;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -513,6 +513,17 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 16;
+  }
+
+  if (currentVersion === 16) {
+    await db.execAsync(`
+      UPDATE workspace_files
+      SET source_kind = 'artifact'
+      WHERE relative_path LIKE 'prompts/%'
+         OR relative_path LIKE 'tools/%';
+    `);
+
+    currentVersion = 17;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

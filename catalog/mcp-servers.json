@@ -319,7 +319,8 @@
       "description": "Convert PDFs, Office documents, images, and 200+ formats, including SVG to PNG.",
       "url": "https://mcp.convertapi.io",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthAllowedAuthOrigin": "https://www.convertapi.com"
     }
   ]
 }

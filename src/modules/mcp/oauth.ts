@@ -857,6 +857,13 @@ export function createMcpTransportOAuthProvider(server: McpServerConfig) {
 }
 
 async function connectDiscoveredMcpOAuth(server: McpServerConfig) {
+  // ConvertAPI returns empty optional URL fields from dynamic registration,
+  // which the strict SDK response schema rejects despite valid credentials.
+  if (new URL(server.url).hostname === "mcp.convertapi.io") {
+    await connectCompatibleDiscoveredMcpOAuth(server);
+    return;
+  }
+
   try {
     await (
       await getAuth()

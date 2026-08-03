@@ -808,10 +808,11 @@ export async function executeClaimedAgentRun(
           : undefined;
     mcpRuntime =
       runtimeSupportsTools && runMcpServers.length > 0
-        ? await createMcpRuntimeTools({
-            servers: runMcpServers,
-            onRecord: handleToolExecutionRecord,
-          })
+         ? await createMcpRuntimeTools({
+             servers: runMcpServers,
+             onRecord: handleToolExecutionRecord,
+             signal: abortController.signal,
+           })
         : null;
     const memoryRuntime =
       runtimeSupportsTools && snapshotRef.current.settings.memoryEnabled

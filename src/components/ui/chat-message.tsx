@@ -20,7 +20,6 @@ import {
   memo,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -40,6 +39,7 @@ import {
 } from "react-native";
 import Markdown, {
   type ASTNode,
+  MarkdownIt,
   type RenderRules,
 } from "react-native-markdown-display";
 
@@ -73,6 +73,61 @@ import { Asset } from "expo-media-library";
 refractor.register(jsx);
 refractor.register(tsx);
 
+const MARKDOWN_PARSER = MarkdownIt({ linkify: true, typographer: true });
+
+type MarkdownToken = {
+  attrSet: (name: string, value: string) => void;
+  children?: MarkdownToken[];
+  content: string;
+  level: number;
+  type: string;
+};
+
+MARKDOWN_PARSER.core.ruler.after(
+  "inline",
+  "task_lists",
+  (state: { tokens: MarkdownToken[] }) => {
+    for (let index = 0; index < state.tokens.length; index += 1) {
+      const listItem = state.tokens[index];
+
+      if (listItem.type !== "list_item_open") {
+        continue;
+      }
+
+      const list = state.tokens
+        .slice(0, index)
+        .reverse()
+        .find(
+          (token) =>
+            token.level === listItem.level - 1 &&
+            (token.type === "bullet_list_open" ||
+              token.type === "ordered_list_open"),
+        );
+
+      if (list?.type !== "bullet_list_open") {
+        continue;
+      }
+
+      const inline = state.tokens.slice(index + 1).find(
+        (token) =>
+          token.type === "inline" ||
+          (token.type === "list_item_close" && token.level === listItem.level),
+      );
+      const firstText =
+        inline?.type === "inline" ? inline.children?.[0] : undefined;
+      const taskMarker = firstText?.content.match(/^\[([ xX])\]\s+/);
+
+      if (!firstText || !taskMarker) {
+        continue;
+      }
+
+      firstText.content = firstText.content.slice(taskMarker[0].length);
+      listItem.attrSet("task", "true");
+      listItem.attrSet("checked", String(taskMarker[1].toLowerCase() === "x"));
+    }
+  },
+);
+
 type ChatMessageProps = {
   message: StoredMessage;
   onSavePrompt?: (content: string) => void;
@@ -90,6 +145,67 @@ const MARKDOWN_RULES = {
       language={getCodeLanguage(node)}
     />
   ),
+  image: (node) => (
+    <MarkdownImage
+      alt={String(node.attributes.alt ?? "")}
+      key={node.key}
+      uri={String(node.attributes.src ?? "")}
+    />
+  ),
+  list_item: (node, children, parent, styles) => {
+    const list = parent.find(
+      (parentNode) =>
+        parentNode.type === "bullet_list" ||
+        parentNode.type === "ordered_list",
+    );
+
+    if (node.attributes.task === "true") {
+      const checked = node.attributes.checked === "true";
+
+      return (
+        <View key={node.key} style={styles._VIEW_SAFE_list_item}>
+          <View
+            accessibilityLabel={checked ? "Completed" : "Not completed"}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked, disabled: true }}
+            style={[
+              styles._VIEW_SAFE_task_list_icon,
+              checked && styles._VIEW_SAFE_task_list_icon_checked,
+            ]}
+          >
+            {checked ? (
+              <Text accessible={false} style={styles.task_list_check}>
+                ✓
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles._VIEW_SAFE_bullet_list_content}>{children}</View>
+        </View>
+      );
+    }
+
+    if (list?.type === "ordered_list") {
+      const start = Number(list.attributes.start) || 1;
+
+      return (
+        <View key={node.key} style={styles._VIEW_SAFE_list_item}>
+          <Text accessible={false} style={styles.ordered_list_icon}>
+            {`${start + node.index}${node.markup || "."}`}
+          </Text>
+          <View style={styles._VIEW_SAFE_ordered_list_content}>{children}</View>
+        </View>
+      );
+    }
+
+    return (
+      <View key={node.key} style={styles._VIEW_SAFE_list_item}>
+        <Text accessible={false} style={styles.bullet_list_icon}>
+          {Platform.select({ android: "•", ios: "·", default: "•" })}
+        </Text>
+        <View style={styles._VIEW_SAFE_bullet_list_content}>{children}</View>
+      </View>
+    );
+  },
   table: (node, children, _parent, styles) => {
     const columnCount = getTableColumnCount(node);
 
@@ -120,6 +236,39 @@ const MARKDOWN_RULES = {
     );
   },
 } satisfies RenderRules;
+
+function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
+  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+  const [failed, setFailed] = useState(false);
+
+  if (!uri || failed) {
+    return alt ? (
+      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        {alt}
+      </Text>
+    ) : null;
+  }
+
+  return (
+    <Image
+      accessibilityLabel={alt || "Image"}
+      accessible
+      contentFit="contain"
+      onError={() => {
+        setFailed(true);
+      }}
+      onLoad={(event) => {
+        const { height, width } = event.source;
+
+        if (width > 0 && height > 0) {
+          setAspectRatio(width / height);
+        }
+      }}
+      source={{ uri }}
+      style={{ aspectRatio, maxWidth: "100%", width: "100%" }}
+    />
+  );
+}
 
 type SyntaxNode =
   | { type: "text"; value: string }
@@ -292,7 +441,7 @@ function CopyableCodeBlock({
           }}
         >
           {highlighted
-            ? renderSyntaxNodes(highlighted, theme.text, theme.textSecondary)
+            ? renderSyntaxNodes(highlighted, theme.text, theme)
             : code}
         </Text>
       </ScrollView>
@@ -303,7 +452,7 @@ function CopyableCodeBlock({
 function renderSyntaxNodes(
   nodes: SyntaxNode[],
   textColor: string,
-  mutedColor: string,
+  theme: ReturnType<typeof useTheme>,
   path = "token",
 ): ReactNode[] {
   return nodes.map((node, index) => {
@@ -322,9 +471,9 @@ function renderSyntaxNodes(
     return (
       <Text
         key={key}
-        style={getSyntaxTokenStyle(classNames, textColor, mutedColor)}
+        style={getSyntaxTokenStyle(classNames, textColor, theme)}
       >
-        {renderSyntaxNodes(node.children, textColor, mutedColor, key)}
+        {renderSyntaxNodes(node.children, textColor, theme, key)}
       </Text>
     );
   });
@@ -333,14 +482,14 @@ function renderSyntaxNodes(
 function getSyntaxTokenStyle(
   classNames: string[],
   textColor: string,
-  mutedColor: string,
+  theme: ReturnType<typeof useTheme>,
 ) {
   if (
     classNames.some((name) =>
       ["comment", "prolog", "doctype", "cdata"].includes(name),
     )
   ) {
-    return { color: mutedColor, fontStyle: "italic" as const };
+    return { color: theme.syntaxComment, fontStyle: "italic" as const };
   }
 
   if (
@@ -348,11 +497,11 @@ function getSyntaxTokenStyle(
       ["property", "tag", "constant", "symbol", "deleted"].includes(name),
     )
   ) {
-    return { color: "#e06c75" };
+    return { color: theme.syntaxConstant };
   }
 
   if (classNames.some((name) => ["boolean", "number"].includes(name))) {
-    return { color: "#d19a66" };
+    return { color: theme.syntaxNumber };
   }
 
   if (
@@ -367,7 +516,7 @@ function getSyntaxTokenStyle(
       ].includes(name),
     )
   ) {
-    return { color: "#6aab73" };
+    return { color: theme.syntaxString };
   }
 
   if (
@@ -375,7 +524,7 @@ function getSyntaxTokenStyle(
       ["operator", "entity", "url", "variable"].includes(name),
     )
   ) {
-    return { color: "#56b6c2" };
+    return { color: theme.syntaxOperator };
   }
 
   if (
@@ -385,15 +534,15 @@ function getSyntaxTokenStyle(
       ),
     )
   ) {
-    return { color: "#c678dd" };
+    return { color: theme.syntaxKeyword };
   }
 
   if (classNames.some((name) => ["function", "class-name"].includes(name))) {
-    return { color: "#61afef" };
+    return { color: theme.syntaxFunction };
   }
 
   if (classNames.some((name) => ["regex", "important"].includes(name))) {
-    return { color: "#e5c07b" };
+    return { color: theme.syntaxRegex };
   }
 
   return { color: textColor };
@@ -427,10 +576,10 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const [memoryExpanded, setMemoryExpanded] = useState(false);
   const [openingFileId, setOpeningFileId] = useState<string | null>(null);
+  const [sharingFileId, setSharingFileId] = useState<string | null>(null);
   const [reasoningExpanded, setReasoningExpanded] = useState(
     message.status === "streaming",
   );
-  const previousMessageStatusRef = useRef(message.status);
   const [previewImage, setPreviewImage] =
     useState<GeneratedImageAttachment | null>(null);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
@@ -488,17 +637,6 @@ export const ChatMessage = memo(function ChatMessage({
       clearTimeout(timeout);
     };
   }, [copied]);
-
-  useEffect(() => {
-    if (
-      previousMessageStatusRef.current === "streaming" &&
-      message.status !== "streaming"
-    ) {
-      setReasoningExpanded(false);
-    }
-
-    previousMessageStatusRef.current = message.status;
-  }, [message.status]);
 
   const handleCopy = async () => {
     if (!message.content.trim()) {
@@ -625,6 +763,51 @@ export const ChatMessage = memo(function ChatMessage({
     }
   };
 
+  const handleShareFile = async (workspaceFile: WorkspaceFile) => {
+    setSharingFileId(workspaceFile.id);
+
+    try {
+      const available = await Sharing.isAvailableAsync();
+
+      if (!available) {
+        Alert.alert(
+          "Share unavailable",
+          "Sharing is not available on this device.",
+        );
+        return;
+      }
+
+      const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
+
+      if (!localFile.exists) {
+        throw new Error("This file is no longer available in the workspace.");
+      }
+
+      const mimeType = isTextWorkspaceFile(workspaceFile)
+        ? "text/plain"
+        : workspaceFile.mimeType || localFile.type || "*/*";
+
+      await Sharing.shareAsync(localFile.uri, {
+        dialogTitle: `Share ${workspaceFile.displayName}`,
+        mimeType,
+        ...(isTextWorkspaceFile(workspaceFile)
+          ? { UTI: "public.plain-text" as const }
+          : {}),
+      });
+    } catch (error) {
+      if (isUserCanceledShare(error)) {
+        return;
+      }
+
+      Alert.alert(
+        "Share failed",
+        error instanceof Error ? error.message : "Failed to share the file.",
+      );
+    } finally {
+      setSharingFileId(null);
+    }
+  };
+
   const getImageMimeType = (uri: string) => {
     const cleanUri = uri.split("?")[0].toLowerCase();
 
@@ -695,39 +878,60 @@ export const ChatMessage = memo(function ChatMessage({
           >
             {attachedFiles.map((file, index) => {
               const opening = openingFileId === file.id;
+              const sharing = sharingFileId === file.id;
 
               return (
-                <Pressable
+                <View
                   key={file.id}
-                  accessibilityHint="Opens the attached file"
-                  accessibilityLabel={file.displayName}
-                  accessibilityRole="button"
                   className={cn(
-                    "w-full flex-row items-center gap-sp-2 px-sp-3 py-sp-2",
+                    "w-full flex-row items-center gap-sp-1 px-sp-2 py-sp-2",
                     index > 0 &&
                       "border-t border-border dark:border-border-dark",
                   )}
-                  disabled={opening}
-                  onPress={() => {
-                    handleOpenFile(file).catch(console.error);
-                  }}
-                  style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
                 >
-                  <Text
-                    className="min-w-0 shrink font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
-                    numberOfLines={1}
+                  <Pressable
+                    accessibilityHint="Opens the attached file"
+                    accessibilityLabel={file.displayName}
+                    accessibilityRole="button"
+                    className="min-w-0 flex-1 flex-row items-center gap-sp-2"
+                    disabled={opening}
+                    onPress={() => {
+                      handleOpenFile(file).catch(console.error);
+                    }}
+                    style={({ pressed }) =>
+                      pressed ? { opacity: 0.72 } : null
+                    }
                   >
-                    {file.displayName}
-                  </Text>
-                  {opening ? (
-                    <ActivityIndicator
-                      color={theme.textSecondary}
-                      size="small"
-                    />
-                  ) : (
-                    <ChevronRight color={theme.textSecondary} size={16} />
-                  )}
-                </Pressable>
+                    <Text
+                      className="min-w-0 shrink font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
+                      numberOfLines={1}
+                    >
+                      {file.displayName}
+                    </Text>
+                    {opening ? (
+                      <ActivityIndicator
+                        color={theme.textSecondary}
+                        size="small"
+                      />
+                    ) : (
+                      <ChevronRight color={theme.textSecondary} size={16} />
+                    )}
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel={`Share ${file.displayName}`}
+                    accessibilityRole="button"
+                    disabled={sharing}
+                    hitSlop={8}
+                    onPress={() => {
+                      handleShareFile(file).catch(console.error);
+                    }}
+                    style={({ pressed }) => ({
+                      opacity: sharing ? 0.45 : pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Share2 color={theme.textSecondary} size={16} />
+                  </Pressable>
+                </View>
               );
             })}
           </View>
@@ -779,6 +983,7 @@ export const ChatMessage = memo(function ChatMessage({
                           </View>
                           <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
                             <Markdown
+                              markdownit={MARKDOWN_PARSER}
                               mergeStyle={false}
                               onLinkPress={handleLinkPress}
                               rules={MARKDOWN_RULES}
@@ -797,6 +1002,7 @@ export const ChatMessage = memo(function ChatMessage({
 
                   {message.content.trim() ? (
                     <Markdown
+                      markdownit={MARKDOWN_PARSER}
                       mergeStyle={false}
                       onLinkPress={handleLinkPress}
                       rules={MARKDOWN_RULES}
@@ -1264,8 +1470,8 @@ function createMarkdownStyles(input: {
       width: "100%",
     },
     bullet_list: {
-      marginBottom: 10,
-      marginTop: 4,
+      marginBottom: 12,
+      marginTop: 2,
     },
     bullet_list_content: {
       flex: 1,
@@ -1310,8 +1516,8 @@ function createMarkdownStyles(input: {
       borderColor: input.borderColor,
       borderLeftWidth: 3,
       color: input.mutedText,
-      marginBottom: 10,
-      marginTop: 4,
+      marginBottom: 12,
+      marginTop: 2,
       paddingLeft: 12,
     },
     heading1: {
@@ -1338,6 +1544,30 @@ function createMarkdownStyles(input: {
       marginBottom: 6,
       marginTop: 8,
     },
+    heading4: {
+      color: input.text,
+      fontSize: 17,
+      fontWeight: "700",
+      lineHeight: 24,
+      marginBottom: 6,
+      marginTop: 8,
+    },
+    heading5: {
+      color: input.text,
+      fontSize: 16,
+      fontWeight: "700",
+      lineHeight: 23,
+      marginBottom: 4,
+      marginTop: 8,
+    },
+    heading6: {
+      color: input.mutedText,
+      fontSize: 15,
+      fontWeight: "700",
+      lineHeight: 22,
+      marginBottom: 4,
+      marginTop: 8,
+    },
     hr: {
       backgroundColor: input.borderColor,
       height: 1,
@@ -1354,15 +1584,16 @@ function createMarkdownStyles(input: {
       textDecorationLine: "underline",
     },
     list_item: {
+      alignItems: "flex-start",
       color: input.text,
       flexDirection: "row",
       justifyContent: "flex-start",
-      marginBottom: 4,
+      marginBottom: 5,
       marginTop: 0,
     },
     ordered_list: {
-      marginBottom: 10,
-      marginTop: 4,
+      marginBottom: 12,
+      marginTop: 2,
     },
     ordered_list_content: {
       flex: 1,
@@ -1370,7 +1601,9 @@ function createMarkdownStyles(input: {
     ordered_list_icon: {
       color: input.text,
       marginRight: 8,
-      minWidth: 20,
+      paddingTop: 1,
+      textAlign: "right",
+      width: 32,
     },
     paragraph: {
       color: input.text,
@@ -1382,6 +1615,26 @@ function createMarkdownStyles(input: {
     strong: {
       color: input.text,
       fontWeight: "700",
+    },
+    task_list_check: {
+      color: input.codeBackground,
+      fontSize: 13,
+      fontWeight: "700",
+      lineHeight: 15,
+    },
+    task_list_icon: {
+      alignItems: "center",
+      borderColor: input.text,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      height: 18,
+      justifyContent: "center",
+      marginRight: 8,
+      marginTop: 2,
+      width: 18,
+    },
+    task_list_icon_checked: {
+      backgroundColor: input.text,
     },
     table: {
       borderColor: input.borderColor,

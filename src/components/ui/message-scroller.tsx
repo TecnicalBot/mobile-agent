@@ -12,15 +12,12 @@ import {
   forwardRef,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
   FlatList,
-  Keyboard,
-  Platform,
   View,
   type FlatListProps,
   type LayoutChangeEvent,
@@ -46,7 +43,6 @@ type MessageScrollerContextValue = {
     viewportHeight: number,
     contentHeight: number,
   ) => void;
-  scheduleFollowToEnd: () => void;
   scrollToEnd: () => void;
   scrollToStart: () => void;
   scrollable: ScrollState;
@@ -68,16 +64,15 @@ function useMessageScrollerContext() {
 }
 
 export type MessageScrollerProviderProps = PropsWithChildren<{
-  autoScroll?: boolean;
+  initialScrollToEnd?: boolean;
 }>;
 
 export function MessageScrollerProvider({
-  autoScroll = false,
   children,
+  initialScrollToEnd = false,
 }: MessageScrollerProviderProps) {
   const listRef = useRef<FlatList<unknown>>(null);
-  const followRef = useRef(autoScroll);
-  const pendingFollowRef = useRef(false);
+  const didInitialScrollRef = useRef(false);
   const lastScrollableRef = useRef<ScrollState>({ end: false, start: false });
   const metricsRef = useRef({
     contentHeight: 0,
@@ -103,8 +98,6 @@ export function MessageScrollerProvider({
         start: offsetY > 8,
       };
 
-      followRef.current = next.end;
-
       const previous = lastScrollableRef.current;
 
       if (previous.start === next.start && previous.end === next.end) {
@@ -129,79 +122,51 @@ export function MessageScrollerProvider({
       const { contentHeight, offsetY } = metricsRef.current;
 
       recomputeScrollable(offsetY, viewportHeight, contentHeight);
+      if (
+        initialScrollToEnd &&
+        !didInitialScrollRef.current &&
+        contentHeight > 0
+      ) {
+        didInitialScrollRef.current = true;
+        if (contentHeight > viewportHeight) {
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToEnd({ animated: false });
+          });
+        }
+      }
     },
-    [recomputeScrollable],
+    [initialScrollToEnd, recomputeScrollable],
   );
 
   const scrollToEnd = useCallback(() => {
-    pendingFollowRef.current = false;
-    followRef.current = true;
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
   const scrollToStart = useCallback(() => {
-    followRef.current = false;
     listRef.current?.scrollToOffset({ animated: true, offset: 0 });
   }, []);
-
-  const followToEnd = useCallback(() => {
-    pendingFollowRef.current = false;
-
-    if (!followRef.current) {
-      return;
-    }
-
-    listRef.current?.scrollToEnd({ animated: false });
-  }, []);
-
-  const scheduleFollowToEnd = useCallback(() => {
-    if (!autoScroll || !followRef.current || pendingFollowRef.current) {
-      return;
-    }
-
-    pendingFollowRef.current = true;
-    requestAnimationFrame(followToEnd);
-  }, [autoScroll, followToEnd]);
 
   const onListContentSizeChange = useCallback(
     (contentHeight: number) => {
       const { offsetY, viewportHeight } = metricsRef.current;
 
       recomputeScrollable(offsetY, viewportHeight, contentHeight);
-      scheduleFollowToEnd();
-    },
-    [recomputeScrollable, scheduleFollowToEnd],
-  );
-
-  useEffect(() => {
-    if (!autoScroll) {
-      return;
-    }
-
-    const syncToLatest = () => {
-      if (!followRef.current) {
-        return;
+      if (
+        initialScrollToEnd &&
+        !didInitialScrollRef.current &&
+        viewportHeight > 0 &&
+        contentHeight > 0
+      ) {
+        didInitialScrollRef.current = true;
+        if (contentHeight > viewportHeight) {
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToEnd({ animated: false });
+          });
+        }
       }
-
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: Platform.OS === "ios" });
-      });
-    };
-
-    const showSubscription = Keyboard.addListener(
-      "keyboardDidShow",
-      syncToLatest,
-    );
-    const hideSubscription = Keyboard.addListener(
-      "keyboardDidHide",
-      syncToLatest,
-    );
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, [autoScroll]);
+    },
+    [initialScrollToEnd, recomputeScrollable],
+  );
 
   const value = useMemo<MessageScrollerContextValue>(
     () => ({
@@ -209,7 +174,6 @@ export function MessageScrollerProvider({
       onListContentSizeChange,
       onListLayout,
       onListScroll,
-      scheduleFollowToEnd,
       scrollToEnd,
       scrollToStart,
       scrollable,
@@ -218,7 +182,6 @@ export function MessageScrollerProvider({
       onListContentSizeChange,
       onListLayout,
       onListScroll,
-      scheduleFollowToEnd,
       scrollToEnd,
       scrollToStart,
       scrollable,

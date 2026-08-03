@@ -26,9 +26,15 @@ import type {
 } from "@/core/types/app-state";
 
 export function sortConversations(conversations: Conversation[]) {
-  return [...conversations].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt),
-  );
+  return [...conversations].sort((left, right) => {
+    if (left.pinnedAt && right.pinnedAt) {
+      return right.pinnedAt.localeCompare(left.pinnedAt);
+    }
+
+    if (left.pinnedAt) return -1;
+    if (right.pinnedAt) return 1;
+    return right.updatedAt.localeCompare(left.updatedAt);
+  });
 }
 
 export function upsertConversation(

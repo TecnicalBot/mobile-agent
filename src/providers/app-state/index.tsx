@@ -215,6 +215,10 @@ type AppStateContextValue = {
     ready: boolean;
     refresh: () => Promise<void>;
     refreshWorkspaceFiles: () => Promise<void>;
+    renameConversation: (
+        conversationId: string,
+        title: string,
+    ) => Promise<void>;
     resolvedConfig: ResolvedConfig;
     saveProviderApiKey: (providerId: string, apiKey: string) => Promise<void>;
     saveMcpServerHeaderValues: (
@@ -222,6 +226,10 @@ type AppStateContextValue = {
         headers: Record<string, string>,
     ) => Promise<void>;
     selectConversation: (conversationId: string) => Promise<void>;
+    setConversationPinned: (
+        conversationId: string,
+        pinned: boolean,
+    ) => Promise<void>;
     selectModel: (modelRef: ModelRef) => Promise<void>;
     sendMessage: (input: SendMessageInput) => Promise<void>;
     sending: boolean;
@@ -362,6 +370,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     );
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
+    const hydrationGenerationRef = useRef(0);
 
     snapshotRef.current = snapshot;
     pendingToolApprovalsRef.current = pendingToolApprovals;
@@ -621,6 +630,7 @@ Your output must be:
     }
 
     async function hydrate() {
+        const hydrationGeneration = ++hydrationGenerationRef.current;
         setHydrating(true);
         setError(null);
 
@@ -684,31 +694,16 @@ Your output must be:
 
             const providers =
                 await repositories.configRepository.listProviderConfigs();
-            let modelPresets = await repositories.configRepository.listModelPresets();
-            let resolvedConfig = await resolveConfig({
-                providers,
-                modelPresets,
-                settings,
-            });
-
-            if (resolvedConfig.currentModel?.ref !== settings.activeModelRef) {
-                settings = {
-                    ...settings,
-                    activeModelRef: resolvedConfig.currentModel?.ref ?? null,
-                };
-
-                await repositories.configRepository.setSetting(
-                    "active_model_ref",
-                    settings.activeModelRef,
-                );
-
-                resolvedConfig = {
-                    ...resolvedConfig,
-                    currentModel: resolvedConfig.currentModel,
-                    databaseMode: settings.databaseMode,
-                    databaseUrl: settings.databaseUrl,
-                };
-            }
+            const modelPresets =
+                await repositories.configRepository.listModelPresets();
+            const resolvedConfig = await resolveConfig(
+                {
+                    providers,
+                    modelPresets,
+                    settings,
+                },
+                { discoverRemote: false },
+            );
 
             const currentConversation =
                 conversations.find(
@@ -806,6 +801,48 @@ Your output must be:
                 return reconciledSnapshot;
             });
             setReady(true);
+
+            void resolveConfig(
+                {
+                    providers,
+                    modelPresets,
+                    settings,
+                },
+                { discoverRemote: true },
+            )
+                .then(async (discoveredConfig) => {
+                    if (hydrationGenerationRef.current !== hydrationGeneration) {
+                        return;
+                    }
+
+                    const discoveredModelRef = discoveredConfig.currentModel?.ref ?? null;
+                    if (discoveredModelRef !== settings.activeModelRef) {
+                        await repositories.configRepository.setSetting(
+                            "active_model_ref",
+                            discoveredModelRef,
+                        );
+                    }
+
+                    if (hydrationGenerationRef.current !== hydrationGeneration) {
+                        return;
+                    }
+
+                    setSnapshot((current) => {
+                        const discoveredSnapshot = {
+                            ...current,
+                            resolvedConfig: discoveredConfig,
+                            settings: {
+                                ...current.settings,
+                                activeModelRef: discoveredModelRef,
+                            },
+                        };
+                        snapshotRef.current = discoveredSnapshot;
+                        return discoveredSnapshot;
+                    });
+                })
+                .catch((discoveryError) => {
+                    console.warn("Failed to refresh model discovery.", discoveryError);
+                });
         } catch (hydrateError) {
             setError(
                 hydrateError instanceof Error
@@ -1518,6 +1555,7 @@ Your output must be:
             externalFolderSession: null,
             id: Crypto.randomUUID(),
             modelId: currentModel?.modelId ?? null,
+            pinnedAt: null,
             providerId: currentModel?.providerId ?? null,
             reasoningEffort: "medium",
             selectedFileIds: [],
@@ -1546,6 +1584,102 @@ Your output must be:
             conversationId,
         );
         await hydrate();
+    }
+
+    async function setConversationPinned(
+        conversationId: string,
+        pinned: boolean,
+    ) {
+        const conversation = snapshotRef.current.conversations.find(
+            (item) => item.id === conversationId,
+        );
+
+        if (!conversation || Boolean(conversation.pinnedAt) === pinned) {
+            return;
+        }
+
+        if (
+            pinned &&
+            snapshotRef.current.conversations.filter((item) => item.pinnedAt)
+                .length >= 3
+        ) {
+            throw new Error("You can pin up to 3 chats.");
+        }
+
+        const updatedConversation = {
+            ...conversation,
+            pinnedAt: pinned ? new Date().toISOString() : null,
+        };
+        await repositoriesRef.current.conversationRepository.updateMetadata(
+            conversationId,
+            {
+                pinnedAt: updatedConversation.pinnedAt,
+                updatedAt: conversation.updatedAt,
+            },
+        );
+
+        setSnapshot((current) => {
+            const nextSnapshot = {
+                ...current,
+                conversations: upsertConversation(
+                    current.conversations,
+                    updatedConversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === conversationId
+                        ? updatedConversation
+                        : current.currentConversation,
+            };
+            snapshotRef.current = nextSnapshot;
+            return nextSnapshot;
+        });
+    }
+
+    async function renameConversation(conversationId: string, title: string) {
+        const conversation = snapshotRef.current.conversations.find(
+            (item) => item.id === conversationId,
+        );
+        const nextTitle = title.replace(/\s+/g, " ").trim();
+
+        if (!conversation) {
+            return;
+        }
+
+        if (!nextTitle) {
+            throw new Error("Chat title cannot be empty.");
+        }
+
+        if (conversation.title === nextTitle) {
+            return;
+        }
+
+        const updatedConversation = {
+            ...conversation,
+            title: nextTitle,
+        };
+        await repositoriesRef.current.conversationRepository.updateMetadata(
+            conversationId,
+            {
+                title: nextTitle,
+                updatedAt: conversation.updatedAt,
+            },
+        );
+
+        setSnapshot((current) => {
+            const nextSnapshot = {
+                ...current,
+                conversations: upsertConversation(
+                    current.conversations,
+                    updatedConversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === conversationId
+                        ? updatedConversation
+                        : current.currentConversation,
+            };
+            snapshotRef.current = nextSnapshot;
+            return nextSnapshot;
+        });
     }
 
     async function importFiles(assets: DocumentPickerAsset[]) {
@@ -2414,6 +2548,7 @@ Your output must be:
                 ready,
                 refresh,
                 refreshWorkspaceFiles,
+                renameConversation,
                 resumePendingRuns,
                 retryRun,
                 resolvedConfig: snapshot.resolvedConfig,
@@ -2421,6 +2556,7 @@ Your output must be:
                 saveProviderApiKey,
                 saveMcpServerHeaderValues,
                 selectConversation,
+                setConversationPinned,
                 selectModel,
                 sendMessage,
                 sending,
@@ -2579,8 +2715,10 @@ export function useChat() {
         pickConversationFolder: context.pickConversationFolder,
         resumePendingRuns: context.resumePendingRuns,
         retryRun: context.retryRun,
+        renameConversation: context.renameConversation,
         runStatusByConversation: context.runStatusByConversation,
         selectConversation: context.selectConversation,
+        setConversationPinned: context.setConversationPinned,
         sendMessage: context.sendMessage,
         skills: context.skills,
         updateSavedPrompt: context.updateSavedPrompt,

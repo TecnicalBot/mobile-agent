@@ -32,6 +32,7 @@ import type {
   ProviderConfig,
   ResolvedConfig,
 } from "@/core/types/app-state";
+import { parseModelRef } from "@/core/types/app-state";
 
 function mergeModelOptions(
   discoveryOptions: CuratedModelDefinition["options"],
@@ -66,12 +67,25 @@ function mergeModelOptions(
   return merged;
 }
 
-export async function resolveConfig(input: {
-  modelPresets: ModelPreset[];
-  providers: ProviderConfig[];
-  settings: AppSettings;
-}) {
+export async function resolveConfig(
+  input: {
+    modelPresets: ModelPreset[];
+    providers: ProviderConfig[];
+    settings: AppSettings;
+  },
+  options: { discoverRemote?: boolean } = {},
+) {
+  const discoverRemote = options.discoverRemote ?? true;
   const providerCredentialMap = new Map<string, boolean>();
+  let activeModelSelection: ReturnType<typeof parseModelRef> | null = null;
+
+  if (input.settings.activeModelRef) {
+    try {
+      activeModelSelection = parseModelRef(input.settings.activeModelRef);
+    } catch {
+      activeModelSelection = null;
+    }
+  }
 
   for (const provider of input.providers) {
     providerCredentialMap.set(
@@ -90,6 +104,13 @@ export async function resolveConfig(input: {
   );
   const ollamaModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
   const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
+  const needsLiveModelCatalog = input.providers.some(
+    (provider) =>
+      activeProviderIds.includes(provider.id) &&
+      provider.family !== "ollama" &&
+      provider.family !== "on-device" &&
+      getSupportedProviderDefinition(provider.id) !== null,
+  );
   const needsModelsDevCatalog = input.providers.some(
     (provider) =>
       activeProviderIds.includes(provider.id) &&
@@ -98,14 +119,16 @@ export async function resolveConfig(input: {
   );
 
   await Promise.all([
-    fetchLiveModelCatalogCached()
-      .then((catalog) => {
-        liveCatalog = catalog;
-      })
-      .catch((error) => {
-        console.warn("Failed to load the AI Gateway model catalog.", error);
-      }),
-    needsModelsDevCatalog
+    discoverRemote && needsLiveModelCatalog
+      ? fetchLiveModelCatalogCached()
+          .then((catalog) => {
+            liveCatalog = catalog;
+          })
+          .catch((error) => {
+            console.warn("Failed to load the AI Gateway model catalog.", error);
+          })
+      : Promise.resolve(),
+    discoverRemote && needsModelsDevCatalog
       ? fetchModelsDevCatalogCached()
           .then((catalog) => {
             modelsDevCatalog = catalog;
@@ -114,14 +137,16 @@ export async function resolveConfig(input: {
             console.warn("Failed to load the models.dev catalog.", error);
           })
       : Promise.resolve(),
-    fetchOnDeviceModelCatalogCached()
-      .then((models) => {
-        onDeviceModelDefinitions = getOnDeviceModelDefinitions(models);
-      })
-      .catch((error) => {
-        console.warn("Failed to load the on-device model catalog.", error);
-      }),
-    ...input.providers
+    discoverRemote && activeProviderIds.includes("on-device")
+      ? fetchOnDeviceModelCatalogCached()
+          .then((models) => {
+            onDeviceModelDefinitions = getOnDeviceModelDefinitions(models);
+          })
+          .catch((error) => {
+            console.warn("Failed to load the on-device model catalog.", error);
+          })
+      : Promise.resolve(),
+    ...(discoverRemote ? input.providers : [])
       .filter(
         (provider) =>
           provider.family === "ollama" &&
@@ -217,6 +242,26 @@ export async function resolveConfig(input: {
             label: preset.label?.trim() || preset.modelId,
             options: preset.options ?? undefined,
           })),
+        ...(activeModelSelection?.providerId === provider.id &&
+        !discoveredModels.some(
+          (model) => model.id === activeModelSelection.modelId,
+        ) &&
+        !builtInModels.some(
+          (model) => model.id === activeModelSelection.modelId,
+        ) &&
+        !input.modelPresets.some(
+          (preset) =>
+            preset.providerId === provider.id &&
+            preset.modelId === activeModelSelection.modelId,
+        )
+          ? [
+              {
+                id: activeModelSelection.modelId,
+                kind: "chat" as const,
+                label: activeModelSelection.modelId,
+              },
+            ]
+          : []),
       ];
 
       return [provider.id, models];

@@ -5,6 +5,7 @@ import type {
   ProviderFamily,
 } from "@/core/types/app-state";
 import { getSupportedProviderDefinition } from "@/modules/providers";
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 
 const LIVE_MODEL_CATALOG_URL = "https://ai-gateway.vercel.sh/v1/models";
 const LIVE_MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -157,7 +158,7 @@ function getOwnerForProvider(provider: ProviderConfig) {
 export async function fetchLiveModelCatalog(
   signal?: AbortSignal,
 ): Promise<LiveCatalogModel[]> {
-  const response = await fetch(LIVE_MODEL_CATALOG_URL, {
+  const response = await fetchWithTimeout(LIVE_MODEL_CATALOG_URL, {
     headers: {
       Accept: "application/json",
     },

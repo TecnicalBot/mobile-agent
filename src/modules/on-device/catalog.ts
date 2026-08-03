@@ -2,6 +2,8 @@ import type { ModelRegistryEntry } from "expo-ai-kit";
 
 import bundledCatalog from "../../../catalog/on-device-models.json";
 
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
+
 import type { CuratedModelDefinition } from "@/core/types/app-state";
 
 export const ON_DEVICE_MODEL_CATALOG_URL =
@@ -305,7 +307,7 @@ export async function fetchOnDeviceModelCatalog(
   signal?: AbortSignal,
 ): Promise<OnDeviceModelCatalogResult> {
   try {
-    const response = await fetch(ON_DEVICE_MODEL_CATALOG_URL, {
+    const response = await fetchWithTimeout(ON_DEVICE_MODEL_CATALOG_URL, {
       cache: "no-store",
       headers: {
         Accept: "application/json",

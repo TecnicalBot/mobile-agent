@@ -128,7 +128,7 @@ export function DropdownMenuContent({
 export const DropdownMenuItem = forwardRef<
   ComponentRef<typeof Pressable>,
   ComponentPropsWithoutRef<typeof Pressable>
->(({ children, className, onPress, ...props }, ref) => {
+>(({ children, className, disabled, onPress, ...props }, ref) => {
   const { setOpen } = useDropdown("DropdownMenuItem");
 
   return (
@@ -136,8 +136,10 @@ export const DropdownMenuItem = forwardRef<
       ref={ref}
       className={cn(
         "px-4 py-3 active:bg-secondary dark:active:bg-secondary-dark",
+        disabled && "opacity-50",
         className,
       )}
+      disabled={disabled}
       onPress={(e) => {
         setOpen(false);
         onPress?.(e);

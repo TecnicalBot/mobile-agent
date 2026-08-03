@@ -1,5 +1,6 @@
 import bundledCatalog from "../../../catalog/mcp-servers.json";
 
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 import type { McpServerAuthMode, McpServerTransport } from "@/core/types/app-state";
 
 export const MCP_CATALOG_URL =
@@ -164,7 +165,7 @@ export async function fetchMcpServerCatalog(
   signal?: AbortSignal,
 ): Promise<McpServerCatalogResult> {
   try {
-    const response = await fetch(MCP_CATALOG_URL, {
+    const response = await fetchWithTimeout(MCP_CATALOG_URL, {
       cache: "no-store",
       headers: {
         Accept: "application/json",

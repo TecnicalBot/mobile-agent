@@ -18,7 +18,9 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useConfig } from "@/hooks/use-config";
+import { useAppState } from "@/hooks/use-app-state";
 import { useTheme } from "@/hooks/use-theme";
 import { invalidateLiveModelCatalog } from "@/modules/config/live-model-catalog";
 import { getSupportedProviderDefinition } from "@/modules/config/registry";
@@ -52,6 +54,7 @@ type ProviderListItem = {
 export default function SettingsProvidersScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { error: hydrationError, ready } = useAppState();
   const {
     activeProviderIds,
     availableModels,
@@ -607,25 +610,51 @@ export default function SettingsProvidersScreen() {
         </Button>
       </View>
 
-      <Card className="overflow-hidden">
-        {providerItems.map((provider, index) => (
-          <View key={provider.key}>
-            {index > 0 ? <Separator /> : null}
-            <SettingsLinkRow
-              chevronColor={theme.textSecondary}
-              label={provider.label}
-              onPress={() => {
-                setApiKeyInput("");
-                setBaseUrlInput(provider.provider.baseUrl ?? "");
-                setCustomModelId("");
-                setModelQuery("");
-                setSelectedItemKey(provider.key);
-              }}
-              value={provider.value}
-            />
-          </View>
-        ))}
-      </Card>
+      {hydrationError && !ready ? (
+        <Card className="px-sp-4 py-sp-4">
+          <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+            {hydrationError}
+          </Text>
+        </Card>
+      ) : !ready ? (
+        <Card
+          accessibilityLabel="Loading providers"
+          className="gap-sp-3 px-sp-4 py-sp-4"
+        >
+          {[0, 1, 2, 3].map((item) => (
+            <View key={item} className="flex-row items-center justify-between gap-sp-3">
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="h-4 w-1/4" />
+            </View>
+          ))}
+        </Card>
+      ) : providerItems.length === 0 ? (
+        <Card className="px-sp-4 py-sp-4">
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            No providers configured. Use Add custom above to add one.
+          </Text>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          {providerItems.map((provider, index) => (
+            <View key={provider.key}>
+              {index > 0 ? <Separator /> : null}
+              <SettingsLinkRow
+                chevronColor={theme.textSecondary}
+                label={provider.label}
+                onPress={() => {
+                  setApiKeyInput("");
+                  setBaseUrlInput(provider.provider.baseUrl ?? "");
+                  setCustomModelId("");
+                  setModelQuery("");
+                  setSelectedItemKey(provider.key);
+                }}
+                value={provider.value}
+              />
+            </View>
+          ))}
+        </Card>
+      )}
 
       <Drawer
         onOpenChange={(open) => {

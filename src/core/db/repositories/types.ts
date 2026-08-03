@@ -35,6 +35,7 @@ export interface ConversationRepository {
   create(input: {
     id?: string;
     modelId?: string | null;
+    pinnedAt?: string | null;
     providerId?: string | null;
     title: string;
   }): Promise<Conversation>;
@@ -45,6 +46,7 @@ export interface ConversationRepository {
     input: {
       externalFolderSession?: ExternalFolderSession | null;
       modelId?: string | null;
+      pinnedAt?: string | null;
       providerId?: string | null;
       reasoningEffort?: ReasoningEffort;
       selectedFileIds?: string[];

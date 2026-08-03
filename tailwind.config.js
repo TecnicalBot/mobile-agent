@@ -1,4 +1,8 @@
-const { Colors, MaxContentWidth, Spacing } = require("./src/constants/theme-tokens");
+const {
+  Colors,
+  MaxContentWidth,
+  Spacing,
+} = require("./src/constants/theme-tokens");
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -31,6 +35,10 @@ module.exports = {
         "input-dark": Colors.dark.input,
         ring: Colors.light.ring,
         "ring-dark": Colors.dark.ring,
+        accent: Colors.light.accent,
+        "accent-dark": Colors.dark.accent,
+        "accent-foreground": Colors.light.accentForeground,
+        "accent-foreground-dark": Colors.dark.accentForeground,
         secondary: Colors.light.backgroundSelected,
         "secondary-dark": Colors.dark.backgroundSelected,
         destructive: Colors.light.destructive,

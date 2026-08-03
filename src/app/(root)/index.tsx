@@ -9,6 +9,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  ChevronLeft,
   Edit,
   FolderOpen,
   Info,
@@ -43,6 +44,7 @@ import {
   AttachmentTitle,
 } from "@/components/ui/attachment";
 import { Button } from "@/components/ui/button";
+import { ChatErrorBoundary } from "@/components/ui/chat-error-boundary";
 import { ChatMessage } from "@/components/ui/chat-message";
 import {
   Drawer,
@@ -53,7 +55,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { ChatErrorBoundary } from "@/components/ui/chat-error-boundary";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -64,14 +65,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppState } from "@/hooks/use-app-state";
-import { useChat } from "@/hooks/use-chat";
-import { useChatInfo } from "@/hooks/use-chat-info";
-import { useConfig } from "@/hooks/use-config";
-import { useTheme } from "@/hooks/use-theme";
-import { detectFolderIntent } from "@/modules/chat/folder-intent";
-import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
-import { cn } from "@/core/utils";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
   ExternalFolderSession,
@@ -82,6 +75,14 @@ import type {
   SkillConfig,
   WorkspaceFile,
 } from "@/core/types/app-state";
+import { cn } from "@/core/utils";
+import { useAppState } from "@/hooks/use-app-state";
+import { useChat } from "@/hooks/use-chat";
+import { useChatInfo } from "@/hooks/use-chat-info";
+import { useConfig } from "@/hooks/use-config";
+import { useTheme } from "@/hooks/use-theme";
+import { detectFolderIntent } from "@/modules/chat/folder-intent";
+import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
 
 const REASONING_EFFORT_OPTIONS: {
   value: ReasoningEffort;
@@ -167,7 +168,7 @@ function logComposerDebug(label: string, data: Record<string, unknown>) {
 export default function Screen() {
   const router = useRouter();
   const theme = useTheme();
-  const { error, hydrating, ready } = useAppState();
+  const { error, ready } = useAppState();
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
   const {
     activeModels,
@@ -189,6 +190,7 @@ export default function Screen() {
     clearConversationFolder,
     clearWorkspaceFiles,
     deleteWorkspaceFile,
+    currentConversation,
     currentConversationRunStatus,
     currentExternalFolderSession,
     currentSelectedFileIds,
@@ -220,7 +222,7 @@ export default function Screen() {
     <ChatErrorBoundary>
       <KeyboardAvoidingView behavior="padding" className="flex-1">
         <Container
-          contentClassName="flex-1 gap-sp-4"
+          contentClassName="flex-1 gap-sp-4 !px-4"
           includeBottomTabInset={false}
         >
           <View className="flex-row items-center justify-between gap-sp-3">
@@ -241,9 +243,12 @@ export default function Screen() {
             </Button>
           </View>
 
-          <MessageScrollerProvider autoScroll>
+          <MessageScrollerProvider
+            key={currentConversation?.id ?? "new-chat"}
+            initialScrollToEnd
+          >
             <MessageScroller className="flex-1 rounded-none border-0">
-              {!ready || hydrating ? (
+              {!ready ? (
                 <View
                   accessibilityLiveRegion="polite"
                   className="flex-1 items-center justify-center gap-sp-3"
@@ -256,7 +261,7 @@ export default function Screen() {
               ) : (
                 <>
                   <MessageScrollerList
-                    contentContainerClassName="py-sp-4 pb-16"
+                    contentContainerClassName="py-sp-3 pb-12"
                     data={messages}
                     keyExtractor={(message) => message.id}
                     renderItem={({ item: message }) => (
@@ -274,38 +279,51 @@ export default function Screen() {
                     showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
                       currentModel ? (
-                        <View className="pb-sp-4">
-                          {STARTER_PROMPTS.map((prompt) => (
-                            <Button
-                              key={prompt}
-                              variant="ghost"
-                              className="justify-start"
-                              onPress={() =>
-                                sendMessage({
-                                  content: prompt,
-                                }).catch(console.error)
-                              }
-                            >
-                              {prompt}
-                            </Button>
-                          ))}
+                        <View className="gap-sp-3 py-sp-5">
+                          <View>
+                            {STARTER_PROMPTS.map((prompt) => (
+                              <Button
+                                key={prompt}
+                                className="justify-start"
+                                onPress={() =>
+                                  sendMessage({
+                                    content: prompt,
+                                  }).catch(console.error)
+                                }
+                                variant="ghost"
+                              >
+                                {prompt}
+                              </Button>
+                            ))}
+                          </View>
                         </View>
                       ) : (
-                        <View className="px-sp-2 py-sp-8">
-                          <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                            Connect a model to start chatting.
+                        <View className="items-center gap-sp-3 px-sp-3 py-sp-8">
+                          <Text className="font-sans text-lg font-semibold text-foreground dark:text-foreground-dark">
+                            Connect your first model
                           </Text>
+                          <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
+                            Choose a provider to start chatting.
+                          </Text>
+                          <Button
+                            onPress={() => router.push("/settings")}
+                            variant="ghost"
+                          >
+                            Manage providers
+                          </Button>
                         </View>
                       )
                     }
                     ListFooterComponent={<View className="h-sp-1" />}
                   />
-                  <MessageScrollerButton
-                    accessibilityLabel="Jump to latest"
-                    className="h-10 w-10 rounded-full px-0"
-                  >
-                    <ArrowDown color={theme.text} size={18} />
-                  </MessageScrollerButton>
+                  {messages.length > 0 ? (
+                    <MessageScrollerButton
+                      accessibilityLabel="Jump to latest"
+                      className="h-10 w-10 rounded-full px-0"
+                    >
+                      <ArrowDown color={theme.text} size={18} />
+                    </MessageScrollerButton>
+                  ) : null}
                 </>
               )}
             </MessageScroller>
@@ -316,19 +334,8 @@ export default function Screen() {
               </Text>
             ) : null}
 
-            {!currentModel && ready && !hydrating ? (
-              <Button
-                onPress={() => {
-                  router.push("/settings");
-                }}
-                variant="outline"
-              >
-                Open settings
-              </Button>
-            ) : null}
-
             <ChatInput
-              canSend={ready && !hydrating && currentModel !== null}
+              canSend={ready && currentModel !== null}
               currentModelLabel={
                 currentModel
                   ? `${currentModel.providerLabel} · ${currentModel.label}`
@@ -733,6 +740,9 @@ function ChatInput({
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
   const [folderNotice, setFolderNotice] = useState<string | null>(null);
   const [approvalModeDrawerOpen, setApprovalModeDrawerOpen] = useState(false);
+  const [slashMenuView, setSlashMenuView] = useState<
+    "commands" | "saved-prompts"
+  >("commands");
   const [localWorkspaceFiles, setLocalWorkspaceFiles] = useState<
     WorkspaceFile[]
   >([]);
@@ -771,6 +781,10 @@ function ChatInput({
       right.updatedAt.localeCompare(left.updatedAt),
     );
   }, [localWorkspaceFiles, workspaceFiles]);
+  const filesDrawerSize = Math.min(
+    Math.floor(screenHeight * 0.9),
+    Math.max(420, 380 + mergedWorkspaceFiles.length * 52),
+  );
 
   useEffect(() => {
     setLocalWorkspaceFiles((current) =>
@@ -779,6 +793,12 @@ function ChatInput({
       ),
     );
   }, [workspaceFiles]);
+
+  useEffect(() => {
+    if (composerTrigger?.kind !== "slash") {
+      setSlashMenuView("commands");
+    }
+  }, [composerTrigger?.kind]);
 
   useEffect(() => {
     if (!filesDrawerOpen) {
@@ -794,9 +814,6 @@ function ChatInput({
       (left, right) =>
         selectedFileIds.indexOf(left.id) - selectedFileIds.indexOf(right.id),
     );
-  const uploadedFiles = mergedWorkspaceFiles.filter(
-    (file) => file.sourceKind === "imported",
-  );
   const selectedAttachmentBuckets = useMemo(
     () => partitionSelectedFiles(selectedFiles),
     [selectedFiles],
@@ -1213,20 +1230,23 @@ function ChatInput({
   );
   const slashMenuItems = useMemo(
     () => [
-      ...savedPrompts.map((savedPrompt) => ({
-        id: `saved-prompt:${savedPrompt.id}`,
+      {
+        disabled: savedPrompts.length === 0,
+        id: "saved-prompts",
         icon: <Bookmark color={theme.text} size={16} />,
-        label: savedPrompt.title,
+        label: "Saved prompts",
         onPress: () => {
           setPrompt((current) => {
             const withoutTrigger = clearComposerTrigger(current);
-            return withoutTrigger
-              ? `${withoutTrigger} ${savedPrompt.content}`
-              : savedPrompt.content;
+            return withoutTrigger ? `${withoutTrigger} /` : "/";
           });
+          setSlashMenuView("saved-prompts");
         },
-        subtitle: savedPrompt.content.replace(/\s+/g, " ").trim(),
-      })),
+        subtitle:
+          savedPrompts.length > 0
+            ? `${savedPrompts.length} saved prompt${savedPrompts.length === 1 ? "" : "s"}`
+            : "No saved prompts",
+      },
       {
         id: "reasoning-level",
         icon: <Brain color={theme.text} size={16} />,
@@ -1279,10 +1299,42 @@ function ChatInput({
       currentModelLabel,
       enabledMcpServers.length,
       reasoningEffort,
-      savedPrompts,
+      savedPrompts.length,
       selectedSkills.length,
       theme.text,
     ],
+  );
+  const savedPromptMenuItems = useMemo(
+    () => [
+      {
+        id: "saved-prompts-back",
+        icon: <ChevronLeft color={theme.text} size={16} />,
+        label: "Back",
+        onPress: () => {
+          setPrompt((current) => {
+            const withoutTrigger = clearComposerTrigger(current);
+            return withoutTrigger ? `${withoutTrigger} /` : "/";
+          });
+          setSlashMenuView("commands");
+        },
+        subtitle: "All commands",
+      },
+      ...savedPrompts.map((savedPrompt) => ({
+        id: `saved-prompt:${savedPrompt.id}`,
+        icon: <Bookmark color={theme.text} size={16} />,
+        label: savedPrompt.title,
+        onPress: () => {
+          setPrompt((current) => {
+            const withoutTrigger = clearComposerTrigger(current);
+            return withoutTrigger
+              ? `${withoutTrigger} ${savedPrompt.content}`
+              : savedPrompt.content;
+          });
+        },
+        subtitle: savedPrompt.content.replace(/\s+/g, " ").trim(),
+      })),
+    ],
+    [savedPrompts, theme.text],
   );
   const triggerMenuItems = useMemo(() => {
     if (!composerTrigger) {
@@ -1290,14 +1342,26 @@ function ChatInput({
     }
 
     const source =
-      composerTrigger.kind === "mention" ? mentionMenuItems : slashMenuItems;
+      composerTrigger.kind === "mention"
+        ? mentionMenuItems
+        : slashMenuView === "saved-prompts"
+          ? savedPromptMenuItems
+          : slashMenuItems;
 
-    return source.filter((item) =>
-      matchesMenuQuery(composerTrigger.query, item.label, item.subtitle, [
-        item.id,
-      ]),
+    return source.filter(
+      (item) =>
+        item.id === "saved-prompts-back" ||
+        matchesMenuQuery(composerTrigger.query, item.label, item.subtitle, [
+          item.id,
+        ]),
     );
-  }, [composerTrigger, mentionMenuItems, slashMenuItems]);
+  }, [
+    composerTrigger,
+    mentionMenuItems,
+    savedPromptMenuItems,
+    slashMenuItems,
+    slashMenuView,
+  ]);
 
   return (
     <View className="relative">
@@ -1411,9 +1475,6 @@ function ChatInput({
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);
               }}
-              onFocus={() => {
-                scrollToEnd();
-              }}
               placeholder="Type a message..."
               returnKeyType="send"
               scrollEnabled={composerScrollEnabled}
@@ -1495,18 +1556,22 @@ function ChatInput({
       </View>
 
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
-        <DrawerContent showCloseButton showHandle size={520}>
+        <DrawerContent
+          showCloseButton
+          showHandle
+          size={filesDrawerSize}
+        >
           <DrawerHeader>
             <DrawerTitle>Select file</DrawerTitle>
             <DrawerDescription>
-              {uploadedFiles.length} uploaded file
-              {uploadedFiles.length === 1 ? "" : "s"} available
+              {mergedWorkspaceFiles.length} file
+              {mergedWorkspaceFiles.length === 1 ? "" : "s"} available
             </DrawerDescription>
           </DrawerHeader>
 
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
-            {uploadedFiles.length > 0 ? (
-              uploadedFiles.map((file) => {
+            {mergedWorkspaceFiles.length > 0 ? (
+              mergedWorkspaceFiles.map((file) => {
                 const selected = selectedFileIds.includes(file.id);
                 const { binaryFiles, imageFiles } = partitionSelectedFiles([
                   file,
@@ -1558,7 +1623,7 @@ function ChatInput({
               })
             ) : (
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                No uploaded files yet. Upload one below to attach it.
+                No files in the workspace yet. Upload one below to attach it.
               </Text>
             )}
           </DrawerBody>
@@ -1944,7 +2009,6 @@ function DrawerSelectRow({
             </Text>
           ) : null}
         </View>
-        {selected ? <Check color={theme.text} size={18} /> : null}
       </Pressable>
       {onDelete ? (
         <Pressable

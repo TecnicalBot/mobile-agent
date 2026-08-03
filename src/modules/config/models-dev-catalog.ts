@@ -1,4 +1,5 @@
 import type { CuratedModelDefinition, ProviderConfig } from "@/core/types/app-state";
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 import { getSupportedProviderDefinition } from "@/modules/providers";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
@@ -35,23 +36,28 @@ export async function fetchModelsDevCatalogCached() {
     return cachedCatalog.providers;
   }
 
-  const response = await fetch(MODELS_DEV_URL, {
-    headers: { Accept: "application/json" },
-  });
+  try {
+    const response = await fetchWithTimeout(MODELS_DEV_URL, {
+      headers: { Accept: "application/json" },
+    });
 
-  if (!response.ok) {
-    throw new Error(`models.dev catalog request failed (${response.status}).`);
+    if (!response.ok) {
+      throw new Error(`models.dev catalog request failed (${response.status}).`);
+    }
+
+    const providers = (await response.json()) as Record<
+      string,
+      ModelsDevProvider
+    >;
+    cachedCatalog = {
+      expiresAt: Date.now() + CATALOG_TTL_MS,
+      providers,
+    };
+    return providers;
+  } catch (error) {
+    if (cachedCatalog) return cachedCatalog.providers;
+    throw error;
   }
-
-  const providers = (await response.json()) as Record<
-    string,
-    ModelsDevProvider
-  >;
-  cachedCatalog = {
-    expiresAt: Date.now() + CATALOG_TTL_MS,
-    providers,
-  };
-  return providers;
 }
 
 export function getModelsDevDefinitionsForProvider(

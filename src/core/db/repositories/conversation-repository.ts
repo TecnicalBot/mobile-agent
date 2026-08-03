@@ -21,6 +21,7 @@ export function createConversationRepository(
         title: input.title,
         providerId: input.providerId ?? null,
         modelId: input.modelId ?? null,
+        pinnedAt: input.pinnedAt ?? null,
         reasoningEffort: "medium",
         selectedFileIds: [],
         selectedSkillIds: [],
@@ -63,7 +64,7 @@ export function createConversationRepository(
         .select()
         .from(conversations)
         .where(isNull(conversations.archivedAt))
-        .orderBy(desc(conversations.updatedAt));
+        .orderBy(desc(conversations.pinnedAt), desc(conversations.updatedAt));
     },
     async updateMetadata(id, input) {
       const current = (
@@ -84,6 +85,8 @@ export function createConversationRepository(
           title: input.title ?? current.title,
           providerId: input.providerId ?? current.providerId,
           modelId: input.modelId ?? current.modelId,
+          pinnedAt:
+            input.pinnedAt !== undefined ? input.pinnedAt : current.pinnedAt,
           reasoningEffort: input.reasoningEffort ?? current.reasoningEffort,
           selectedFileIds: input.selectedFileIds ?? current.selectedFileIds,
           selectedMcpServerIds:

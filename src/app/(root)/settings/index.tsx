@@ -3,10 +3,10 @@ import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useEffect, useState, type ReactNode } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Drawer,
   DrawerBody,
@@ -18,22 +18,27 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
+import { cn } from "@/core/utils";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
+import { useUpdate } from "@/providers/check-for-updates";
 import {
+  hasNotificationPermission,
   isBackgroundAgentHeld,
   requestBatteryOptimizationExemption,
   requestNotificationPermission,
-  hasNotificationPermission,
 } from "background-agent-service";
-import { cn } from "@/core/utils";
-import { useUpdate } from "@/providers/check-for-updates";
-import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 
 type DrawerKey =
-  "current-model" | "db" | "theme" | "background" | "notifications" | null;
+  | "current-model"
+  | "db"
+  | "theme"
+  | "background"
+  | "notifications"
+  | null;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -407,13 +412,13 @@ export default function SettingsScreen() {
         >
           <DrawerTrigger asChild>
             <SettingsLinkRow
-              label="DB"
+              label="Database"
               value={databaseMode === "local" ? "Local" : "Remote"}
             />
           </DrawerTrigger>
           <DrawerContent showCloseButton>
             <DrawerHeader>
-              <DrawerTitle>DB</DrawerTitle>
+              <DrawerTitle>Database</DrawerTitle>
             </DrawerHeader>
             <DrawerBody>
               <View className="flex-row gap-sp-2">

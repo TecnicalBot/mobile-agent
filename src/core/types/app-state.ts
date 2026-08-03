@@ -272,6 +272,7 @@ export type Conversation = {
   selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];
   externalFolderSession: ExternalFolderSession | null;
+  pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;

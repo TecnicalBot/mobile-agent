@@ -136,20 +136,22 @@ export function McpServerForm({
   presetId?: string;
   serverId?: string;
 }) {
-  const { hydrating, ready } = useAppState();
+  const { ready } = useAppState();
   const { createMcpServer, mcpServers, updateMcpServer } = useConfig();
   const targetServer = serverId
     ? mcpServers.find((server) => server.id === serverId)
     : null;
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(() =>
+    !serverId && !presetId ? EMPTY_DRAFT : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [showAdvancedOAuth, setShowAdvancedOAuth] = useState(false);
 
   useEffect(() => {
-    if (!ready || hydrating) return;
-
     if (serverId) {
+      if (!ready) return;
+
       if (!targetServer) {
         setError("MCP server not found.");
         return;
@@ -193,7 +195,7 @@ export function McpServerForm({
       });
 
     return () => controller.abort();
-  }, [hydrating, presetId, ready, serverId, targetServer]);
+  }, [presetId, ready, serverId, targetServer]);
 
   const save = async () => {
     if (!draft) return;

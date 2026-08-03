@@ -2,6 +2,7 @@ import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
+import { DismissibleBanner } from "@/components/ui/dismissible-banner";
 import { migrateAppDatabase } from "@/core/db/database";
 import { AppStateProvider } from "@/providers/app-state";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
@@ -24,6 +25,7 @@ import { X } from "lucide-react-native";
 import { useEffect, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "./global.css";
 
 SplashScreen.preventAutoHideAsync();
@@ -157,48 +159,48 @@ function InAppNotificationBanner() {
 
   return (
     <View className="absolute inset-x-0 top-0 z-50 px-sp-4 pt-12">
-      <Pressable
-        accessibilityRole="button"
-        className="rounded-card border border-border bg-card px-sp-4 py-sp-3 shadow-sm dark:border-border-dark dark:bg-card-dark"
-        onPress={() => {
-          if (currentConversation?.id !== inAppNotification.conversationId) {
-            selectConversation(inAppNotification.conversationId)
-              .then(() => {
-                router.push("/");
-              })
-              .catch(console.error);
-          }
+      <DismissibleBanner onDismiss={dismissInAppNotification}>
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-card border border-border bg-card px-sp-4 py-sp-3 shadow-sm dark:border-border-dark dark:bg-card-dark"
+          onPress={() => {
+            if (currentConversation?.id !== inAppNotification.conversationId) {
+              selectConversation(inAppNotification.conversationId)
+                .then(() => {
+                  router.push("/");
+                })
+                .catch(console.error);
+            }
 
-          dismissInAppNotification();
-        }}
-        style={({ pressed }) => (pressed ? { opacity: 0.92 } : null)}
-      >
-        <View className="flex-row items-start gap-sp-3">
-          <View className="min-w-0 flex-1 gap-1">
-            <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-              {inAppNotification.title}
-            </Text>
-            <Text
-              className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
-              numberOfLines={2}
+            dismissInAppNotification();
+          }}
+          style={({ pressed }) => (pressed ? { opacity: 0.92 } : null)}
+        >
+          <View className="flex-row items-start gap-sp-3">
+            <View className="min-w-0 flex-1 gap-1">
+              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                {inAppNotification.title}
+              </Text>
+              <Text
+                className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
+                numberOfLines={2}
+              >
+                {inAppNotification.body}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Dismiss notification"
+              accessibilityRole="button"
+              className="p-1"
+              hitSlop={8}
+              onPress={dismissInAppNotification}
+              style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
             >
-              {inAppNotification.body}
-            </Text>
+              <X color={theme.textSecondary} size={16} />
+            </Pressable>
           </View>
-          <Pressable
-            accessibilityLabel="Dismiss notification"
-            accessibilityRole="button"
-            className="p-1"
-            hitSlop={8}
-            onPress={() => {
-              dismissInAppNotification();
-            }}
-            style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
-          >
-            <X color={theme.textSecondary} size={16} />
-          </Pressable>
-        </View>
-      </Pressable>
+        </Pressable>
+      </DismissibleBanner>
     </View>
   );
 }
@@ -211,34 +213,36 @@ function ReleaseUpdateBanner() {
   if (!release || bannerDismissed) return null;
   return (
     <View className="absolute inset-x-0 top-10 z-50 px-sp-4 pb-10">
-      <View className="rounded-card border border-border bg-card px-sp-4 py-sp-3 shadow-sm dark:border-border-dark dark:bg-card-dark">
-        <View className="flex-row items-start gap-sp-3">
-          <Pressable
-            accessibilityRole="button"
-            className="min-w-0 flex-1 gap-1"
-            disabled={installing}
-            onPress={installUpdate}
-          >
-            <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-              Update available: {release.tagName}
-            </Text>
-            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              {installing
-                ? `Downloading ${release.apkName}…`
-                : `You have ${release.currentVersion}. Tap to update.`}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Dismiss update"
-            accessibilityRole="button"
-            className="p-1"
-            hitSlop={8}
-            onPress={dismissUpdate}
-          >
-            <X color={theme.textSecondary} size={16} />
-          </Pressable>
+      <DismissibleBanner onDismiss={dismissUpdate}>
+        <View className="rounded-card border border-border bg-card px-sp-4 py-sp-3 shadow-sm dark:border-border-dark dark:bg-card-dark">
+          <View className="flex-row items-start gap-sp-3">
+            <Pressable
+              accessibilityRole="button"
+              className="min-w-0 flex-1 gap-1"
+              disabled={installing}
+              onPress={installUpdate}
+            >
+              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                Update available: {release.tagName}
+              </Text>
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {installing
+                  ? `Downloading ${release.apkName}…`
+                  : `You have ${release.currentVersion}. Tap to update.`}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Dismiss update"
+              accessibilityRole="button"
+              className="p-1"
+              hitSlop={8}
+              onPress={dismissUpdate}
+            >
+              <X color={theme.textSecondary} size={16} />
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </DismissibleBanner>
     </View>
   );
 }
@@ -254,25 +258,27 @@ function SplashScreenController() {
 export default function MainLayout() {
   const colorScheme = useColorScheme();
   return (
-    <KeyboardProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <AppQueryProvider>
-          <SQLiteProvider
-            databaseName="mobile-agent.db"
-            onInit={migrateAppDatabase}
-          >
-            <AppStateProvider>
-              <UpdateProvider>
-                <SplashScreenController />
-                <NotificationObserver />
-                <InAppNotificationBanner />
-                <ReleaseUpdateBanner />
-                <Slot />
-              </UpdateProvider>
-            </AppStateProvider>
-          </SQLiteProvider>
-        </AppQueryProvider>
-      </ThemeProvider>
-    </KeyboardProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <KeyboardProvider>
+        <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+          <AppQueryProvider>
+            <SQLiteProvider
+              databaseName="mobile-agent.db"
+              onInit={migrateAppDatabase}
+            >
+              <AppStateProvider>
+                <UpdateProvider>
+                  <SplashScreenController />
+                  <NotificationObserver />
+                  <InAppNotificationBanner />
+                  <ReleaseUpdateBanner />
+                  <Slot />
+                </UpdateProvider>
+              </AppStateProvider>
+            </SQLiteProvider>
+          </AppQueryProvider>
+        </ThemeProvider>
+      </KeyboardProvider>
+    </GestureHandlerRootView>
   );
 }

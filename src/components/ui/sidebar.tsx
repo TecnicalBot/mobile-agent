@@ -21,10 +21,16 @@ import {
   useWindowDimensions,
   type GestureResponderEvent,
 } from "react-native";
+import Animated, {
+  FadeIn,
+  FadeInLeft,
+  FadeInRight,
+  useReducedMotion,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/core/utils";
+import { useTheme } from "@/hooks/use-theme";
 
 type SidebarContextValue = {
   open: boolean;
@@ -219,6 +225,7 @@ export const Sidebar = forwardRef<ComponentRef<typeof View>, SidebarProps>(
   ) => {
     const { open, setOpen, side } = useSidebarContext("Sidebar");
     const insets = useSafeAreaInsets();
+    const reduceMotion = useReducedMotion();
     const theme = useTheme();
     const { width: viewportWidth } = useWindowDimensions();
 
@@ -242,11 +249,16 @@ export const Sidebar = forwardRef<ComponentRef<typeof View>, SidebarProps>(
             side === "right" ? "justify-end" : "justify-start",
           )}
         >
-          <Pressable
-            className={cn("absolute inset-0 bg-black/50", overlayClassName)}
-            onPress={closeOnOverlayPress ? () => setOpen(false) : undefined}
-          />
-          <View
+          <Animated.View
+            className="absolute inset-0"
+            entering={reduceMotion ? undefined : FadeIn.duration(160)}
+          >
+            <Pressable
+              className={cn("flex-1 bg-black/40", overlayClassName)}
+              onPress={closeOnOverlayPress ? () => setOpen(false) : undefined}
+            />
+          </Animated.View>
+          <Animated.View
             ref={ref}
             className={cn(
               "border-border bg-card px-sp-4 dark:border-border-dark dark:bg-card-dark",
@@ -260,21 +272,39 @@ export const Sidebar = forwardRef<ComponentRef<typeof View>, SidebarProps>(
               },
               style,
             ]}
+            entering={
+              reduceMotion
+                ? undefined
+                : side === "right"
+                  ? FadeInRight.duration(190).withInitialValues({
+                      opacity: 0,
+                      translateX: 20,
+                    })
+                  : FadeInLeft.duration(190).withInitialValues({
+                      opacity: 0,
+                      translateX: -20,
+                    })
+            }
             {...props}
           >
             {showCloseButton ? (
-              <View className="absolute right-sp-3 top-sp-3 z-10">
+              <View
+                className="absolute right-sp-3 z-10"
+                style={{ top: insets.top + 10 }}
+              >
                 <Pressable
                   accessibilityLabel="Close sidebar"
-                  className="h-10 w-10 items-center justify-center rounded-full bg-secondary dark:bg-secondary-dark"
+                  accessibilityRole="button"
+                  className="h-8 w-8 items-center justify-center rounded-full  bg-background dark:bg-background-dark"
                   onPress={() => setOpen(false)}
+                  style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
                 >
-                  <X color={theme.text} size={18} />
+                  <X color={theme.textSecondary} size={16} />
                 </Pressable>
               </View>
             ) : null}
-            <View className="flex-1 gap-sp-4">{children}</View>
-          </View>
+            <View className="flex-1 gap-sp-2">{children}</View>
+          </Animated.View>
         </View>
       </ReactNativeModal>
     );
@@ -322,7 +352,7 @@ export const SidebarContent = forwardRef<
   <ScrollView
     ref={ref}
     className={cn("flex-1", className)}
-    contentContainerClassName="gap-sp-4"
+    contentContainerClassName="gap-sp-3"
     showsVerticalScrollIndicator={false}
     {...props}
   />
@@ -351,7 +381,7 @@ export const SidebarGroup = forwardRef<
   ComponentRef<typeof View>,
   SidebarGroupProps
 >(({ className, ...props }, ref) => (
-  <View ref={ref} className={cn("gap-sp-3", className)} {...props} />
+  <View ref={ref} className={cn("gap-sp-2", className)} {...props} />
 ));
 
 SidebarGroup.displayName = "SidebarGroup";
@@ -474,22 +504,6 @@ export const SidebarMenuButton = forwardRef<
     },
     ref,
   ) => {
-    const content = (
-      <>
-        {leftIcon ? <View>{leftIcon}</View> : null}
-        <View className="min-w-0 flex-1">
-          {typeof children === "string" || typeof children === "number" ? (
-            <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
-              {children}
-            </Text>
-          ) : (
-            children
-          )}
-        </View>
-        {rightIcon ? <View>{rightIcon}</View> : null}
-      </>
-    );
-
     if (asChild) {
       return slotPressableChild(children, {
         ...props,
@@ -518,9 +532,6 @@ export const SidebarMenuButton = forwardRef<
         }
         {...props}
       >
-        {isActive ? (
-          <View className="absolute inset-0 rounded-2xl bg-foreground dark:bg-foreground-dark" />
-        ) : null}
         <View className="z-10 flex-1 flex-row items-center gap-sp-3">
           {leftIcon ? <View>{leftIcon}</View> : null}
           <View className="min-w-0 flex-1">

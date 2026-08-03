@@ -9,6 +9,7 @@ import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
@@ -17,7 +18,7 @@ import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
 export default function ConnectedMcpServersScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { hydrating, ready } = useAppState();
+  const { ready } = useAppState();
   const {
     clearMcpServerCredentials,
     connectMcpServerOAuth,
@@ -47,7 +48,7 @@ export default function ConnectedMcpServersScreen() {
     }
   };
 
-  if (ready && !hydrating && mcpServers.length === 0) {
+  if (ready && mcpServers.length === 0) {
     return <Redirect href={"/settings/mcp/list" as never} />;
   }
 
@@ -57,13 +58,36 @@ export default function ConnectedMcpServersScreen() {
       contentClassName="gap-sp-4 py-sp-4"
       includeBottomTabInset={false}
     >
-      <McpScreenHeader backHref="/settings" title="MCP servers" />
+      <McpScreenHeader
+        action={
+          <Button
+            className="ml-auto"
+            leftIcon={<Plus color={theme.text} size={16} />}
+            onPress={() => router.push("/settings/mcp/add" as never)}
+            size="sm"
+            variant="outline"
+          >
+            Add custom
+          </Button>
+        }
+        backHref="/settings"
+        title="MCP servers"
+      />
 
-      {!ready || hydrating ? (
-        <Card className="px-sp-4 py-sp-4">
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            Loading connected servers…
-          </Text>
+      {!ready ? (
+        <Card
+          accessibilityLabel="Loading connected servers"
+          className="gap-sp-3 px-sp-4 py-sp-4"
+        >
+          {[0, 1, 2].map((item) => (
+            <View key={item} className="flex-row items-center gap-sp-3">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <View className="flex-1 gap-sp-2">
+                <Skeleton className="h-3 w-2/5" />
+                <Skeleton className="h-3 w-3/5" />
+              </View>
+            </View>
+          ))}
         </Card>
       ) : (
         <>

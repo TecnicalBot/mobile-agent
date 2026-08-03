@@ -156,29 +156,77 @@ function alternateTransport(
   return transport === "http" ? "sse" : "http";
 }
 
+const MCP_CONNECTION_TIMEOUT_MS = 10_000;
+
+function waitForMcpOperation<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  onLateResolve?: (value: T) => void,
+) {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("MCP connection timed out or was canceled."));
+    };
+
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        if (settled) {
+          onLateResolve?.(value);
+          return;
+        }
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function connectMcpClient(
   server: McpServerConfig,
   headers: Record<string, string>,
+  signal: AbortSignal,
 ) {
   const transports = [server.transport, alternateTransport(server.transport)];
   const failures: unknown[] = [];
 
   for (const transportType of transports) {
     try {
-      return await createRuntimeMCPClient({
-        clientName: "mobile-agent",
-        maxRetries: 2,
-        transport: {
-          type: transportType,
-          url: server.url,
-          headers,
-          redirect: "follow",
-          authProvider:
-            server.authMode === "oauth"
-              ? createMcpTransportOAuthProvider(server)
-              : undefined,
+      return await waitForMcpOperation(
+        createRuntimeMCPClient({
+          clientName: "mobile-agent",
+          maxRetries: 2,
+          transport: {
+            type: transportType,
+            url: server.url,
+            headers,
+            redirect: "follow",
+            authProvider:
+              server.authMode === "oauth"
+                ? createMcpTransportOAuthProvider(server)
+                : undefined,
+          },
+        }),
+        signal,
+        (client) => {
+          client.close().catch(() => {});
         },
-      });
+      );
     } catch (error) {
       failures.push(error);
     }
@@ -302,6 +350,7 @@ async function runWithConcurrency<T, R>(
 export async function createMcpRuntimeTools(params: {
   onRecord?: (record: ToolExecutionRecord) => void;
   servers: McpServerConfig[];
+  signal?: AbortSignal;
 }): Promise<McpRuntimeToolsResult> {
   const clients: MCPClient[] = [];
   const displayNames = new Map<string, string>();
@@ -313,11 +362,26 @@ export async function createMcpRuntimeTools(params: {
   const concurrencyLimit = 4;
 
   async function connectServer(server: McpServerConfig) {
-    try {
-      const headers = await buildMcpHeaders(server);
-      const client = await connectMcpClient(server, headers);
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      MCP_CONNECTION_TIMEOUT_MS,
+    );
+    const abortFromRun = () => controller.abort();
+    params.signal?.addEventListener("abort", abortFromRun, { once: true });
+    let client: MCPClient | null = null;
 
-      const rawDefinitions = await client.listTools();
+    try {
+      const headers = await waitForMcpOperation(
+        buildMcpHeaders(server),
+        controller.signal,
+      );
+      client = await connectMcpClient(server, headers, controller.signal);
+
+      const rawDefinitions = await waitForMcpOperation(
+        client.listTools(),
+        controller.signal,
+      );
       for (const t of rawDefinitions.tools) {
         const findEnum = (s: Record<string, unknown>, path = ""): void => {
           if (s.properties && typeof s.properties === "object") {
@@ -410,6 +474,9 @@ export async function createMcpRuntimeTools(params: {
         toolCount: Object.keys(mcpTools).length,
       };
     } catch (error) {
+      if (client) {
+        client.close().catch(() => {});
+      }
       return {
         error: getErrorMessage(error),
         instructions: null,
@@ -417,6 +484,9 @@ export async function createMcpRuntimeTools(params: {
         serverInfo: null,
         toolCount: null,
       };
+    } finally {
+      clearTimeout(timeout);
+      params.signal?.removeEventListener("abort", abortFromRun);
     }
   }
 
@@ -446,12 +516,23 @@ export async function createMcpRuntimeTools(params: {
 
 export async function testMcpServerConnection(server: McpServerConfig) {
   let client: MCPClient | null = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    MCP_CONNECTION_TIMEOUT_MS,
+  );
 
   try {
-    const headers = await buildMcpHeaders(server);
-    client = await connectMcpClient(server, headers);
+    const headers = await waitForMcpOperation(
+      buildMcpHeaders(server),
+      controller.signal,
+    );
+    client = await connectMcpClient(server, headers, controller.signal);
 
-    const tools = await client.listTools();
+    const tools = await waitForMcpOperation(
+      client.listTools(),
+      controller.signal,
+    );
 
     return {
       instructions: client.instructions ?? null,
@@ -459,6 +540,7 @@ export async function testMcpServerConnection(server: McpServerConfig) {
       toolCount: tools.tools.length,
     };
   } finally {
-    await client?.close();
+    clearTimeout(timeout);
+    await client?.close().catch(() => {});
   }
 }

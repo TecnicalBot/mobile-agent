@@ -14,7 +14,9 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Connect to Ollama servers on your local network."
+        "NSLocalNetworkUsageDescription": "Connect to Ollama servers on your local network.",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
       }
     },
     "android": {

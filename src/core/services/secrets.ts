@@ -190,8 +190,12 @@ export const secureSecretStore: SecretStore = {
     return SecureStore.getItemAsync(getProviderApiKeyKey(providerId));
   },
   async hasProviderCredential(provider) {
+    if (!provider.enabled) {
+      return false;
+    }
+
     if (provider.authType === "none") {
-      return provider.enabled;
+      return true;
     }
 
     if (provider.authType === "oauth") {

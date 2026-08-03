@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 15;
+const DATABASE_VERSION = 16;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -59,6 +59,13 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       `);
     }
 
+    if (!conversationColumns.some((column) => column.name === "pinned_at")) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN pinned_at TEXT;
+      `);
+    }
+
     return;
   }
 
@@ -76,6 +83,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
         external_folder_session_json TEXT,
+        pinned_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         archived_at TEXT
@@ -496,6 +504,15 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 15;
+  }
+
+  if (currentVersion === 15) {
+    await db.execAsync(`
+      ALTER TABLE conversations
+      ADD COLUMN pinned_at TEXT;
+    `);
+
+    currentVersion = 16;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

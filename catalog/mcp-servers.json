@@ -183,7 +183,7 @@
       "id": "zapier",
       "label": "Zapier",
       "description": "Trigger Zaps and automate workflows across thousands of apps.",
-      "url": "https://mcp.zapier.com/mcp",
+      "url": "https://mcp.zapier.com/api/v1/connect",
       "transport": "http",
       "authMode": "oauth"
     },

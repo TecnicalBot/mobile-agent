@@ -23,6 +23,7 @@ import { connectMcpOAuth } from "@/modules/mcp/oauth";
 import { testMcpServerConnection } from "@/modules/mcp/runtime-tools";
 import {
     dismissApprovalNotification,
+    dismissRunNotificationsAsync,
     dismissStaleApprovalNotificationsAsync,
     notifyApprovalRequestedAsync,
     notifyRunFinishedAsync,
@@ -877,6 +878,7 @@ Your output must be:
                 runId: approval.runId,
             })),
         ).catch(() => { });
+        dismissRunNotificationsAsync().catch(() => { });
         resumePendingRuns().catch(() => { });
     }, [hydrating, ready]);
 
@@ -886,6 +888,7 @@ Your output must be:
 
             if (nextAppState === "active") {
                 void (async () => {
+                    await dismissRunNotificationsAsync();
                     await hydrate();
                     await resumePendingRuns();
                 })().catch(() => { });

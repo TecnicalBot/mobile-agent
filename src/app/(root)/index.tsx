@@ -301,19 +301,25 @@ export default function Screen() {
         >
           <View className="flex-row items-center justify-between gap-sp-3">
             <View className="flex flex-row gap-2">
-              <SidebarTrigger />
-              <Button onPress={createConversation} size="icon" variant="ghost">
-                <Edit color={theme.text} />
+              <SidebarTrigger accessibilityLabel="Open sidebar" />
+              <Button
+                accessibilityLabel="New chat"
+                onPress={createConversation}
+                size="icon"
+                variant="ghost"
+              >
+                <Edit color={theme.text} size={20} />
               </Button>
             </View>
             <Button
+              accessibilityLabel="Chat info"
               onPress={() => {
                 setInfoDrawerOpen(true);
               }}
               size="icon"
               variant="ghost"
             >
-              <Info color={theme.text} size={18} />
+              <Info color={theme.text} size={20} />
             </Button>
           </View>
 

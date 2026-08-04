@@ -31,6 +31,7 @@ import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { usePathname, useRouter } from "expo-router";
 import {
+  Edit,
   EllipsisVertical,
   Library,
   Pause,
@@ -56,6 +57,7 @@ export function AppSidebar() {
   const { hydrating } = useAppState();
   const {
     conversations,
+    createConversation,
     currentConversation,
     renameConversation,
     runStatusByConversation,
@@ -161,10 +163,26 @@ export function AppSidebar() {
   return (
     <>
       <Sidebar>
-        <SidebarHeader className="min-h-8 justify-center">
+        <SidebarHeader className="min-h-8 flex-row items-center justify-between">
           <Text className="font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark">
             Mobile Agent
           </Text>
+          <SidebarClose asChild>
+            <Button
+              accessibilityLabel="New chat"
+              onPress={() => {
+                createConversation()
+                  .then(() => {
+                    router.push("/");
+                  })
+                  .catch(console.error);
+              }}
+              size="icon"
+              variant="ghost"
+            >
+              <Edit color={theme.text} size={20} />
+            </Button>
+          </SidebarClose>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup className="pb-sp-2">

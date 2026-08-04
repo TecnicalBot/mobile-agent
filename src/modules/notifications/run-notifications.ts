@@ -203,6 +203,16 @@ export async function dismissRunFinishedNotification(conversationId: string) {
   ]);
 }
 
+export async function dismissRunNotificationsAsync() {
+  approvalNotificationIds.clear();
+  runFinishedNotificationIds.clear();
+
+  await Promise.allSettled([
+    Notifications.cancelAllScheduledNotificationsAsync(),
+    Notifications.dismissAllNotificationsAsync(),
+  ]);
+}
+
 export async function dismissStaleApprovalNotificationsAsync(
   valid: { approvalId: string; runId: string }[],
 ) {

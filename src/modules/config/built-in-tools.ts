@@ -13,6 +13,19 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   folderRenameEntry: true,
   folderMoveEntry: true,
   folderDeleteEntry: true,
+  deviceReadScreen: false,
+  deviceTap: false,
+  deviceType: false,
+  deviceSwipe: false,
+  deviceLongPress: false,
+  deviceDrag: false,
+  deviceScroll: false,
+  deviceNavigate: false,
+  deviceOpenApp: false,
+  deviceDeepLink: false,
+  deviceListApps: false,
+  deviceClipboard: false,
+  deviceScreenshot: false,
 };
 
 export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
@@ -52,6 +65,78 @@ export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
     keys: ["folderDeleteEntry"],
   },
 ];
+
+export const DEVICE_TOOL_CONTROLS: Array<{
+  keys: BuiltInToolKey[];
+  label: string;
+}> = [
+  {
+    label: "Read screen",
+    keys: ["deviceReadScreen"],
+  },
+  {
+    label: "Tap",
+    keys: ["deviceTap"],
+  },
+  {
+    label: "Type",
+    keys: ["deviceType"],
+  },
+  {
+    label: "Swipe",
+    keys: ["deviceSwipe"],
+  },
+  {
+    label: "Long press",
+    keys: ["deviceLongPress"],
+  },
+  {
+    label: "Drag",
+    keys: ["deviceDrag"],
+  },
+  {
+    label: "Scroll",
+    keys: ["deviceScroll"],
+  },
+  {
+    label: "Back / Home",
+    keys: ["deviceNavigate"],
+  },
+  {
+    label: "Open app",
+    keys: ["deviceOpenApp"],
+  },
+  {
+    label: "Open link",
+    keys: ["deviceDeepLink"],
+  },
+  {
+    label: "List apps",
+    keys: ["deviceListApps"],
+  },
+  {
+    label: "Clipboard",
+    keys: ["deviceClipboard"],
+  },
+  {
+    label: "Take screenshot",
+    keys: ["deviceScreenshot"],
+  },
+];
+
+export const DEVICE_TOOL_KEYS: BuiltInToolKey[] = DEVICE_TOOL_CONTROLS.flatMap(
+  (control) => control.keys,
+);
+
+export function isDeviceAutomationEnabled(settings: BuiltInToolSettings) {
+  return DEVICE_TOOL_KEYS.some((key) => settings[key]);
+}
+
+export function countEnabledDeviceTools(settings: BuiltInToolSettings) {
+  return DEVICE_TOOL_CONTROLS.filter((control) =>
+    isBuiltInFileToolEnabled(settings, control.keys),
+  ).length;
+}
 
 export function normalizeBuiltInToolSettings(
   input?: Partial<BuiltInToolSettings> | null,

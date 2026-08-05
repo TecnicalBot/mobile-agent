@@ -53,7 +53,20 @@ export type BuiltInToolKey =
   | "folderCreateDirectory"
   | "folderRenameEntry"
   | "folderMoveEntry"
-  | "folderDeleteEntry";
+  | "folderDeleteEntry"
+  | "deviceReadScreen"
+  | "deviceTap"
+  | "deviceType"
+  | "deviceSwipe"
+  | "deviceLongPress"
+  | "deviceDrag"
+  | "deviceScroll"
+  | "deviceNavigate"
+  | "deviceOpenApp"
+  | "deviceDeepLink"
+  | "deviceListApps"
+  | "deviceClipboard"
+  | "deviceScreenshot";
 export type BuiltInToolSettings = Record<BuiltInToolKey, boolean>;
 export type SkillConfig = {
   id: string;

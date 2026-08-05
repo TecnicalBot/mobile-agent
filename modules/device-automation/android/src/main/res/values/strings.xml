@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Allows the AI agent to read the current screen and perform actions such as tapping, typing, and swiping on your behalf. Only enabled when you turn it on in system accessibility settings.</string>
+</resources>

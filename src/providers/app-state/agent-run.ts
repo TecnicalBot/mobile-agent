@@ -39,6 +39,12 @@ import {
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
+import { Platform } from "react-native";
+import {
+  buildDeviceSystemPrompt,
+  createDeviceTools,
+} from "@/modules/tools/device-tools";
+import { isDeviceAutomationEnabled } from "@/modules/config/built-in-tools";
 import { dismissApprovalNotification } from "@/modules/notifications/run-notifications";
 import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
@@ -840,10 +846,20 @@ export async function executeClaimedAgentRun(
         .catch(() => {});
     }
 
+    const deviceRuntimeTools: ToolSet | undefined =
+      runtimeSupportsTools &&
+      Platform.OS === "android" &&
+      isDeviceAutomationEnabled(snapshotRef.current.settings.builtInToolSettings)
+        ? createDeviceTools({
+            onRecord: handleToolExecutionRecord,
+          })
+        : undefined;
+
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools
+      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
+            ...(deviceRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
@@ -898,6 +914,10 @@ export async function executeClaimedAgentRun(
       ("createFile" in builtInRuntimeTools || "writeFile" in builtInRuntimeTools)
         ? buildWorkspaceSystemPrompt()
         : undefined;
+    const deviceRuntimeSystem =
+      Platform.OS === "android" && deviceRuntimeTools
+        ? buildDeviceSystemPrompt()
+        : undefined;
     const selectedFilesContext = useInlineFileContext
       ? await buildSelectedFilesInlineContext({
           repository: repositories.workspaceRepository,
@@ -935,6 +955,7 @@ export async function executeClaimedAgentRun(
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,
         workspaceRuntimeSystem,
+        deviceRuntimeSystem,
         mcpRuntime?.systemPrompt,
         memoryRuntimeSystem,
         skillsRuntimeSystem,

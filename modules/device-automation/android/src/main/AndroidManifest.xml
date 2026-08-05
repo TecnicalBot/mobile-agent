@@ -1,0 +1,53 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.BROWSABLE" />
+      <data android:scheme="https" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.BROWSABLE" />
+      <data android:scheme="whatsapp" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.BROWSABLE" />
+      <data android:scheme="tg" />
+    </intent>
+    <package android:name="com.whatsapp" />
+    <package android:name="com.whatsapp.w4b" />
+    <package android:name="org.telegram.messenger" />
+  </queries>
+
+  <application>
+    <service
+      android:name=".DeviceAutomationAccessibilityService"
+      android:exported="true"
+      android:label="Mobile Agent device control"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/accessibilityservice_config" />
+    </service>
+    <receiver
+      android:name=".InstallStatusReceiver"
+      android:exported="false" />
+
+    <service
+      android:name=".ScreenCaptureService"
+      android:exported="false"
+      android:foregroundServiceType="mediaProjection" />
+  </application>
+</manifest>

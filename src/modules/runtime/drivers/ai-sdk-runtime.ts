@@ -1,4 +1,4 @@
-import { generateText, stepCountIs, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import { Platform } from "react-native";
 
 import type {
@@ -170,7 +170,7 @@ async function generateViaAISDKWithContinuation(
       ...(params.reasoning !== undefined
         ? { reasoning: params.reasoning }
         : {}),
-      stopWhen: stepCountIs(params.maxToolSteps),
+      stopWhen: ({ steps }) => steps.length >= params.maxToolSteps,
       system: params.system,
       tools: params.tools,
     });
@@ -298,7 +298,7 @@ export async function generateViaAISDKNonStreaming(
     },
     providerOptions: params.providerOptions as any,
     ...(params.reasoning !== undefined ? { reasoning: params.reasoning } : {}),
-    stopWhen: stepCountIs(params.maxToolSteps),
+    stopWhen: ({ steps }) => steps.length >= params.maxToolSteps,
     system: params.system,
     tools: params.tools,
   });

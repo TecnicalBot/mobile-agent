@@ -57,7 +57,8 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
 
   /** Serialize the current window's UI tree into a compact, LLM-friendly list of nodes. */
   fun getUiTree(): Map<String, Any?> = runOnMain {
-    val root = rootInActiveWindow
+    val (screenWidth, screenHeight) = screenSize()
+    val root = pickRoot()
     if (root == null) {
       return@runOnMain mapOf(
         "success" to false,
@@ -66,10 +67,9 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     }
 
     val nodes = mutableListOf<AccessibilityNodeInfo>()
-    collectNodes(root, 0, nodes)
+    collectNodes(root, 0, nodes, screenWidth, screenHeight)
 
     val serialized = nodes.mapIndexed { index, node -> serializeNode(node, index) }
-    val (screenWidth, screenHeight) = screenSize()
     mapOf(
       "success" to true,
       "nodeCount" to serialized.size,
@@ -80,11 +80,38 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     )
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
+  /** Prefer the active app window; fall back to a non-keyboard window when the IME hijacks it. */
+  private fun pickRoot(): AccessibilityNodeInfo? {
+    val active = rootInActiveWindow
+    if (active != null && !isKeyboardNode(active)) return active
+    for (window in windows) {
+      val root = try {
+        window.root
+      } catch (_: Exception) {
+        null
+      } ?: continue
+      if (!isKeyboardNode(root)) return root
+    }
+    return active
+  }
+
+  /** Whether the node belongs to a soft-keyboard (IME) window, which should never reach the model. */
+  private fun isKeyboardNode(node: AccessibilityNodeInfo): Boolean {
+    val className = node.className?.toString() ?: ""
+    val pkg = node.packageName?.toString() ?: ""
+    return className.contains("Keyboard") ||
+      pkg.contains("inputmethod") ||
+      pkg.contains("honeyboard") ||
+      pkg.contains("swiftkey")
+  }
+
   /** Depth-first, filtered traversal that yields the nodes exposed to the model. */
   private fun collectNodes(
     node: AccessibilityNodeInfo,
     depth: Int,
     out: MutableList<AccessibilityNodeInfo>,
+    screenWidth: Int,
+    screenHeight: Int,
   ) {
     if (out.size >= MAX_NODES) return
     if (depth > MAX_DEPTH) return
@@ -93,6 +120,11 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     val bounds = Rect()
     node.getBoundsInScreen(bounds)
     if (bounds.width() <= 0 || bounds.height() <= 0) return
+    // Skip nodes fully outside the screen (scrolled-out content still reported as visible).
+    if (bounds.right <= 0 || bounds.bottom <= 0 ||
+      bounds.left >= screenWidth || bounds.top >= screenHeight
+    ) return
+    if (isKeyboardNode(node)) return
 
     val actionable = node.isClickable || node.isScrollable || node.isEditable || node.isCheckable
     val hasLabel =
@@ -110,7 +142,7 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
       } catch (_: Exception) {
         null
       } ?: continue
-      collectNodes(child, depth + 1, out)
+      collectNodes(child, depth + 1, out, screenWidth, screenHeight)
     }
   }
 
@@ -332,9 +364,10 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   // -------------------------------------------------------------------------
 
   private fun collectNodes(): List<AccessibilityNodeInfo> {
-    val root = rootInActiveWindow ?: return emptyList()
+    val root = pickRoot() ?: return emptyList()
+    val (screenWidth, screenHeight) = screenSize()
     val nodes = mutableListOf<AccessibilityNodeInfo>()
-    collectNodes(root, 0, nodes)
+    collectNodes(root, 0, nodes, screenWidth, screenHeight)
     return nodes
   }
 

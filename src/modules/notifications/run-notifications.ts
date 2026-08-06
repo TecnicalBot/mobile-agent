@@ -7,7 +7,7 @@ let notificationPermissionsRequested = false;
 
 export const RUN_NOTIFICATION_CHANNEL_ID = "agent-runs";
 export const APPROVAL_NOTIFICATION_CHANNEL_ID = "agent_approvals_v1";
-export const RESULTS_NOTIFICATION_CHANNEL_ID = "agent_results_v1";
+export const RESULTS_NOTIFICATION_CHANNEL_ID = "agent_results_v2";
 
 export const TOOL_APPROVAL_CATEGORY_ID = "tool_approval_v1";
 export const TOOL_APPROVAL_APPROVE_ACTION_ID = "tool_approval_approve_v1";
@@ -54,7 +54,8 @@ export async function prepareRunNotificationsAsync(input?: {
       Notifications.setNotificationChannelAsync(RESULTS_NOTIFICATION_CHANNEL_ID, {
         name: "Agent results",
         description: "Alerts you when the agent finishes a task.",
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 200, 250],
       }),
     ]);
     notificationChannelReady = true;

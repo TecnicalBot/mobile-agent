@@ -522,7 +522,7 @@ export function buildDeviceSystemPrompt(): string {
     "- Always start by calling readScreen to see the current screen. It returns numbered UI elements.",
     "- Prefer tapping by element index (from the latest readScreen result). If that fails, tap by pixel coordinates.",
     "- If the UI tree is missing important content (canvas, images, video, games), use takeScreenshot to get a picture of the screen.",
-    "- Re-read the screen after every action to verify the result before proceeding.",
+    "- Re-read the screen after navigation (openApp, back, launchDeepLink, scroll, swipe, drag) and whenever you are unsure. You may continue without re-reading after type, paste, or taps that errored on an unchanged screen.",
     "- For text entry, tap the target field first, then use type. If typing is rejected, use setClipboard and paste, or type character by character.",
     "- Use longPress for context menus and drag for pick-and-place moves.",
     "- If a tool reports that the accessibility service is not enabled, stop and tell the user to enable it in Settings > Accessibility > Mobile Agent (or in the app's Settings > Tools > Device automation), then wait.",

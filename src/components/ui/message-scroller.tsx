@@ -17,11 +17,15 @@ import {
   useState,
 } from "react";
 import {
-  FlatList,
-  View,
-  type FlatListProps,
-  type LayoutChangeEvent,
+  FlashList,
+  type FlashListProps,
+  type FlashListRef,
   type ListRenderItem,
+} from "@shopify/flash-list";
+import { cssInterop } from "nativewind";
+import {
+  View,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -29,13 +33,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/core/utils";
 
+cssInterop(FlashList, {
+  className: "style",
+  contentContainerClassName: "contentContainerStyle",
+});
+
+function MessageScrollerSeparator() {
+  return <View className="h-sp-3" />;
+}
+
 type ScrollState = {
   end: boolean;
   start: boolean;
 };
 
 type MessageScrollerContextValue = {
-  listRef: RefObject<FlatList<unknown> | null>;
+  listRef: RefObject<FlashListRef<unknown> | null>;
   onListContentSizeChange: (contentHeight: number) => void;
   onListLayout: (viewportHeight: number) => void;
   onListScroll: (
@@ -51,8 +64,31 @@ type MessageScrollerContextValue = {
 const MessageScrollerContext =
   createContext<MessageScrollerContextValue | null>(null);
 
+const MessageScrollerActionsContext = createContext<{
+  listRef: MessageScrollerContextValue["listRef"];
+  onListContentSizeChange: MessageScrollerContextValue["onListContentSizeChange"];
+  onListLayout: MessageScrollerContextValue["onListLayout"];
+  onListScroll: MessageScrollerContextValue["onListScroll"];
+  scrollToEnd: MessageScrollerContextValue["scrollToEnd"];
+  scrollToStart: MessageScrollerContextValue["scrollToStart"];
+} | null>(null);
+
+const MessageScrollerScrollableContext = createContext<ScrollState | null>(null);
+
 function useMessageScrollerContext() {
   const context = useContext(MessageScrollerContext);
+
+  if (!context) {
+    throw new Error(
+      "MessageScroller components must be used inside MessageScrollerProvider.",
+    );
+  }
+
+  return context;
+}
+
+function useMessageScrollerActionsContext() {
+  const context = useContext(MessageScrollerActionsContext);
 
   if (!context) {
     throw new Error(
@@ -71,7 +107,7 @@ export function MessageScrollerProvider({
   children,
   initialScrollToEnd = false,
 }: MessageScrollerProviderProps) {
-  const listRef = useRef<FlatList<unknown>>(null);
+  const listRef = useRef<FlashListRef<unknown>>(null);
   const didInitialScrollRef = useRef(false);
   const lastScrollableRef = useRef<ScrollState>({ end: false, start: false });
   const metricsRef = useRef({
@@ -188,10 +224,26 @@ export function MessageScrollerProvider({
     ],
   );
 
+  const actionsValue = useMemo(
+    () => ({
+      listRef,
+      onListContentSizeChange,
+      onListLayout,
+      onListScroll,
+      scrollToEnd,
+      scrollToStart,
+    }),
+    [onListContentSizeChange, onListLayout, onListScroll, scrollToEnd, scrollToStart],
+  );
+
   return (
-    <MessageScrollerContext.Provider value={value}>
-      {children}
-    </MessageScrollerContext.Provider>
+    <MessageScrollerActionsContext.Provider value={actionsValue}>
+      <MessageScrollerScrollableContext.Provider value={scrollable}>
+        <MessageScrollerContext.Provider value={value}>
+          {children}
+        </MessageScrollerContext.Provider>
+      </MessageScrollerScrollableContext.Provider>
+    </MessageScrollerActionsContext.Provider>
   );
 }
 
@@ -216,15 +268,15 @@ export const MessageScroller = forwardRef<
 MessageScroller.displayName = "MessageScroller";
 
 export type MessageScrollerListProps<ItemT> = Omit<
-  FlatListProps<ItemT>,
+  FlashListProps<ItemT>,
   "data" | "keyExtractor" | "onContentSizeChange" | "onScroll" | "renderItem"
 > & {
   className?: string;
   contentContainerClassName?: string;
-  data: ArrayLike<ItemT> | null | undefined;
+  data: readonly ItemT[] | null | undefined;
   keyExtractor?: (item: ItemT, index: number) => string;
-  onContentSizeChange?: FlatListProps<ItemT>["onContentSizeChange"];
-  onScroll?: FlatListProps<ItemT>["onScroll"];
+  onContentSizeChange?: FlashListProps<ItemT>["onContentSizeChange"];
+  onScroll?: FlashListProps<ItemT>["onScroll"];
   renderItem: ListRenderItem<ItemT>;
 };
 
@@ -232,14 +284,16 @@ function MessageScrollerListInner<ItemT>(
   {
     className,
     contentContainerClassName,
+    ItemSeparatorComponent = MessageScrollerSeparator,
     keyboardShouldPersistTaps = "handled",
+    maxItemsInRecyclePool = 0,
     onContentSizeChange,
     onLayout,
     onScroll,
     scrollEventThrottle = 16,
     ...props
   }: MessageScrollerListProps<ItemT>,
-  ref: ForwardedRef<FlatList<ItemT>>,
+  ref: ForwardedRef<FlashListRef<ItemT>>,
 ) {
   const { listRef, onListContentSizeChange, onListLayout, onListScroll } =
     useMessageScrollerContext();
@@ -276,8 +330,8 @@ function MessageScrollerListInner<ItemT>(
   );
 
   const handleRef = useCallback(
-    (node: FlatList<ItemT> | null) => {
-      listRef.current = node as FlatList<unknown> | null;
+    (node: FlashListRef<ItemT> | null) => {
+      listRef.current = node as FlashListRef<unknown> | null;
 
       if (typeof ref === "function") {
         ref(node);
@@ -289,12 +343,14 @@ function MessageScrollerListInner<ItemT>(
   );
 
   return (
-    <FlatList<ItemT>
+    <FlashList<ItemT>
       ref={handleRef}
       accessibilityLiveRegion="polite"
       className={cn("flex-1", className)}
-      contentContainerClassName={cn("gap-sp-3", contentContainerClassName)}
+      contentContainerClassName={contentContainerClassName}
+      ItemSeparatorComponent={ItemSeparatorComponent}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+      maxItemsInRecyclePool={maxItemsInRecyclePool}
       onContentSizeChange={handleContentSizeChange}
       onLayout={handleLayout}
       onScroll={handleScroll}
@@ -306,7 +362,7 @@ function MessageScrollerListInner<ItemT>(
 
 type MessageScrollerListComponent = <ItemT>(
   props: MessageScrollerListProps<ItemT> & {
-    ref?: ForwardedRef<FlatList<ItemT>>;
+    ref?: ForwardedRef<FlashListRef<ItemT>>;
   },
 ) => ReactElement;
 
@@ -353,12 +409,20 @@ export const MessageScrollerButton = forwardRef<
 MessageScrollerButton.displayName = "MessageScrollerButton";
 
 export function useMessageScroller() {
-  const { scrollToEnd, scrollToStart, scrollable } =
-    useMessageScrollerContext();
+  const { scrollToEnd, scrollToStart, scrollable } = useMessageScrollerContext();
 
   return {
     scrollToEnd,
     scrollToStart,
     scrollable,
+  };
+}
+
+export function useMessageScrollerActions() {
+  const { scrollToEnd, scrollToStart } = useMessageScrollerActionsContext();
+
+  return {
+    scrollToEnd,
+    scrollToStart,
   };
 }

@@ -175,6 +175,28 @@ async function generateViaAISDKWithContinuation(
       tools: params.tools,
     });
 
+    // AI SDK result getters create derived promises that can reject before the
+    // text stream reports the provider error. Attach handlers immediately so
+    // React Native does not report those secondary rejections as unhandled.
+    const textPromise = Promise.resolve(result.text);
+    const filesPromise = Promise.resolve(result.files);
+    const responseMessagesPromise = Promise.resolve(result.responseMessages);
+    const toolResultsPromise = Promise.resolve(result.toolResults);
+    const usagePromise = Promise.resolve(result.usage);
+    const stepsPromise = Promise.resolve(result.steps);
+    const resultPromises = [
+      textPromise,
+      filesPromise,
+      responseMessagesPromise,
+      toolResultsPromise,
+      usagePromise,
+      stepsPromise,
+    ];
+
+    for (const promise of resultPromises) {
+      void promise.catch(() => {});
+    }
+
     try {
       for await (const delta of result.textStream) {
         finalText += delta;
@@ -184,12 +206,12 @@ async function generateViaAISDKWithContinuation(
       endRawReasoning();
       const [, files, responseMessages, toolResults, usage, steps] =
         await Promise.all([
-          result.text,
-          result.files,
-          result.responseMessages,
-          result.toolResults,
-          result.usage,
-          result.steps,
+          textPromise,
+          filesPromise,
+          responseMessagesPromise,
+          toolResultsPromise,
+          usagePromise,
+          stepsPromise,
         ]);
 
       if (
@@ -230,14 +252,7 @@ async function generateViaAISDKWithContinuation(
       // AI SDK exposes several derived promises. Drain all of them after a
       // failed stream so React Native does not report secondary unhandled
       // NoOutputGeneratedError rejections.
-      await Promise.allSettled([
-        result.text,
-        result.files,
-        result.responseMessages,
-        result.toolResults,
-        result.usage,
-        result.steps,
-      ]);
+      await Promise.allSettled(resultPromises);
       throw providerError ?? error;
     }
   } catch (error) {

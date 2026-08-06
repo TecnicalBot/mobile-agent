@@ -21,7 +21,15 @@ import {
   Upload,
   X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -64,7 +72,7 @@ import {
   MessageScrollerButton,
   MessageScrollerList,
   MessageScrollerProvider,
-  useMessageScroller,
+  useMessageScrollerActions,
 } from "@/components/ui/message-scroller";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -77,6 +85,7 @@ import type {
   ReasoningEffort,
   SavedPrompt,
   SkillConfig,
+  StoredMessage,
   WorkspaceFile,
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
@@ -162,6 +171,16 @@ const STARTER_PROMPTS = [
   "Remember that I prefer concise answers",
 ];
 
+const EMPTY_WORKSPACE_FILES: WorkspaceFile[] = [];
+
+function messageKeyExtractor(message: StoredMessage) {
+  return message.id;
+}
+
+function MessageListFooter() {
+  return <View className="h-sp-1" />;
+}
+
 function logComposerDebug(label: string, data: Record<string, unknown>) {
   if (!__DEV__) {
     return;
@@ -222,9 +241,16 @@ export default function Screen() {
     currentConversationRunStatus === "waiting_for_approval" ||
     currentConversationRunStatus === "resumable" ||
     currentConversationRunStatus === "retrying";
-  const latestUserMessageId = [...messages]
-    .reverse()
-    .find((message) => message.role === "user")?.id;
+  const latestUserMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.role === "user")?.id ??
+      null,
+    [messages],
+  );
+  const latestUserMessageIdRef = useRef(latestUserMessageId);
+  latestUserMessageIdRef.current = latestUserMessageId;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<string | null>(null);
   const [editNonce, setEditNonce] = useState(0);
@@ -234,63 +260,119 @@ export default function Screen() {
     setEditingMessageId(null);
   }, [currentConversation?.id]);
 
-  const handleEditMessage = (content: string) => {
-    setEditDraft(content);
-    setEditNonce((current) => current + 1);
-    setEditingMessageId(latestUserMessageId ?? null);
-  };
-  const handleEditSend = async (content: string) => {
-    const message = messages.find((item) => item.id === editingMessageId);
-
-    if (!message) {
-      setEditingMessageId(null);
-      return;
-    }
-
-    const hasSideEffects = messages.some(
-      (candidate) =>
-        candidate.role === "assistant" &&
-        candidate.sequence > message.sequence &&
-        Boolean(
-          candidate.metadata?.toolExecutions?.length ||
-            candidate.metadata?.memoryEvents?.length ||
-            candidate.metadata?.promptArtifacts?.length ||
-            candidate.metadata?.generatedImages?.length,
-        ),
-    );
-    const performEdit = async () => {
-      try {
-        await editAndResendMessage(message.id, content);
-        setEditDraft(null);
-        setEditNonce((current) => current + 1);
-        setEditingMessageId(null);
-      } catch (error) {
-        Alert.alert(
-          "Edit failed",
-          error instanceof Error ? error.message : "Failed to resend message.",
-        );
-      }
-    };
-
-    if (hasSideEffects) {
-      Alert.alert(
-        "Previous actions are not undone",
-        "Files, memory changes, and other tool actions from the previous response may remain and could run again.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Continue",
-            onPress: () => {
-              void performEdit();
-            },
-          },
-        ],
+  const handleEditMessage = useCallback(
+    (content: string) => {
+      setEditDraft(content);
+      setEditNonce((current) => current + 1);
+      setEditingMessageId(latestUserMessageIdRef.current);
+    },
+    [],
+  );
+  const handleSavePrompt = useCallback(
+    (content: string) => {
+      router.push({
+        pathname: "/settings/prompts",
+        params: { text: content },
+      } as never);
+    },
+    [router],
+  );
+  const handleEditSend = useCallback(
+    async (content: string) => {
+      const message = messagesRef.current.find(
+        (item) => item.id === editingMessageId,
       );
-      return;
-    }
 
-    await performEdit();
-  };
+      if (!message) {
+        setEditingMessageId(null);
+        return;
+      }
+
+      const hasSideEffects = messagesRef.current.some(
+        (candidate) =>
+          candidate.role === "assistant" &&
+          candidate.sequence > message.sequence &&
+          Boolean(
+            candidate.metadata?.toolExecutions?.length ||
+              candidate.metadata?.memoryEvents?.length ||
+              candidate.metadata?.promptArtifacts?.length ||
+              candidate.metadata?.generatedImages?.length,
+          ),
+      );
+      const performEdit = async () => {
+        try {
+          await editAndResendMessage(message.id, content);
+          setEditDraft(null);
+          setEditNonce((current) => current + 1);
+          setEditingMessageId(null);
+        } catch (error) {
+          Alert.alert(
+            "Edit failed",
+            error instanceof Error ? error.message : "Failed to resend message.",
+          );
+        }
+      };
+
+      if (hasSideEffects) {
+        Alert.alert(
+          "Previous actions are not undone",
+          "Files, memory changes, and other tool actions from the previous response may remain and could run again.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Continue",
+              onPress: () => {
+                void performEdit();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      await performEdit();
+    },
+    [editAndResendMessage, editingMessageId],
+  );
+  const handleOpenSettings = useCallback(() => {
+    router.push("/settings");
+  }, [router]);
+  const handleOpenMcpSettings = useCallback(() => {
+    router.push("/settings/mcp" as never);
+  }, [router]);
+  const renderMessage = useCallback(
+    ({ item: message }: { item: StoredMessage }) => (
+      <ChatMessage
+        canEditAndResend={
+          message.id === latestUserMessageId && !currentConversationBusy
+        }
+        message={message}
+        onEditMessage={handleEditMessage}
+        onSavePrompt={handleSavePrompt}
+        workspaceFiles={
+          message.metadata?.selectedFileIds?.length
+            ? workspaceFiles
+            : EMPTY_WORKSPACE_FILES
+        }
+      />
+    ),
+    [
+      currentConversationBusy,
+      handleEditMessage,
+      handleSavePrompt,
+      latestUserMessageId,
+      workspaceFiles,
+    ],
+  );
+  const chatInputModelOptions = useMemo(
+    () =>
+      activeModels.map((model) => ({
+        label: model.label,
+        providerLabel: model.providerLabel,
+        ref: model.ref,
+      })),
+    [activeModels],
+  );
 
   return (
     <ChatErrorBoundary>
@@ -343,24 +425,8 @@ export default function Screen() {
                   <MessageScrollerList
                     contentContainerClassName="py-sp-3 pb-12"
                     data={messages}
-                    keyExtractor={(message) => message.id}
-                    renderItem={({ item: message }) => (
-                      <ChatMessage
-                        canEditAndResend={
-                          message.id === latestUserMessageId &&
-                          !currentConversationBusy
-                        }
-                        message={message}
-                        onEditMessage={handleEditMessage}
-                        onSavePrompt={(content) => {
-                          router.push({
-                            pathname: "/settings/prompts",
-                            params: { text: content },
-                          } as never);
-                        }}
-                        workspaceFiles={workspaceFiles}
-                      />
-                    )}
+                    keyExtractor={messageKeyExtractor}
+                    renderItem={renderMessage}
                     showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
                       currentModel ? (
@@ -390,7 +456,7 @@ export default function Screen() {
                         </View>
                       )
                     }
-                    ListFooterComponent={<View className="h-sp-1" />}
+                    ListFooterComponent={MessageListFooter}
                   />
                   {messages.length > 0 ? (
                     <MessageScrollerButton
@@ -428,11 +494,7 @@ export default function Screen() {
                   ? `${currentModel.providerLabel} · ${currentModel.label}`
                   : null
               }
-              activeModels={activeModels.map((model) => ({
-                label: model.label,
-                providerLabel: model.providerLabel,
-                ref: model.ref,
-              }))}
+              activeModels={chatInputModelOptions}
               currentModelRef={currentModel?.ref ?? null}
               editDraft={editDraft}
               editNonce={editNonce}
@@ -440,9 +502,7 @@ export default function Screen() {
               loading={currentConversationBusy}
               onEditSend={handleEditSend}
               onCreateConversation={createConversation}
-              onOpenSettings={() => {
-                router.push("/settings");
-              }}
+              onOpenSettings={handleOpenSettings}
               currentExternalFolderSession={currentExternalFolderSession}
               onSend={sendMessage}
               onStop={stopSending}
@@ -463,9 +523,7 @@ export default function Screen() {
               mcpServers={mcpServers}
               selectedMcpServerIds={currentSelectedMcpServerIds}
               setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
-              onOpenMcpSettings={() => {
-                router.push("/settings/mcp" as never);
-              }}
+              onOpenMcpSettings={handleOpenMcpSettings}
               reasoningEffort={reasoningEffort}
               savedPrompts={savedPrompts}
               setReasoningEffort={setReasoningEffort}
@@ -725,7 +783,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ChatInput({
+const ChatInput = memo(function ChatInput({
   activeModels,
   canSend,
   currentExternalFolderSession,
@@ -820,7 +878,7 @@ function ChatInput({
 }) {
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
-  const { scrollToEnd } = useMessageScroller();
+  const { scrollToEnd } = useMessageScrollerActions();
   const sendingRef = useRef(false);
   const composerRef = useRef<TextInput>(null);
   const [prompt, setPrompt] = useState("");
@@ -2031,7 +2089,7 @@ function ChatInput({
       </Drawer>
     </View>
   );
-}
+});
 
 function ComposerMenuRow({
   icon,

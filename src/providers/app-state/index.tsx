@@ -373,6 +373,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
+    const executeAgentRunRef = useRef<(runId: string) => Promise<void>>(
+        async () => {},
+    );
 
     snapshotRef.current = snapshot;
     pendingToolApprovalsRef.current = pendingToolApprovals;
@@ -522,28 +525,31 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         });
     }
 
-    async function updateRunRecord(
-        runId: string,
-        input: Parameters<
-            typeof repositoriesRef.current.agentRunRepository.update
-        >[1],
-    ) {
-        await repositoriesRef.current.agentRunRepository.update(runId, input);
+    const updateRunRecord = useCallback(
+        async (
+            runId: string,
+            input: Parameters<
+                typeof repositoriesRef.current.agentRunRepository.update
+            >[1],
+        ) => {
+            await repositoriesRef.current.agentRunRepository.update(runId, input);
 
-        const nextRun =
-            await repositoriesRef.current.agentRunRepository.getById(runId);
+            const nextRun =
+                await repositoriesRef.current.agentRunRepository.getById(runId);
 
-        if (!nextRun) {
-            return null;
-        }
+            if (!nextRun) {
+                return null;
+            }
 
-        setSnapshot((current) => ({
-            ...current,
-            agentRuns: upsertAgentRun(current.agentRuns, nextRun),
-        }));
+            setSnapshot((current) => ({
+                ...current,
+                agentRuns: upsertAgentRun(current.agentRuns, nextRun),
+            }));
 
-        return nextRun;
-    }
+            return nextRun;
+        },
+        [],
+    );
 
     async function generateAndApplyConversationTitle(input: {
         conversation: Conversation;
@@ -631,7 +637,7 @@ Your output must be:
         }));
     }
 
-    async function hydrate() {
+    const hydrate = useCallback(async () => {
         const hydrationGeneration = ++hydrationGenerationRef.current;
         setHydrating(true);
         setError(null);
@@ -854,11 +860,25 @@ Your output must be:
         } finally {
             setHydrating(false);
         }
-    }
+    }, []);
+
+    const resumePendingRuns = useCallback(async () => {
+        const resumableRuns = snapshotRef.current.agentRuns.filter((run) =>
+            shouldAutoResumeRun(run.status),
+        );
+
+        await Promise.all(
+            resumableRuns.map(async (run) => {
+                try {
+                    await executeAgentRunRef.current(run.id);
+                } catch { }
+            }),
+        );
+    }, []);
 
     useEffect(() => {
         hydrate();
-    }, []);
+    }, [hydrate]);
 
     useEffect(() => {
         if (!ready || hydrating) {
@@ -880,7 +900,7 @@ Your output must be:
         ).catch(() => { });
         dismissRunNotificationsAsync().catch(() => { });
         resumePendingRuns().catch(() => { });
-    }, [hydrating, ready]);
+    }, [hydrating, ready, resumePendingRuns]);
 
     useEffect(() => {
         const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -898,11 +918,11 @@ Your output must be:
         return () => {
             subscription.remove();
         };
-    }, []);
+    }, [hydrate, resumePendingRuns]);
 
-    async function refresh() {
+    const refresh = useCallback(async () => {
         await hydrate();
-    }
+    }, [hydrate]);
 
     const refreshWorkspaceFiles = useCallback(async () => {
         const workspaceFiles =
@@ -914,7 +934,7 @@ Your output must be:
         }));
     }, []);
 
-    async function clearWorkspaceFiles() {
+    const clearWorkspaceFiles = useCallback(async () => {
         await workspaceServiceRef.current.clearAll();
 
         const conversations = await Promise.all(
@@ -941,9 +961,9 @@ Your output must be:
             currentSelectedFileIds: [],
             workspaceFiles: [],
         }));
-    }
+    }, []);
 
-    async function deleteWorkspaceFile(fileId: string) {
+    const deleteWorkspaceFile = useCallback(async (fileId: string) => {
         const file =
             await repositoriesRef.current.workspaceRepository.getById(fileId);
 
@@ -989,7 +1009,7 @@ Your output must be:
                 (workspaceFile) => workspaceFile.id !== fileId,
             ),
         }));
-    }
+    }, []);
 
     async function updateProvider(
         providerId: string,
@@ -1453,10 +1473,13 @@ Your output must be:
         await hydrate();
     }
 
-    async function updateToolApprovalMode(mode: AppSettings["toolApprovalMode"]) {
-        await repositoriesRef.current.configRepository.setToolApprovalMode(mode);
-        await hydrate();
-    }
+    const updateToolApprovalMode = useCallback(
+        async (mode: AppSettings["toolApprovalMode"]) => {
+            await repositoriesRef.current.configRepository.setToolApprovalMode(mode);
+            await hydrate();
+        },
+        [hydrate],
+    );
 
     async function updateMaxToolSteps(maxToolSteps: number) {
         await repositoriesRef.current.configRepository.setMaxToolSteps(
@@ -1550,7 +1573,7 @@ Your output must be:
         await hydrate().catch(() => { });
     }
 
-    async function createConversation() {
+    const createConversation = useCallback(async () => {
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
         const now = new Date().toISOString();
         const conversation: Conversation = {
@@ -1581,7 +1604,7 @@ Your output must be:
                 activeConversationId: conversation.id,
             },
         }));
-    }
+    }, []);
 
     async function deleteConversation(conversationId: string) {
         await repositoriesRef.current.conversationRepository.deleteById(
@@ -1686,7 +1709,7 @@ Your output must be:
         });
     }
 
-    async function importFiles(assets: DocumentPickerAsset[]) {
+    const importFiles = useCallback(async (assets: DocumentPickerAsset[]) => {
         const importedFiles: WorkspaceFile[] = [];
 
         for (const asset of assets) {
@@ -1706,7 +1729,7 @@ Your output must be:
         await refreshWorkspaceFiles();
 
         return importedFiles;
-    }
+    }, [refreshWorkspaceFiles]);
 
     async function createWorkspaceFile(input: { content: string; name: string }) {
         const file = await workspaceServiceRef.current.createTextFile(input);
@@ -1720,7 +1743,7 @@ Your output must be:
         return file;
     }
 
-    async function pickConversationFolder() {
+    const pickConversationFolder = useCallback(async () => {
         const currentConversation = snapshotRef.current.currentConversation;
 
         if (!currentConversation) {
@@ -1758,9 +1781,9 @@ Your output must be:
         }));
 
         return session;
-    }
+    }, []);
 
-    async function clearConversationFolder() {
+    const clearConversationFolder = useCallback(async () => {
         const currentConversation = snapshotRef.current.currentConversation;
 
         if (!currentConversation) {
@@ -1786,7 +1809,7 @@ Your output must be:
                     ? { ...current.currentConversation, externalFolderSession: null }
                     : current.currentConversation,
         }));
-    }
+    }, []);
 
     async function selectConversation(conversationId: string) {
         const repositories = repositoriesRef.current;
@@ -1825,210 +1848,226 @@ Your output must be:
         }));
     }
 
-    async function setCurrentSelectedFileIds(selectedFileIds: string[]) {
-        const repositories = repositoriesRef.current;
-        const currentConversation = snapshotRef.current.currentConversation;
+    const ensureConversationPersisted = useCallback(
+        async (conversation: Conversation) => {
+            const repositories = repositoriesRef.current;
+            const exists = await repositories.conversationRepository.getById(
+                conversation.id,
+            );
+            if (exists) return;
 
-        if (!currentConversation) {
-            return;
-        }
+            const saved = await repositories.conversationRepository.create({
+                id: conversation.id,
+                title: conversation.title,
+                providerId: conversation.providerId,
+                modelId: conversation.modelId,
+            });
 
-        await ensureConversationPersisted(currentConversation);
+            await repositories.configRepository.setSetting(
+                "active_conversation_id",
+                saved.id,
+            );
 
-        const nextSelectedFileIds = Array.from(
-            new Set(selectedFileIds.filter(Boolean)),
-        );
-        const updatedConversation: Conversation = {
-            ...currentConversation,
-            selectedFileIds: nextSelectedFileIds,
-            updatedAt: currentConversation.updatedAt,
-        };
+            setSnapshot((current) => ({
+                ...current,
+                conversations: upsertConversation(current.conversations, saved),
+                settings: {
+                    ...current.settings,
+                    activeConversationId: saved.id,
+                },
+            }));
+        },
+        [],
+    );
 
-        await repositories.conversationRepository.updateMetadata(
-            currentConversation.id,
-            {
+    const setCurrentSelectedFileIds = useCallback(
+        async (selectedFileIds: string[]) => {
+            const repositories = repositoriesRef.current;
+            const currentConversation = snapshotRef.current.currentConversation;
+
+            if (!currentConversation) {
+                return;
+            }
+
+            await ensureConversationPersisted(currentConversation);
+
+            const nextSelectedFileIds = Array.from(
+                new Set(selectedFileIds.filter(Boolean)),
+            );
+            const updatedConversation: Conversation = {
+                ...currentConversation,
                 selectedFileIds: nextSelectedFileIds,
-            },
-        );
+                updatedAt: currentConversation.updatedAt,
+            };
 
-        setSnapshot((current) => ({
-            ...current,
-            conversations: current.conversations.map((conversation) =>
-                conversation.id === currentConversation.id
-                    ? {
-                        ...conversation,
-                        selectedFileIds: nextSelectedFileIds,
-                    }
-                    : conversation,
-            ),
-            currentConversation: updatedConversation,
-            currentSelectedFileIds: nextSelectedFileIds,
-        }));
-    }
+            await repositories.conversationRepository.updateMetadata(
+                currentConversation.id,
+                {
+                    selectedFileIds: nextSelectedFileIds,
+                },
+            );
 
-    async function setCurrentSelectedSkillIds(selectedSkillIds: string[]) {
-        const repositories = repositoriesRef.current;
-        const currentConversation = snapshotRef.current.currentConversation;
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id
+                        ? {
+                            ...conversation,
+                            selectedFileIds: nextSelectedFileIds,
+                        }
+                        : conversation,
+                ),
+                currentConversation: updatedConversation,
+                currentSelectedFileIds: nextSelectedFileIds,
+            }));
+        },
+        [ensureConversationPersisted],
+    );
 
-        if (!currentConversation) {
-            return;
-        }
+    const setCurrentSelectedSkillIds = useCallback(
+        async (selectedSkillIds: string[]) => {
+            const repositories = repositoriesRef.current;
+            const currentConversation = snapshotRef.current.currentConversation;
 
-        await ensureConversationPersisted(currentConversation);
+            if (!currentConversation) {
+                return;
+            }
 
-        const existingSkillIds = new Set(
-            snapshotRef.current.skills.map((skill) => skill.id),
-        );
-        const nextSelectedSkillIds = Array.from(
-            new Set(
-                selectedSkillIds.filter((skillId) => existingSkillIds.has(skillId)),
-            ),
-        );
-        const updatedConversation: Conversation = {
-            ...currentConversation,
-            selectedSkillIds: nextSelectedSkillIds,
-            updatedAt: currentConversation.updatedAt,
-        };
+            await ensureConversationPersisted(currentConversation);
 
-        await repositories.conversationRepository.updateMetadata(
-            currentConversation.id,
-            {
+            const existingSkillIds = new Set(
+                snapshotRef.current.skills.map((skill) => skill.id),
+            );
+            const nextSelectedSkillIds = Array.from(
+                new Set(
+                    selectedSkillIds.filter((skillId) => existingSkillIds.has(skillId)),
+                ),
+            );
+            const updatedConversation: Conversation = {
+                ...currentConversation,
                 selectedSkillIds: nextSelectedSkillIds,
-            },
-        );
+                updatedAt: currentConversation.updatedAt,
+            };
 
-        setSnapshot((current) => ({
-            ...current,
-            conversations: current.conversations.map((conversation) =>
-                conversation.id === currentConversation.id
-                    ? {
-                        ...conversation,
-                        selectedSkillIds: nextSelectedSkillIds,
-                    }
-                    : conversation,
-            ),
-            currentConversation: updatedConversation,
-            currentSelectedSkillIds: nextSelectedSkillIds,
-        }));
-    }
+            await repositories.conversationRepository.updateMetadata(
+                currentConversation.id,
+                {
+                    selectedSkillIds: nextSelectedSkillIds,
+                },
+            );
 
-    async function setCurrentSelectedMcpServerIds(
-        selectedMcpServerIds: string[] | null,
-    ) {
-        const repositories = repositoriesRef.current;
-        const currentConversation = snapshotRef.current.currentConversation;
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id
+                        ? {
+                            ...conversation,
+                            selectedSkillIds: nextSelectedSkillIds,
+                        }
+                        : conversation,
+                ),
+                currentConversation: updatedConversation,
+                currentSelectedSkillIds: nextSelectedSkillIds,
+            }));
+        },
+        [ensureConversationPersisted],
+    );
 
-        if (!currentConversation) {
-            return;
-        }
+    const setCurrentSelectedMcpServerIds = useCallback(
+        async (selectedMcpServerIds: string[] | null) => {
+            const repositories = repositoriesRef.current;
+            const currentConversation = snapshotRef.current.currentConversation;
 
-        await ensureConversationPersisted(currentConversation);
+            if (!currentConversation) {
+                return;
+            }
 
-        const existingServerIds = new Set(
-            snapshotRef.current.mcpServers.map((server) => server.id),
-        );
-        const nextSelectedMcpServerIds =
-            selectedMcpServerIds === null
-                ? null
-                : Array.from(
-                      new Set(
-                          selectedMcpServerIds.filter((serverId) =>
-                              existingServerIds.has(serverId),
+            await ensureConversationPersisted(currentConversation);
+
+            const existingServerIds = new Set(
+                snapshotRef.current.mcpServers.map((server) => server.id),
+            );
+            const nextSelectedMcpServerIds =
+                selectedMcpServerIds === null
+                    ? null
+                    : Array.from(
+                          new Set(
+                              selectedMcpServerIds.filter((serverId) =>
+                                  existingServerIds.has(serverId),
+                              ),
                           ),
-                      ),
-                  );
-        const updatedConversation: Conversation = {
-            ...currentConversation,
-            selectedMcpServerIds: nextSelectedMcpServerIds,
-            updatedAt: currentConversation.updatedAt,
-        };
-
-        await repositories.conversationRepository.updateMetadata(
-            currentConversation.id,
-            {
+                      );
+            const updatedConversation: Conversation = {
+                ...currentConversation,
                 selectedMcpServerIds: nextSelectedMcpServerIds,
-            },
-        );
+                updatedAt: currentConversation.updatedAt,
+            };
 
-        setSnapshot((current) => ({
-            ...current,
-            conversations: current.conversations.map((conversation) =>
-                conversation.id === currentConversation.id
-                    ? {
-                        ...conversation,
-                        selectedMcpServerIds: nextSelectedMcpServerIds,
-                    }
-                    : conversation,
-            ),
-            currentConversation: updatedConversation,
-            currentSelectedMcpServerIds: nextSelectedMcpServerIds,
-        }));
-    }
+            await repositories.conversationRepository.updateMetadata(
+                currentConversation.id,
+                {
+                    selectedMcpServerIds: nextSelectedMcpServerIds,
+                },
+            );
 
-    async function setReasoningEffort(effort: ReasoningEffort) {
-        const currentConversation = snapshotRef.current.currentConversation;
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id
+                        ? {
+                            ...conversation,
+                            selectedMcpServerIds: nextSelectedMcpServerIds,
+                        }
+                        : conversation,
+                ),
+                currentConversation: updatedConversation,
+                currentSelectedMcpServerIds: nextSelectedMcpServerIds,
+            }));
+        },
+        [ensureConversationPersisted],
+    );
 
-        if (!currentConversation) {
-            return;
-        }
+    const setReasoningEffort = useCallback(
+        async (effort: ReasoningEffort) => {
+            const currentConversation = snapshotRef.current.currentConversation;
 
-        await ensureConversationPersisted(currentConversation);
+            if (!currentConversation) {
+                return;
+            }
 
-        await repositoriesRef.current.conversationRepository.updateMetadata(
-            currentConversation.id,
-            { reasoningEffort: effort },
-        );
+            await ensureConversationPersisted(currentConversation);
 
-        setSnapshot((current) => ({
-            ...current,
-            conversations: current.conversations.map((conversation) =>
-                conversation.id === currentConversation.id
-                    ? { ...conversation, reasoningEffort: effort }
-                    : conversation,
-            ),
-            currentConversation:
-                current.currentConversation?.id === currentConversation.id
-                    ? { ...current.currentConversation, reasoningEffort: effort }
-                    : current.currentConversation,
-        }));
-    }
+            await repositoriesRef.current.conversationRepository.updateMetadata(
+                currentConversation.id,
+                { reasoningEffort: effort },
+            );
 
-    async function ensureConversationPersisted(conversation: Conversation) {
-        const repositories = repositoriesRef.current;
-        const exists = await repositories.conversationRepository.getById(
-            conversation.id,
-        );
-        if (exists) return;
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id
+                        ? { ...conversation, reasoningEffort: effort }
+                        : conversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === currentConversation.id
+                        ? { ...current.currentConversation, reasoningEffort: effort }
+                        : current.currentConversation,
+            }));
+        },
+        [ensureConversationPersisted],
+    );
 
-        const saved = await repositories.conversationRepository.create({
-            id: conversation.id,
-            title: conversation.title,
-            providerId: conversation.providerId,
-            modelId: conversation.modelId,
-        });
-
-        await repositories.configRepository.setSetting(
-            "active_conversation_id",
-            saved.id,
-        );
-
-        setSnapshot((current) => ({
-            ...current,
-            conversations: upsertConversation(current.conversations, saved),
-            settings: {
-                ...current.settings,
-                activeConversationId: saved.id,
-            },
-        }));
-    }
-
-    async function selectModel(modelRef: ModelRef) {
-        await repositoriesRef.current.configRepository.setSetting(
-            "active_model_ref",
-            modelRef,
-        );
-        await hydrate();
-    }
+    const selectModel = useCallback(
+        async (modelRef: ModelRef) => {
+            await repositoriesRef.current.configRepository.setSetting(
+                "active_model_ref",
+                modelRef,
+            );
+            await hydrate();
+        },
+        [hydrate],
+    );
 
     async function executeAgentRun(runId: string) {
         if (!runRegistryRef.current.claim(runId)) {
@@ -2065,20 +2104,7 @@ Your output must be:
             throw error;
         }
     }
-
-    async function resumePendingRuns() {
-        const resumableRuns = snapshotRef.current.agentRuns.filter((run) =>
-            shouldAutoResumeRun(run.status),
-        );
-
-        await Promise.all(
-            resumableRuns.map(async (run) => {
-                try {
-                    await executeAgentRun(run.id);
-                } catch { }
-            }),
-        );
-    }
+    executeAgentRunRef.current = executeAgentRun;
 
     async function retryRun(runId: string) {
         const run = snapshotRef.current.agentRuns.find((r) => r.id === runId);
@@ -2122,7 +2148,7 @@ Your output must be:
         await executeAgentRun(runId);
     }
 
-    async function editAndResendMessage(messageId: string, content: string) {
+    const editAndResendMessage = useCallback(async (messageId: string, content: string) => {
         const cleanContent = content.trim();
         const current = snapshotRef.current;
         const message = current.messages.find((item) => item.id === messageId);
@@ -2246,19 +2272,19 @@ Your output must be:
         snapshotRef.current = nextSnapshot;
         setSnapshot(nextSnapshot);
 
-        void executeAgentRun(run.id).catch((runError) => {
-            setError(
-                runError instanceof Error
-                    ? runError.message
-                    : "Failed to restart run.",
-            );
-        });
-    }
+            void executeAgentRunRef.current(run.id).catch((runError) => {
+                setError(
+                    runError instanceof Error
+                        ? runError.message
+                        : "Failed to restart run.",
+                );
+            });
+    }, []);
 
-    async function cancelRun(input?: {
+    const cancelRun = useCallback(async (input?: {
         conversationId?: string;
         runId?: string;
-    }) {
+    }) => {
         const targetRun =
             (input?.runId
                 ? snapshotRef.current.agentRuns.find((run) => run.id === input.runId)
@@ -2318,15 +2344,15 @@ Your output must be:
                     ])
                     : current.messages,
         }));
-    }
+    }, [updateRunRecord]);
 
-    async function stopSending() {
+    const stopSending = useCallback(async () => {
         await cancelRun({
             conversationId: snapshotRef.current.currentConversation?.id,
         });
-    }
+    }, [cancelRun]);
 
-    async function sendMessage(input: SendMessageInput) {
+    const sendMessage = useCallback(async (input: SendMessageInput) => {
         const cleanContent = input.content.trim();
         const selectedFileIds = Array.from(
             new Set(
@@ -2605,12 +2631,12 @@ Your output must be:
             };
         });
 
-        void executeAgentRun(agentRun.id).catch((runError) => {
+        void executeAgentRunRef.current(agentRun.id).catch((runError) => {
             setError(
                 runError instanceof Error ? runError.message : "Failed to start run.",
             );
         });
-    }
+    }, [ensureConversationPersisted]);
 
     const sending = snapshot.agentRuns.some((run) =>
         isActiveAgentRunStatus(run.status),

@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -36,6 +37,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextStyle,
   View,
 } from "react-native";
 import Markdown, {
@@ -81,6 +83,10 @@ refractor.register(jsx);
 refractor.register(tsx);
 
 const MARKDOWN_PARSER = MarkdownIt({ linkify: true, typographer: true });
+
+const MARKDOWN_DEFER_THRESHOLD = 1500;
+
+const MARKDOWN_MAX_RENDER_LENGTH = 4000;
 
 type MarkdownToken = {
   attrSet: (name: string, value: string) => void;
@@ -407,6 +413,8 @@ function CopyableMarkdownBlock({
   );
 }
 
+const MAX_HIGHLIGHT_LENGTH = 4000;
+
 function CopyableCodeBlock({
   code,
   language = "",
@@ -416,12 +424,17 @@ function CopyableCodeBlock({
 }) {
   const theme = useTheme();
   const highlighted = useMemo(() => {
-    if (!language || !refractor.registered(language)) {
+    if (
+      !language ||
+      !refractor.registered(language) ||
+      code.length > MAX_HIGHLIGHT_LENGTH
+    ) {
       return null;
     }
 
     try {
-      return refractor.highlight(code, language).children as SyntaxNode[];
+      const nodes = refractor.highlight(code, language).children as SyntaxNode[];
+      return nodes;
     } catch {
       return null;
     }
@@ -458,17 +471,116 @@ function CopyableCodeBlock({
   );
 }
 
+const MarkdownContent = memo(function MarkdownContent({
+  content,
+  onLinkPress,
+  streaming = false,
+  styles,
+}: {
+  content: string;
+  onLinkPress: (url: string) => boolean;
+  streaming?: boolean;
+  styles: ReturnType<typeof createMarkdownStyles>;
+}) {
+  const [upgraded, setUpgraded] = useState(
+    !streaming && content.length <= MARKDOWN_DEFER_THRESHOLD,
+  );
+
+  useEffect(() => {
+    if (
+      streaming ||
+      upgraded ||
+      content.length > MARKDOWN_MAX_RENDER_LENGTH
+    ) {
+      return;
+    }
+
+    const handle = setTimeout(() => setUpgraded(true), 0);
+
+    return () => clearTimeout(handle);
+  }, [streaming, upgraded, content.length]);
+
+  if (streaming || !upgraded) {
+    return (
+      <Text selectable style={styles.body}>
+        {content}
+      </Text>
+    );
+  }
+
+  return (
+    <Markdown
+      markdownit={MARKDOWN_PARSER}
+      mergeStyle={false}
+      onLinkPress={onLinkPress}
+      rules={MARKDOWN_RULES}
+      style={styles}
+    >
+      {content}
+    </Markdown>
+  );
+});
+
 function renderSyntaxNodes(
   nodes: SyntaxNode[],
   textColor: string,
   theme: ReturnType<typeof useTheme>,
   path = "token",
 ): ReactNode[] {
-  return nodes.map((node, index) => {
-    const key = `${path}-${index}`;
+  const runs: { kind: SyntaxTokenKind; text: string }[] = [];
+  flattenSyntaxNodes(nodes, "default", runs);
 
+  const styleCache = new Map<SyntaxTokenKind, TextStyle>();
+  const getStyle = (kind: SyntaxTokenKind) => {
+    let style = styleCache.get(kind);
+    if (!style) {
+      style = getSyntaxTokenStyle(kind, textColor, theme);
+      styleCache.set(kind, style);
+    }
+    return style;
+  };
+
+  const grouped: ReactNode[] = [];
+  let pending: { kind: SyntaxTokenKind; key: string; text: string } | null =
+    null;
+  let groupIndex = 0;
+  const flush = () => {
+    if (pending) {
+      grouped.push(
+        <Text key={pending.key} style={getStyle(pending.kind)}>
+          {pending.text}
+        </Text>,
+      );
+      pending = null;
+    }
+  };
+
+  for (const run of runs) {
+    if (pending && pending.kind === run.kind) {
+      pending.text += run.text;
+    } else {
+      flush();
+      pending = {
+        key: `${path}-run-${groupIndex++}`,
+        kind: run.kind,
+        text: run.text,
+      };
+    }
+  }
+  flush();
+
+  return grouped;
+}
+
+function flattenSyntaxNodes(
+  nodes: SyntaxNode[],
+  parentKind: SyntaxTokenKind,
+  runs: { kind: SyntaxTokenKind; text: string }[],
+): void {
+  for (const node of nodes) {
     if (node.type === "text") {
-      return node.value;
+      runs.push({ kind: parentKind, text: node.value });
+      continue;
     }
 
     const classNames = Array.isArray(node.properties?.className)
@@ -476,85 +588,67 @@ function renderSyntaxNodes(
           (className): className is string => typeof className === "string",
         )
       : [];
+    flattenSyntaxNodes(node.children, getSyntaxTokenKind(classNames), runs);
+  }
+}
 
-    return (
-      <Text
-        key={key}
-        style={getSyntaxTokenStyle(classNames, textColor, theme)}
-      >
-        {renderSyntaxNodes(node.children, textColor, theme, key)}
-      </Text>
-    );
-  });
+type SyntaxTokenKind =
+  | "comment"
+  | "constant"
+  | "number"
+  | "string"
+  | "operator"
+  | "keyword"
+  | "function"
+  | "regex"
+  | "default";
+
+const SYNTAX_KIND_CLASSES: Record<SyntaxTokenKind, readonly string[]> = {
+  comment: ["comment", "prolog", "doctype", "cdata"],
+  constant: ["property", "tag", "constant", "symbol", "deleted"],
+  number: ["boolean", "number"],
+  string: ["selector", "attr-name", "string", "char", "builtin", "inserted"],
+  operator: ["operator", "entity", "url", "variable"],
+  keyword: ["atrule", "attr-value", "keyword", "control", "directive"],
+  function: ["function", "class-name"],
+  regex: ["regex", "important"],
+  default: [],
+};
+
+function getSyntaxTokenKind(classNames: string[]): SyntaxTokenKind {
+  for (const [kind, classes] of Object.entries(SYNTAX_KIND_CLASSES)) {
+    if (kind !== "default" && classNames.some((name) => classes.includes(name))) {
+      return kind as SyntaxTokenKind;
+    }
+  }
+  return "default";
 }
 
 function getSyntaxTokenStyle(
-  classNames: string[],
+  kind: SyntaxTokenKind,
   textColor: string,
   theme: ReturnType<typeof useTheme>,
-) {
-  if (
-    classNames.some((name) =>
-      ["comment", "prolog", "doctype", "cdata"].includes(name),
-    )
-  ) {
-    return { color: theme.syntaxComment, fontStyle: "italic" as const };
+): TextStyle {
+  switch (kind) {
+    case "comment":
+      return { color: theme.syntaxComment, fontStyle: "italic" };
+    case "constant":
+      return { color: theme.syntaxConstant };
+    case "number":
+      return { color: theme.syntaxNumber };
+    case "string":
+      return { color: theme.syntaxString };
+    case "operator":
+      return { color: theme.syntaxOperator };
+    case "keyword":
+      return { color: theme.syntaxKeyword };
+    case "function":
+      return { color: theme.syntaxFunction };
+    case "regex":
+      return { color: theme.syntaxRegex };
+    default:
+      return { color: textColor };
   }
-
-  if (
-    classNames.some((name) =>
-      ["property", "tag", "constant", "symbol", "deleted"].includes(name),
-    )
-  ) {
-    return { color: theme.syntaxConstant };
-  }
-
-  if (classNames.some((name) => ["boolean", "number"].includes(name))) {
-    return { color: theme.syntaxNumber };
-  }
-
-  if (
-    classNames.some((name) =>
-      [
-        "selector",
-        "attr-name",
-        "string",
-        "char",
-        "builtin",
-        "inserted",
-      ].includes(name),
-    )
-  ) {
-    return { color: theme.syntaxString };
-  }
-
-  if (
-    classNames.some((name) =>
-      ["operator", "entity", "url", "variable"].includes(name),
-    )
-  ) {
-    return { color: theme.syntaxOperator };
-  }
-
-  if (
-    classNames.some((name) =>
-      ["atrule", "attr-value", "keyword", "control", "directive"].includes(
-        name,
-      ),
-    )
-  ) {
-    return { color: theme.syntaxKeyword };
-  }
-
-  if (classNames.some((name) => ["function", "class-name"].includes(name))) {
-    return { color: theme.syntaxFunction };
-  }
-
-  if (classNames.some((name) => ["regex", "important"].includes(name))) {
-    return { color: theme.syntaxRegex };
-  }
-
-  return { color: textColor };
 }
 
 function getTableColumnCount(node: ASTNode): number {
@@ -657,10 +751,13 @@ export const ChatMessage = memo(function ChatMessage({
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
   };
-  const handleLinkPress = (url: string) => {
-    openMarkdownLink(url).catch(console.error);
-    return false;
-  };
+  const handleLinkPress = useCallback(
+    (url: string) => {
+      openMarkdownLink(url).catch(console.error);
+      return false;
+    },
+    [],
+  );
   const closePreview = () => {
     setImageAction(null);
     setPreviewImage(null);
@@ -993,15 +1090,12 @@ export const ChatMessage = memo(function ChatMessage({
                             <Check color={theme.textSecondary} size={16} />
                           </View>
                           <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
-                            <Markdown
-                              markdownit={MARKDOWN_PARSER}
-                              mergeStyle={false}
+                            <MarkdownContent
+                              content={reasoningText}
                               onLinkPress={handleLinkPress}
-                              rules={MARKDOWN_RULES}
-                              style={reasoningMarkdownStyles}
-                            >
-                              {reasoningText}
-                            </Markdown>
+                              streaming={reasoningInProgress}
+                              styles={reasoningMarkdownStyles}
+                            />
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                               {reasoningInProgress ? "Working" : "Done"}
                             </Text>
@@ -1012,15 +1106,12 @@ export const ChatMessage = memo(function ChatMessage({
                   ) : null}
 
                   {message.content.trim() ? (
-                    <Markdown
-                      markdownit={MARKDOWN_PARSER}
-                      mergeStyle={false}
+                    <MarkdownContent
+                      content={message.content}
                       onLinkPress={handleLinkPress}
-                      rules={MARKDOWN_RULES}
-                      style={markdownStyles}
-                    >
-                      {message.content}
-                    </Markdown>
+                      streaming={message.status === "streaming"}
+                      styles={markdownStyles}
+                    />
                   ) : memoryEventLabel ? (
                     <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
                       {memoryEventLabel}

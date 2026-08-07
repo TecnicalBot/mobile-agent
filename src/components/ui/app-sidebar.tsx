@@ -111,7 +111,9 @@ export function AppSidebar() {
                     size="small"
                   />
                 ) : runStatusByConversation[conversation.id] ===
-                  "waiting_for_approval" ? (
+                    "waiting_for_approval" ||
+                  runStatusByConversation[conversation.id] ===
+                    "waiting_for_question" ? (
                   <Pause
                     color={active ? theme.background : theme.textSecondary}
                     size={14}

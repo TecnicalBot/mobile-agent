@@ -30,7 +30,9 @@ import {
 import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
+import { createAskQuestionTool } from "@/modules/tools/built-in/question";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
+import { createUpdateTodosTool } from "@/modules/tools/built-in/todos";
 import {
   buildExternalFolderSystemPrompt,
   createExternalFolderTools,
@@ -61,6 +63,8 @@ import type {
   ExternalFolderSession,
   MemoryEvent,
   MessageMetadata,
+  PendingQuestionnaireAnswer,
+  PendingQuestionnaireRequest,
   PendingToolApprovalRequest,
   PromptArtifact,
   ProviderConfig,
@@ -102,6 +106,10 @@ export type AgentRunDeps = {
     run: AgentRun,
     request: PendingToolApprovalRequest,
   ) => Promise<import("@/modules/runtime/run-manager").ToolApprovalDecision>;
+  requestRunQuestionnaire: (
+    run: AgentRun,
+    request: PendingQuestionnaireRequest,
+  ) => Promise<PendingQuestionnaireAnswer[] | null>;
   generateAndApplyConversationTitle: (input: {
     conversation: Conversation;
     firstUserMessage: string;
@@ -174,6 +182,7 @@ export async function executeClaimedAgentRun(
     workspaceService,
     updateRunRecord,
     requestToolApproval,
+    requestRunQuestionnaire: requestRunQuestionnaireFromUi,
     generateAndApplyConversationTitle,
     notifyRunStateChange,
     ui,
@@ -285,7 +294,10 @@ export async function executeClaimedAgentRun(
         (item) => item.id === run.id,
       );
 
-      if (latestRun?.status === "waiting_for_approval") {
+      if (
+        latestRun?.status === "waiting_for_approval" ||
+        latestRun?.status === "waiting_for_question"
+      ) {
         scheduleInactivityTimeout();
         return;
       }
@@ -441,6 +453,9 @@ export async function executeClaimedAgentRun(
   const executionTimeline = [
     ...(assistantMessage.metadata?.executionTimeline ?? []),
   ] as import("@/core/types/app-state").ExecutionTimelineEvent[];
+  const todoList = [
+    ...(assistantMessage.metadata?.todoList ?? []),
+  ] as import("@/core/types/app-state").TodoListItem[];
   const appliedSkillIds =
     assistantMessage.metadata?.appliedSkillIds ??
     userMessage?.metadata?.appliedSkillIds ??
@@ -480,6 +495,7 @@ export async function executeClaimedAgentRun(
       promptArtifacts,
       reasoning,
       runId: run.id,
+      todoList,
       toolExecutions,
     });
 
@@ -487,6 +503,13 @@ export async function executeClaimedAgentRun(
     await safeUpdateRunRecord(run.id, {
       lastError: null,
       status: "waiting_for_approval",
+    });
+  };
+
+  const setRunWaitingForQuestion = async () => {
+    await safeUpdateRunRecord(run.id, {
+      lastError: null,
+      status: "waiting_for_question",
     });
   };
 
@@ -528,6 +551,44 @@ export async function executeClaimedAgentRun(
     }
 
     return decision;
+  };
+  const requestRunQuestionnaire = async (
+    request: PendingQuestionnaireRequest,
+  ): Promise<PendingQuestionnaireAnswer[] | null> => {
+    pushTimelineEvent(
+      createExecutionTimelineEvent({
+        detail: request.items.map((item) => item.prompt).join(" / "),
+        kind: "tool",
+        status: "pending",
+        title: "Questions for the user",
+      }),
+    );
+    refreshAssistantState?.();
+    await setRunWaitingForQuestion();
+
+    let answers: PendingQuestionnaireAnswer[] | null;
+    try {
+      answers = await requestRunQuestionnaireFromUi(run, request);
+    } catch (error) {
+      if (!isUiProjectionFailure(error)) {
+        throw error;
+      }
+      reportProjectionFailure("request-questionnaire", error);
+      runRegistry.stopRun(run.id);
+      await safeUpdateRunRecord(run.id, {
+        completedAt: new Date().toISOString(),
+        lastError: null,
+        status: "canceled",
+      });
+      return null;
+    }
+    markActivity();
+    await safeUpdateRunRecord(run.id, {
+      lastError: null,
+      status: "running",
+    });
+
+    return answers;
   };
   let refreshAssistantState: null | (() => void) = null;
   const pendingArtifactWrites: Promise<void>[] = [];
@@ -751,6 +812,11 @@ export async function executeClaimedAgentRun(
                   .folderDeleteEntry,
               ],
               [
+                "editFile",
+                snapshotRef.current.settings.builtInToolSettings
+                  .folderEditFile,
+              ],
+              [
                 "listDirectory",
                 snapshotRef.current.settings.builtInToolSettings
                   .folderListDirectory,
@@ -768,6 +834,11 @@ export async function executeClaimedAgentRun(
                 "renameEntry",
                 snapshotRef.current.settings.builtInToolSettings
                   .folderRenameEntry,
+              ],
+              [
+                "searchText",
+                snapshotRef.current.settings.builtInToolSettings
+                  .folderSearchText,
               ],
               [
                 "writeFile",
@@ -794,6 +865,11 @@ export async function executeClaimedAgentRun(
                     .workspaceCreateFile,
                 ],
                 [
+                  "editFile",
+                  snapshotRef.current.settings.builtInToolSettings
+                    .workspaceEditFile,
+                ],
+                [
                   "listFiles",
                   snapshotRef.current.settings.builtInToolSettings
                     .workspaceListFiles,
@@ -802,6 +878,11 @@ export async function executeClaimedAgentRun(
                   "readFile",
                   snapshotRef.current.settings.builtInToolSettings
                     .workspaceReadFile,
+                ],
+                [
+                  "searchText",
+                  snapshotRef.current.settings.builtInToolSettings
+                    .workspaceSearchText,
                 ],
                 [
                   "writeFile",
@@ -835,6 +916,28 @@ export async function executeClaimedAgentRun(
             },
           })
         : null;
+    const todosRuntime =
+      runtimeSupportsTools &&
+      snapshotRef.current.settings.builtInToolSettings.updateTodos
+        ? createUpdateTodosTool({
+            getCurrentTodos: () => todoList,
+            onRecord: handleToolExecutionRecord,
+            onTodosChange: (next) => {
+              todoList.length = 0;
+              todoList.push(...next);
+              markActivity();
+              refreshAssistantState?.();
+            },
+          })
+        : null;
+    const questionRuntime =
+      runtimeSupportsTools &&
+      snapshotRef.current.settings.builtInToolSettings.askQuestion
+        ? createAskQuestionTool({
+            onRecord: handleToolExecutionRecord,
+            requestQuestionnaire: (request) => requestRunQuestionnaire(request),
+          })
+        : null;
 
     for (const serverResult of mcpRuntime?.serverResults ?? []) {
       repositories.mcpServerRepository
@@ -861,18 +964,22 @@ export async function executeClaimedAgentRun(
     }
 
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools
+      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools || todosRuntime || questionRuntime
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(deviceRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
+            ...(todosRuntime?.tools ?? {}),
+            ...(questionRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
-    const autoApprovedToolNames = new Set(
-      run.fileContextSource === "external-folder"
+    const autoApprovedToolNames = new Set([
+      ...(run.fileContextSource === "external-folder"
         ? []
-        : Object.keys(builtInRuntimeTools ?? {}),
-    );
+        : Object.keys(builtInRuntimeTools ?? {})),
+      ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
+      ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
+    ]);
     const approvedRuntimeTools = unapprovedRuntimeTools
       ? wrapToolsWithApproval(unapprovedRuntimeTools, {
           getRequestSummary: (toolName, toolInput) => {
@@ -1284,6 +1391,7 @@ export async function executeClaimedAgentRun(
         completedAt: block.completedAt ?? new Date().toISOString(),
       })),
       runId: run.id,
+      todoList,
       toolExecutions,
       usage: assistantUsage,
     });
@@ -1397,6 +1505,7 @@ export async function executeClaimedAgentRun(
           completedAt: block.completedAt ?? new Date().toISOString(),
         })),
         runId: run.id,
+        todoList,
         toolExecutions,
       });
 
@@ -1459,6 +1568,7 @@ export async function executeClaimedAgentRun(
         completedAt: block.completedAt ?? new Date().toISOString(),
       })),
       runId: run.id,
+      todoList,
       toolExecutions,
     });
 

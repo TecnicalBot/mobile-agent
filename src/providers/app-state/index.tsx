@@ -43,6 +43,7 @@ import { modelRuntime } from "@/modules/runtime/model-runtime";
 import { createExecutionTimelineEvent } from "@/modules/runtime/run-artifacts";
 import {
     buildRunStatusByConversation,
+    createPendingQuestionnaire,
     createPendingToolApproval,
     createRunControllerRegistry,
     isActiveAgentRunStatus,
@@ -62,6 +63,8 @@ import type {
     McpServerTransport,
     MemoryEntry,
     ModelRef,
+    PendingQuestionnaire,
+    PendingQuestionnaireAnswer,
     PendingToolApproval,
     PendingToolApprovalRequest,
     ProviderConfig,
@@ -106,6 +109,11 @@ type AppStateContextValue = {
         input: Partial<AppSettings["notificationSettings"]>,
     ) => Promise<void>;
     approvePendingToolApproval: () => void;
+    pendingQuestionnaire: PendingQuestionnaire | null;
+    submitPendingQuestionnaire: (
+        answers: PendingQuestionnaireAnswer[],
+    ) => void;
+    dismissPendingQuestionnaire: () => void;
     agentRuns: AgentRun[];
     cancelRun: (input?: {
         conversationId?: string;
@@ -350,7 +358,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     );
     const externalFolderServiceRef = useRef(createExternalFolderService());
     const runRegistryRef = useRef(createRunControllerRegistry());
-    if (runRegistryRef.current.version !== 2) {
+    if (runRegistryRef.current.version !== 3) {
         runRegistryRef.current = createRunControllerRegistry();
     }
     const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_SNAPSHOT);
@@ -359,6 +367,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const [error, setError] = useState<string | null>(null);
     const [pendingToolApprovals, setPendingToolApprovals] = useState<
         PendingToolApproval[]
+    >([]);
+    const [pendingQuestionnaires, setPendingQuestionnaires] = useState<
+        PendingQuestionnaire[]
     >([]);
     const [inAppNotification, setInAppNotification] = useState<{
         body: string;
@@ -370,6 +381,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const pendingToolApprovalsRef = useRef<PendingToolApproval[]>(
         pendingToolApprovals,
     );
+    const pendingQuestionnairesRef = useRef<PendingQuestionnaire[]>(
+        pendingQuestionnaires,
+    );
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
@@ -379,6 +393,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
     snapshotRef.current = snapshot;
     pendingToolApprovalsRef.current = pendingToolApprovals;
+    pendingQuestionnairesRef.current = pendingQuestionnaires;
 
     useEffect(() => {
         logMessageDebug("snapshot-updated", {
@@ -404,6 +419,53 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         if (snapshotRef.current.settings.backgroundAgentEnabled) {
             setBackgroundAgentNotificationState("running").catch(() => { });
         }
+    }
+
+    function resolvePendingQuestionnaire(
+        questionnaire: PendingQuestionnaire,
+        answers: PendingQuestionnaireAnswer[] | null,
+    ) {
+        runRegistryRef.current.resolvePendingQuestionnaire(
+            questionnaire.runId,
+            questionnaire.id,
+            answers,
+        );
+        setPendingQuestionnaires((current) =>
+            current.filter((item) => item.id !== questionnaire.id),
+        );
+
+        if (snapshotRef.current.settings.backgroundAgentEnabled) {
+            setBackgroundAgentNotificationState("running").catch(() => { });
+        }
+    }
+
+    async function requestRunQuestionnaire(
+        run: AgentRun,
+        request: import("@/core/types/app-state").PendingQuestionnaireRequest,
+    ): Promise<PendingQuestionnaireAnswer[] | null> {
+        const conversation =
+            snapshotRef.current.conversations.find(
+                (item) => item.id === run.conversationId,
+            ) ?? snapshotRef.current.currentConversation;
+        const questionnaire = createPendingQuestionnaire(
+            run,
+            conversation?.title ?? "Chat",
+            request,
+        );
+
+        setPendingQuestionnaires((current) => [...current, questionnaire]);
+
+        if (snapshotRef.current.settings.backgroundAgentEnabled) {
+            setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
+        }
+
+        return await new Promise<PendingQuestionnaireAnswer[] | null>((resolve) => {
+            runRegistryRef.current.registerPendingQuestionnaire(
+                run.id,
+                questionnaire.id,
+                resolve,
+            );
+        });
     }
 
     async function resolveNotificationApproval(input: {
@@ -720,7 +782,7 @@ Your output must be:
             const agentRuns = await repositories.agentRunRepository.list();
             const staleRuns = agentRuns.filter(
                 (run) =>
-                    (run.status === "running" || run.status === "waiting_for_approval" || run.status === "retrying") &&
+                    (run.status === "running" || run.status === "waiting_for_approval" || run.status === "waiting_for_question" || run.status === "retrying") &&
                     !runRegistryRef.current.owns(run.id),
             );
 
@@ -2088,6 +2150,7 @@ Your output must be:
                 workspaceService: workspaceServiceRef.current,
                 updateRunRecord,
                 requestToolApproval,
+                requestRunQuestionnaire,
                 generateAndApplyConversationTitle,
                 notifyRunStateChange,
                 ui,
@@ -2753,6 +2816,12 @@ Your output must be:
             (approval) =>
                 approval.conversationId === snapshot.currentConversation?.id,
         ) ?? null;
+    const pendingQuestionnaire =
+        pendingQuestionnaires.find(
+            (questionnaire) =>
+                questionnaire.conversationId ===
+                snapshot.currentConversation?.id,
+        ) ?? null;
 
     return (
         <AppStateContext.Provider
@@ -2794,6 +2863,20 @@ Your output must be:
                 denyPendingToolApproval: () => {
                     if (pendingToolApproval) {
                         resolvePendingToolApproval(pendingToolApproval, "deny");
+                    }
+                },
+                pendingQuestionnaire,
+                submitPendingQuestionnaire: (answers) => {
+                    if (pendingQuestionnaire) {
+                        resolvePendingQuestionnaire(
+                            pendingQuestionnaire,
+                            answers,
+                        );
+                    }
+                },
+                dismissPendingQuestionnaire: () => {
+                    if (pendingQuestionnaire) {
+                        resolvePendingQuestionnaire(pendingQuestionnaire, null);
                     }
                 },
                 deleteMcpServer,
@@ -2969,6 +3052,9 @@ export function useChat() {
         pendingToolApproval: context.pendingToolApproval,
         approvePendingToolApproval: context.approvePendingToolApproval,
         denyPendingToolApproval: context.denyPendingToolApproval,
+        pendingQuestionnaire: context.pendingQuestionnaire,
+        submitPendingQuestionnaire: context.submitPendingQuestionnaire,
+        dismissPendingQuestionnaire: context.dismissPendingQuestionnaire,
         resolveNotificationApproval: context.resolveNotificationApproval,
         createConversation: context.createConversation,
         createSavedPrompt: context.createSavedPrompt,
@@ -2996,6 +3082,7 @@ export function useChat() {
             currentConversationRunStatus === "queued" ||
             currentConversationRunStatus === "running" ||
             currentConversationRunStatus === "waiting_for_approval" ||
+            currentConversationRunStatus === "waiting_for_question" ||
             currentConversationRunStatus === "resumable" ||
             currentConversationRunStatus === "retrying",
         stopSending: context.stopSending,

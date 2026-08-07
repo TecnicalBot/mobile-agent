@@ -5,6 +5,8 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   workspaceReadFile: true,
   workspaceWriteFile: true,
   workspaceCreateFile: true,
+  workspaceSearchText: true,
+  workspaceEditFile: true,
   folderListDirectory: true,
   folderReadFile: true,
   folderWriteFile: true,
@@ -13,6 +15,11 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   folderRenameEntry: true,
   folderMoveEntry: true,
   folderDeleteEntry: true,
+  folderSearchText: true,
+  folderEditFile: true,
+  updateTodos: true,
+  askQuestion: true,
+  loadSkill: true,
   deviceReadScreen: false,
   deviceTap: false,
   deviceType: false,
@@ -45,8 +52,16 @@ export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
     keys: ["workspaceWriteFile", "folderWriteFile"],
   },
   {
+    label: "Edit file",
+    keys: ["workspaceEditFile", "folderEditFile"],
+  },
+  {
     label: "Create file",
     keys: ["workspaceCreateFile", "folderCreateFile"],
+  },
+  {
+    label: "Search files",
+    keys: ["workspaceSearchText", "folderSearchText"],
   },
   {
     label: "Create folder",
@@ -128,6 +143,38 @@ export const DEVICE_TOOL_KEYS: BuiltInToolKey[] = DEVICE_TOOL_CONTROLS.flatMap(
   (control) => control.keys,
 );
 
+export const AGENT_TOOL_CONTROLS: Array<{
+  keys: BuiltInToolKey[];
+  label: string;
+}> = [
+  {
+    label: "Track tasks",
+    keys: ["updateTodos"],
+  },
+  {
+    label: "Ask for input",
+    keys: ["askQuestion"],
+  },
+  {
+    label: "Load skill",
+    keys: ["loadSkill"],
+  },
+];
+
+export const AGENT_TOOL_KEYS: BuiltInToolKey[] = AGENT_TOOL_CONTROLS.flatMap(
+  (control) => control.keys,
+);
+
+export function isAgentToolEnabled(settings: BuiltInToolSettings, key: BuiltInToolKey) {
+  return settings[key];
+}
+
+export function countEnabledAgentTools(settings: BuiltInToolSettings) {
+  return AGENT_TOOL_CONTROLS.filter((control) =>
+    control.keys.some((key) => settings[key]),
+  ).length;
+}
+
 export function isDeviceAutomationEnabled(settings: BuiltInToolSettings) {
   return DEVICE_TOOL_KEYS.some((key) => settings[key]);
 }
@@ -179,6 +226,7 @@ export function countEnabledBuiltInTools(
 ) {
   return (
     countEnabledBuiltInFileTools(settings) +
-    countEnabledDeviceTools(settings, permissions)
+    countEnabledDeviceTools(settings, permissions) +
+    countEnabledAgentTools(settings)
   );
 }

@@ -232,6 +232,19 @@ export function buildExternalToolApprovalSummary(
     return `Write to ${target}`;
   }
 
+  if (toolName === "editFile") {
+    const editCount =
+      typeof input.edits !== "undefined" && Array.isArray(input.edits)
+        ? input.edits.length
+        : null;
+
+    return `Edit ${target}${editCount ? ` (${editCount} change${editCount === 1 ? "" : "s"})` : ""}`;
+  }
+
+  if (toolName === "searchText") {
+    return `Search file contents in ${target}`;
+  }
+
   if (toolName === "createFile") {
     return `Create file in ${target}`;
   }
@@ -421,6 +434,7 @@ export function buildAssistantMetadata(input: {
   promptArtifacts?: PromptArtifact[];
   reasoning?: ReasoningBlock[];
   runId?: string | null;
+  todoList?: import("@/core/types/app-state").TodoListItem[];
   toolExecutions: ToolExecutionRecord[];
   usage?: ModelUsageSnapshot | null;
 }) {
@@ -452,6 +466,10 @@ export function buildAssistantMetadata(input: {
 
   if (input.reasoning && input.reasoning.length > 0) {
     metadata.reasoning = input.reasoning;
+  }
+
+  if (input.todoList && input.todoList.length > 0) {
+    metadata.todoList = input.todoList;
   }
 
   if (input.toolExecutions.length > 0) {

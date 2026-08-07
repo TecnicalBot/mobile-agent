@@ -34,6 +34,7 @@ export type AgentRunStatus =
   | "queued"
   | "running"
   | "waiting_for_approval"
+  | "waiting_for_question"
   | "completed"
   | "failed"
   | "canceled"
@@ -46,6 +47,8 @@ export type BuiltInToolKey =
   | "workspaceReadFile"
   | "workspaceWriteFile"
   | "workspaceCreateFile"
+  | "workspaceSearchText"
+  | "workspaceEditFile"
   | "folderListDirectory"
   | "folderReadFile"
   | "folderWriteFile"
@@ -54,6 +57,11 @@ export type BuiltInToolKey =
   | "folderRenameEntry"
   | "folderMoveEntry"
   | "folderDeleteEntry"
+  | "folderSearchText"
+  | "folderEditFile"
+  | "updateTodos"
+  | "askQuestion"
+  | "loadSkill"
   | "deviceReadScreen"
   | "deviceTap"
   | "deviceType"
@@ -113,6 +121,28 @@ export type PendingToolApprovalRequest = {
   toolName: string;
 };
 export type PendingToolApproval = PendingToolApprovalRequest & {
+  chatTitle: string;
+  conversationId: string;
+  runId: string;
+};
+export type QuestionnaireItem = {
+  id: string;
+  prompt: string;
+  description?: string | null;
+  required?: boolean;
+  multiple?: boolean;
+  choices?: string[];
+  allowFreeform?: boolean;
+};
+export type PendingQuestionnaireRequest = {
+  id: string;
+  items: QuestionnaireItem[];
+};
+export type PendingQuestionnaireAnswer = {
+  id: string;
+  value: string | string[] | null;
+};
+export type PendingQuestionnaire = PendingQuestionnaireRequest & {
   chatTitle: string;
   conversationId: string;
   runId: string;
@@ -180,6 +210,16 @@ export type ReasoningBlock = {
   completedAt: string | null;
 };
 
+export type TodoStatus = "pending" | "in_progress" | "completed";
+
+export type TodoListItem = {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  createdAt: string;
+  completedAt: string | null;
+};
+
 export type NotificationSettings = {
   approvalRequests: boolean;
   runFinished: boolean;
@@ -196,6 +236,7 @@ export type MessageMetadata = {
   reasoning?: ReasoningBlock[];
   runId?: string | null;
   selectedFileIds?: string[];
+  todoList?: TodoListItem[];
   toolExecutions?: ToolExecutionRecord[];
   usage?: ModelUsageSnapshot | null;
 };

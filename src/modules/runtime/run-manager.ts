@@ -1,6 +1,9 @@
 import type {
   AgentRun,
   AgentRunStatus,
+  PendingQuestionnaire,
+  PendingQuestionnaireAnswer,
+  PendingQuestionnaireRequest,
   PendingToolApproval,
   PendingToolApprovalRequest,
 } from "@/core/types/app-state";
@@ -11,6 +14,7 @@ export const ACTIVE_AGENT_RUN_STATUSES: AgentRunStatus[] = [
   "queued",
   "running",
   "waiting_for_approval",
+  "waiting_for_question",
   "resumable",
   "retrying",
 ];
@@ -57,6 +61,19 @@ export function createPendingToolApproval(
   };
 }
 
+export function createPendingQuestionnaire(
+  run: AgentRun,
+  chatTitle: string,
+  request: PendingQuestionnaireRequest,
+): PendingQuestionnaire {
+  return {
+    ...request,
+    chatTitle,
+    conversationId: run.conversationId,
+    runId: run.id,
+  };
+}
+
 export function createRunControllerRegistry() {
   const abortControllers = new Map<string, AbortController>();
   const claimedRuns = new Set<string>();
@@ -65,12 +82,17 @@ export function createRunControllerRegistry() {
     string,
     Map<string, (decision: ToolApprovalDecision) => void>
   >();
+  const questionnaireResolvers = new Map<
+    string,
+    Map<string, (answers: PendingQuestionnaireAnswer[] | null) => void>
+  >();
 
   return {
-    version: 2 as number,
+    version: 3 as number,
     clear(runId: string) {
       abortControllers.delete(runId);
       approvalResolvers.delete(runId);
+      questionnaireResolvers.delete(runId);
       claimedRuns.delete(runId);
       canceledRuns.delete(runId);
     },
@@ -110,6 +132,30 @@ export function createRunControllerRegistry() {
       if (runApprovals?.size === 0) approvalResolvers.delete(runId);
       resolver?.(decision);
     },
+    registerPendingQuestionnaire(
+      runId: string,
+      questionnaireId: string,
+      resolver: (answers: PendingQuestionnaireAnswer[] | null) => void,
+    ) {
+      const runQuestionnaires =
+        questionnaireResolvers.get(runId) ?? new Map();
+      runQuestionnaires.set(questionnaireId, resolver);
+      questionnaireResolvers.set(runId, runQuestionnaires);
+    },
+    resolvePendingQuestionnaire(
+      runId: string,
+      questionnaireId: string,
+      answers: PendingQuestionnaireAnswer[] | null,
+    ) {
+      const runQuestionnaires = questionnaireResolvers.get(runId);
+      const resolver = runQuestionnaires?.get(questionnaireId) ?? null;
+
+      runQuestionnaires?.delete(questionnaireId);
+      if (runQuestionnaires?.size === 0) {
+        questionnaireResolvers.delete(runId);
+      }
+      resolver?.(answers);
+    },
     stopRun(runId: string) {
       const controller = abortControllers.get(runId);
       if (controller || claimedRuns.has(runId)) canceledRuns.add(runId);
@@ -117,6 +163,9 @@ export function createRunControllerRegistry() {
       const runApprovals = approvalResolvers.get(runId);
       approvalResolvers.delete(runId);
       runApprovals?.forEach((resolve) => resolve("abort"));
+      const runQuestionnaires = questionnaireResolvers.get(runId);
+      questionnaireResolvers.delete(runId);
+      runQuestionnaires?.forEach((resolve) => resolve(null));
       return Boolean(controller) || claimedRuns.has(runId);
     },
   };

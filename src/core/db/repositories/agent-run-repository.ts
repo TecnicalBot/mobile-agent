@@ -13,6 +13,7 @@ const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
   "queued",
   "running",
   "waiting_for_approval",
+  "waiting_for_question",
   "resumable",
 ];
 

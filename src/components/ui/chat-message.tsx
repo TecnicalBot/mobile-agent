@@ -8,12 +8,16 @@ import * as Sharing from "expo-sharing";
 import {
   Brain,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Clock3,
   Copy,
   Download,
   Bookmark,
+  ListChecks,
+  Loader,
   Pencil,
   Share2,
 } from "lucide-react-native";
@@ -673,6 +677,10 @@ export const ChatMessage = memo(function ChatMessage({
     () => message.status === "streaming",
     [message.id],
   );
+  const [tasksExpanded, setTasksExpanded] = useRecyclingState(
+    () => message.status === "streaming",
+    [message.id],
+  );
   const [previewImage, setPreviewImage] = useRecyclingState<
     GeneratedImageAttachment | null
   >(null, [message.id]);
@@ -921,6 +929,16 @@ export const ChatMessage = memo(function ChatMessage({
     return "image/png";
   };
   const memoryEvents = message.metadata?.memoryEvents ?? [];
+  const todoList = message.metadata?.todoList ?? [];
+  const completedTaskCount = todoList.filter(
+    (task) => task.status === "completed",
+  ).length;
+  const taskLabel =
+    todoList.length === 0
+      ? null
+      : completedTaskCount === todoList.length
+        ? `${todoList.length} tasks done`
+        : `${completedTaskCount}/${todoList.length} tasks`;
   const executionTimeline = (message.metadata?.executionTimeline ?? []).filter(
     (event) =>
       event.kind !== "prompt" &&
@@ -1090,6 +1108,76 @@ export const ChatMessage = memo(function ChatMessage({
                               {reasoningInProgress ? "Working" : "Done"}
                             </Text>
                           </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {taskLabel ? (
+                    <View className="gap-sp-2">
+                      <Pressable
+                        accessibilityRole="button"
+                        className="self-start flex-row items-center gap-sp-2"
+                        onPress={() => {
+                          setTasksExpanded((current) => !current);
+                        }}
+                        style={({ pressed }) =>
+                          pressed ? { opacity: 0.72 } : null
+                        }
+                      >
+                        <ListChecks color={theme.textSecondary} size={16} />
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          {taskLabel}
+                        </Text>
+                        <ChevronDown
+                          color={theme.textSecondary}
+                          size={14}
+                          style={{
+                            transform: [
+                              { rotate: tasksExpanded ? "180deg" : "0deg" },
+                            ],
+                          }}
+                        />
+                      </Pressable>
+
+                      {tasksExpanded ? (
+                        <View className="gap-sp-1.5 border-l border-border pl-sp-3 dark:border-border-dark">
+                          {todoList.map((task) => (
+                            <View
+                              key={task.id}
+                              className="flex-row items-start gap-sp-2"
+                            >
+                              {task.status === "completed" ? (
+                                <CheckCircle2
+                                  color={theme.textSecondary}
+                                  size={16}
+                                  style={{ marginTop: 1 }}
+                                />
+                              ) : task.status === "in_progress" ? (
+                                <Loader
+                                  color={theme.textSecondary}
+                                  size={16}
+                                  style={{ marginTop: 1 }}
+                                />
+                              ) : (
+                                <Circle
+                                  color={theme.textSecondary}
+                                  size={16}
+                                  style={{ marginTop: 1 }}
+                                />
+                              )}
+                              <Text
+                                className={cn(
+                                  "min-w-0 flex-1 font-sans text-sm",
+                                  task.status === "completed"
+                                    ? "text-muted-foreground line-through dark:text-muted-foreground-dark"
+                                    : "text-foreground dark:text-foreground-dark",
+                                )}
+                              >
+                                {task.title}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
                       ) : null}
                     </View>
@@ -1525,6 +1613,10 @@ function formatTimelineTitle(event: ExecutionTimelineEvent) {
       return `Waiting for approval: ${event.title.slice(
         "Approval requested for ".length,
       )}`;
+    }
+
+    if (event.title === "Questions for the user") {
+      return "Waiting for your answers";
     }
 
     if (event.status === "failed") {

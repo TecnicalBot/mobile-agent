@@ -67,6 +67,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { Questionnaire } from "@/components/ui/questionnaire";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -225,9 +226,12 @@ export default function Screen() {
     editAndResendMessage,
     messages,
     pendingToolApproval,
+    pendingQuestionnaire,
     pickConversationFolder,
     sendMessage,
     stopSending,
+    submitPendingQuestionnaire,
+    dismissPendingQuestionnaire,
     createConversation,
     setCurrentSelectedFileIds,
     setCurrentSelectedSkillIds,
@@ -243,6 +247,7 @@ export default function Screen() {
     currentConversationRunStatus === "queued" ||
     currentConversationRunStatus === "running" ||
     currentConversationRunStatus === "waiting_for_approval" ||
+    currentConversationRunStatus === "waiting_for_question" ||
     currentConversationRunStatus === "resumable" ||
     currentConversationRunStatus === "retrying";
   const latestUserMessageId = useMemo(
@@ -585,6 +590,15 @@ export default function Screen() {
               </DrawerFooter>
             </DrawerContent>
           </Drawer>
+
+          {pendingQuestionnaire ? (
+            <Questionnaire
+              key={pendingQuestionnaire.id}
+              questionnaire={pendingQuestionnaire}
+              onDismiss={dismissPendingQuestionnaire}
+              onSubmit={submitPendingQuestionnaire}
+            />
+          ) : null}
 
           <Drawer onOpenChange={setInfoDrawerOpen} open={infoDrawerOpen}>
             <DrawerContent showCloseButton showHandle>

@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import type { schema } from "@/core/db/schema";
 import type { MemoryStore } from "@/modules/memory/types";
 import type {
+  AgentMode,
   AgentRun,
   AgentRunStatus,
   AppSettings,
@@ -44,6 +45,7 @@ export interface ConversationRepository {
   updateMetadata(
     id: string,
     input: {
+      agentMode?: AgentMode;
       externalFolderSession?: ExternalFolderSession | null;
       modelId?: string | null;
       pinnedAt?: string | null;
@@ -84,6 +86,7 @@ export interface MessageRepository {
 
 export interface AgentRunRepository {
   create(input: {
+    agentMode?: AgentMode;
     assistantMessageId: string;
     completedAt?: string | null;
     conversationId: string;
@@ -110,6 +113,7 @@ export interface AgentRunRepository {
   update(
     id: string,
     input: {
+      agentMode?: AgentMode;
       completedAt?: string | null;
       externalFolderSession?: ExternalFolderSession | null;
       fileContextSource?: FileContextSource | null;

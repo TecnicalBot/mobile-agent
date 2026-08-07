@@ -93,6 +93,41 @@ import {
 } from "./helpers";
 import { isUiProjectionFailure, type RunUiPublisher } from "./run-ui-publisher";
 
+const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
+  "createDirectory",
+  "createFile",
+  "deleteEntry",
+  "editFile",
+  "moveEntry",
+  "renameEntry",
+  "writeFile",
+]);
+
+function filterToolsToAgentMode(
+  tools: Record<string, unknown>,
+  isPlanMode: boolean,
+): Record<string, unknown> {
+  if (!isPlanMode) {
+    return tools;
+  }
+
+  return Object.fromEntries(
+    Object.entries(tools).filter(
+      ([name]) => !MUTATING_BUILT_IN_TOOL_NAMES.has(name),
+    ),
+  );
+}
+
+function buildPlanModeSystemPrompt() {
+  return [
+    "You are in Plan mode. You may research, inspect, and analyze, but you must NOT make any changes.",
+    "Never create, write, edit, delete, move, or rename files. Never tap, type, or otherwise operate the device. Never modify memory or MCP-connected systems.",
+    "Your mutating tools are disabled, so attempting a change is impossible. Instead, investigate the relevant code and present a clear, step-by-step plan.",
+    "Structure your plan with the specific files and changes involved, why each step is needed, and any risks or trade-offs you noticed.",
+    "End by telling the user to switch to Build mode when they are ready for you to make the changes.",
+  ].join("\n");
+}
+
 export type AgentRunDeps = {
   repositories: Repositories;
   snapshotRef: RefObject<AppStateSnapshot>;
@@ -393,6 +428,7 @@ export async function executeClaimedAgentRun(
   );
   const onDevicePolicy = await resolveOnDeviceRuntimePolicy(resolvedModel);
   const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
+  const isPlanMode = run.agentMode === "plan";
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
     await safeUpdateRunRecord(run.id, {
@@ -787,6 +823,19 @@ export async function executeClaimedAgentRun(
       startBackgroundAgent();
     }
 
+    if (isPlanMode) {
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail:
+            "Only read-only tools are available. The agent will research and present a plan without making changes.",
+          kind: "run",
+          status: "info",
+          title: "Plan mode",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
+
     const builtInRuntimeTools: ToolSet | undefined =
       runtimeSupportsTools && run.fileContextSource === "external-folder"
         ? (() => {
@@ -848,7 +897,7 @@ export async function executeClaimedAgentRun(
             ]);
 
             return Object.keys(enabledTools).length > 0
-              ? (enabledTools as ToolSet)
+              ? (filterToolsToAgentMode(enabledTools, isPlanMode) as ToolSet)
               : undefined;
           })()
         : runtimeSupportsTools
@@ -892,12 +941,12 @@ export async function executeClaimedAgentRun(
               ]);
 
               return Object.keys(enabledTools).length > 0
-                ? (enabledTools as ToolSet)
+                ? (filterToolsToAgentMode(enabledTools, isPlanMode) as ToolSet)
                 : undefined;
             })()
           : undefined;
     mcpRuntime =
-      runtimeSupportsTools && runMcpServers.length > 0
+      runtimeSupportsTools && !isPlanMode && runMcpServers.length > 0
          ? await createMcpRuntimeTools({
              servers: runMcpServers,
              onRecord: handleToolExecutionRecord,
@@ -905,7 +954,9 @@ export async function executeClaimedAgentRun(
            })
         : null;
     const memoryRuntime =
-      runtimeSupportsTools && snapshotRef.current.settings.memoryEnabled
+      runtimeSupportsTools &&
+      !isPlanMode &&
+      snapshotRef.current.settings.memoryEnabled
         ? createMemoryTools({
             conversationId: conversation.id,
             memoryStore: repositories.memoryStore,
@@ -953,6 +1004,7 @@ export async function executeClaimedAgentRun(
 
     const deviceRuntimeTools: ToolSet | undefined =
       runtimeSupportsTools &&
+      !isPlanMode &&
       Platform.OS === "android" &&
       isDeviceAutomationEnabled(snapshotRef.current.settings.builtInToolSettings)
         ? createDeviceTools({
@@ -1047,8 +1099,11 @@ export async function executeClaimedAgentRun(
     });
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
       ? buildMemorySystemPrompt(snapshotRef.current.memory, {
-          canWrite: runtimeSupportsTools,
+          canWrite: runtimeSupportsTools && !isPlanMode,
         })
+      : undefined;
+    const agentModeRuntimeSystem = isPlanMode
+      ? buildPlanModeSystemPrompt()
       : undefined;
     const toolLoopRuntimeSystem = runtimeTools
       ? [
@@ -1064,6 +1119,7 @@ export async function executeClaimedAgentRun(
     const runtimeSystem =
       [
         BASE_AGENT_SYSTEM_PROMPT,
+        agentModeRuntimeSystem,
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,
         workspaceRuntimeSystem,

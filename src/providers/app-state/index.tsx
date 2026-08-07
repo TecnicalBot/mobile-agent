@@ -52,6 +52,7 @@ import {
 import { secureSecretStore } from "@/core/services/secrets";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import type {
+    AgentMode,
     AgentRun,
     AppSettings,
     AppStateSnapshot,
@@ -246,6 +247,8 @@ type AppStateContextValue = {
     stopSending: () => Promise<void>;
     reasoningEffort: ReasoningEffort;
     setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
+    agentMode: AgentMode;
+    setAgentMode: (mode: AgentMode) => Promise<void>;
     setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
     setCurrentSelectedMcpServerIds: (
         selectedMcpServerIds: string[] | null,
@@ -1647,6 +1650,7 @@ Your output must be:
             pinnedAt: null,
             providerId: currentModel?.providerId ?? null,
             reasoningEffort: "medium",
+            agentMode: "build",
             selectedFileIds: [],
             selectedMcpServerIds: null,
             selectedSkillIds: [],
@@ -2114,6 +2118,37 @@ Your output must be:
                 currentConversation:
                     current.currentConversation?.id === currentConversation.id
                         ? { ...current.currentConversation, reasoningEffort: effort }
+                        : current.currentConversation,
+            }));
+        },
+        [ensureConversationPersisted],
+    );
+
+    const setAgentMode = useCallback(
+        async (mode: AgentMode) => {
+            const currentConversation = snapshotRef.current.currentConversation;
+
+            if (!currentConversation) {
+                return;
+            }
+
+            await ensureConversationPersisted(currentConversation);
+
+            await repositoriesRef.current.conversationRepository.updateMetadata(
+                currentConversation.id,
+                { agentMode: mode },
+            );
+
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === currentConversation.id
+                        ? { ...conversation, agentMode: mode }
+                        : conversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === currentConversation.id
+                        ? { ...current.currentConversation, agentMode: mode }
                         : current.currentConversation,
             }));
         },
@@ -2621,6 +2656,7 @@ Your output must be:
             updatedAt: timestamp,
         };
         const optimisticAgentRun: AgentRun = {
+            agentMode: conversation.agentMode,
             assistantMessageId,
             completedAt: null,
             conversationId: conversation.id,
@@ -2732,6 +2768,7 @@ Your output must be:
                 status: "streaming",
             });
             agentRun = await repositories.agentRunRepository.create({
+                agentMode: conversation.agentMode,
                 assistantMessageId: assistantMessage.id,
                 conversationId: conversation.id,
                 externalFolderSession,
@@ -2915,6 +2952,9 @@ Your output must be:
                 reasoningEffort:
                     snapshot.currentConversation?.reasoningEffort ?? "medium",
                 setReasoningEffort,
+                agentMode:
+                    snapshot.currentConversation?.agentMode ?? "build",
+                setAgentMode,
                 setCurrentSelectedFileIds,
                 setCurrentSelectedMcpServerIds,
                 setCurrentSelectedSkillIds,
@@ -3088,6 +3128,8 @@ export function useChat() {
         stopSending: context.stopSending,
         reasoningEffort: context.reasoningEffort,
         setReasoningEffort: context.setReasoningEffort,
+        agentMode: context.agentMode,
+        setAgentMode: context.setAgentMode,
         setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
         setCurrentSelectedMcpServerIds: context.setCurrentSelectedMcpServerIds,
         setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,

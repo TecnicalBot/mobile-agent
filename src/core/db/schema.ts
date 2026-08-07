@@ -1,6 +1,7 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import type {
+  AgentMode,
   AgentRunStatus,
   ExternalFolderSession,
   FileContextSource,
@@ -28,6 +29,7 @@ export const conversations = sqliteTable(
       .$type<ReasoningEffort>()
       .notNull()
       .default("medium"),
+    agentMode: text("agent_mode").$type<AgentMode>().notNull().default("build"),
     selectedFileIds: text("selected_file_ids_json", { mode: "json" })
       .$type<string[]>()
       .notNull()
@@ -102,6 +104,7 @@ export const agentRuns = sqliteTable(
     retryCount: integer("retry_count").notNull().default(0),
     maxRetries: integer("max_retries").notNull().default(3),
     lastRetryAt: text("last_retry_at"),
+    agentMode: text("agent_mode").$type<AgentMode>().notNull().default("build"),
   },
   (table) => [
     index("idx_agent_runs_conversation_updated_at").on(

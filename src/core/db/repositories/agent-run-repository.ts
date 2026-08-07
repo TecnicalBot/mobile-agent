@@ -43,6 +43,7 @@ export function createAgentRunRepository(db: AppDatabase): AgentRunRepository {
         retryCount: input.retryCount ?? 0,
         maxRetries: input.maxRetries ?? 3,
         lastRetryAt: input.lastRetryAt ?? null,
+        agentMode: input.agentMode ?? "build",
       });
 
       const row = (
@@ -122,6 +123,7 @@ export function createAgentRunRepository(db: AppDatabase): AgentRunRepository {
             input.lastRetryAt !== undefined
               ? input.lastRetryAt
               : current.lastRetryAt,
+          agentMode: input.agentMode ?? current.agentMode,
         })
         .where(eq(agentRuns.id, id));
     },

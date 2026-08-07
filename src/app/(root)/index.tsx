@@ -10,6 +10,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  ClipboardList,
   Edit,
   FolderOpen,
   Info,
@@ -80,6 +81,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
+  AgentMode,
   ExternalFolderSession,
   McpServerConfig,
   ModelRef,
@@ -131,6 +133,29 @@ function getReasoningEffortLabel(effort: ReasoningEffort) {
   return (
     REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ??
     "Medium"
+  );
+}
+
+const AGENT_MODE_OPTIONS: {
+  value: AgentMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "build",
+    label: "Build",
+    description: "Full tool access: research, write, and make changes",
+  },
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Read-only research and analysis; no changes are made",
+  },
+];
+
+function getAgentModeLabel(mode: AgentMode) {
+  return (
+    AGENT_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? "Build"
   );
 }
 
@@ -242,6 +267,8 @@ export default function Screen() {
     reasoningEffort,
     savedPrompts,
     setReasoningEffort,
+    agentMode,
+    setAgentMode,
   } = useChat();
   const currentConversationBusy =
     currentConversationRunStatus === "queued" ||
@@ -540,6 +567,8 @@ export default function Screen() {
               toolApprovalMode={toolApprovalMode}
               updateToolApprovalMode={updateToolApprovalMode}
               workspaceFiles={workspaceFiles}
+              agentMode={agentMode}
+              setAgentMode={setAgentMode}
             />
           </MessageScrollerProvider>
 
@@ -841,6 +870,8 @@ const ChatInput = memo(function ChatInput({
   toolApprovalMode,
   updateToolApprovalMode,
   workspaceFiles,
+  agentMode,
+  setAgentMode,
 }: {
   activeModels: Array<{
     label: string;
@@ -894,6 +925,8 @@ const ChatInput = memo(function ChatInput({
   toolApprovalMode: "ask" | "auto";
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
   workspaceFiles: WorkspaceFile[];
+  agentMode: AgentMode;
+  setAgentMode: (mode: AgentMode) => Promise<void>;
 }) {
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
@@ -905,6 +938,7 @@ const ChatInput = memo(function ChatInput({
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
+  const [agentModeDrawerOpen, setAgentModeDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
   const [mcpServersDrawerOpen, setMcpServersDrawerOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<
@@ -1713,6 +1747,22 @@ const ChatInput = memo(function ChatInput({
               <ChevronDown color={theme.textSecondary} size={14} />
             </Pressable>
 
+            <Pressable
+              accessibilityLabel="Select agent mode"
+              accessibilityRole="button"
+              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+              onPress={() => {
+                setAgentModeDrawerOpen(true);
+              }}
+              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+            >
+              <ClipboardList color={theme.textSecondary} size={14} />
+              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+                {getAgentModeLabel(agentMode)}
+              </Text>
+              <ChevronDown color={theme.textSecondary} size={14} />
+            </Pressable>
+
             <View className="flex-1" />
             <Pressable
               accessibilityLabel={loading ? "Stop generating" : "Send message"}
@@ -1912,6 +1962,34 @@ const ChatInput = memo(function ChatInput({
                     .catch(console.error);
                 }}
                 selected={reasoningEffort === option.value}
+                subtitle={option.description}
+                title={option.label}
+              />
+            ))}
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer onOpenChange={setAgentModeDrawerOpen} open={agentModeDrawerOpen}>
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>Agent mode</DrawerTitle>
+            <DrawerDescription>
+              Choose how the agent can act for this chat.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            {AGENT_MODE_OPTIONS.map((option) => (
+              <DrawerSelectRow
+                key={option.value}
+                onPress={() => {
+                  setAgentMode(option.value)
+                    .then(() => {
+                      setAgentModeDrawerOpen(false);
+                    })
+                    .catch(console.error);
+                }}
+                selected={agentMode === option.value}
                 subtitle={option.description}
                 title={option.label}
               />

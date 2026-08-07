@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 17;
+const DATABASE_VERSION = 18;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -25,6 +25,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     retry_count INTEGER NOT NULL DEFAULT 0,
     max_retries INTEGER NOT NULL DEFAULT 3,
     last_retry_at TEXT,
+    agent_mode TEXT NOT NULL DEFAULT 'build',
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
   );
 
@@ -66,6 +67,13 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       `);
     }
 
+    if (!conversationColumns.some((column) => column.name === "agent_mode")) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'build';
+      `);
+    }
+
     return;
   }
 
@@ -79,6 +87,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         provider_id TEXT,
         model_id TEXT,
         reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+        agent_mode TEXT NOT NULL DEFAULT 'build',
         selected_file_ids_json TEXT NOT NULL DEFAULT '[]',
         selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -220,6 +229,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         retry_count INTEGER NOT NULL DEFAULT 0,
         max_retries INTEGER NOT NULL DEFAULT 3,
         last_retry_at TEXT,
+        agent_mode TEXT NOT NULL DEFAULT 'build',
         FOREIGN KEY (conversation_id) REFERENCES conversations(id)
       );
 
@@ -524,6 +534,18 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 17;
+  }
+
+  if (currentVersion === 17) {
+    await db.execAsync(`
+      ALTER TABLE conversations
+      ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'build';
+
+      ALTER TABLE agent_runs
+      ADD COLUMN agent_mode TEXT NOT NULL DEFAULT 'build';
+    `);
+
+    currentVersion = 18;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

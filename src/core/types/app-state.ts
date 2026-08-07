@@ -26,6 +26,7 @@ export type ModelTransport =
   | "openaiCompatible"
   | "openaiResponses";
 export type ToolApprovalMode = "ask" | "auto";
+export type AgentMode = "plan" | "build";
 export type ThemeMode = "system" | "light" | "dark";
 export type McpServerTransport = "http" | "sse";
 export type McpServerAuthMode = "none" | "headers" | "oauth";
@@ -261,6 +262,7 @@ export type AgentRun = {
   retryCount: number;
   maxRetries: number;
   lastRetryAt: string | null;
+  agentMode: AgentMode;
 };
 
 export type ExternalFolderSession = {
@@ -322,6 +324,7 @@ export type Conversation = {
   providerId: string | null;
   modelId: string | null;
   reasoningEffort: ReasoningEffort;
+  agentMode: AgentMode;
   selectedFileIds: string[];
   selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];

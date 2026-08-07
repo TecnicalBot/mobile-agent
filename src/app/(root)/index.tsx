@@ -1121,6 +1121,7 @@ const ChatInput = memo(function ChatInput({
 
     sendingRef.current = true;
     setPrompt("");
+    KeyboardController.dismiss();
 
     try {
       await setSelectedFileIds([]);
@@ -1165,6 +1166,7 @@ const ChatInput = memo(function ChatInput({
       setPendingFolderSend(null);
       setFolderNotice(`Using ${session.displayName} for this chat.`);
       setPrompt("");
+      KeyboardController.dismiss();
       await setSelectedFileIds([]);
       scrollToEnd();
       await onSend({
@@ -1714,6 +1716,7 @@ const ChatInput = memo(function ChatInput({
                 if (editDraft !== null) {
                   const cleanEditPrompt = prompt.trim();
                   if (!cleanEditPrompt) return;
+                  KeyboardController.dismiss();
                   onEditSend(cleanEditPrompt).catch(console.error);
                   return;
                 }

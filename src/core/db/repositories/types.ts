@@ -63,6 +63,7 @@ export interface MessageRepository {
     content: string;
     conversationId: string;
     error?: string | null;
+    id?: string;
     metadata?: MessageMetadata | null;
     role: StoredMessage["role"];
     sequence: number;

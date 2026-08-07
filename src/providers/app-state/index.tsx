@@ -2466,8 +2466,6 @@ Your output must be:
             failSend("Pick a folder for this chat before using folder actions.");
         }
 
-        await ensureConversationPersisted(conversation);
-
         setError(null);
         prepareRunNotificationsAsync({
             requestPermission:
@@ -2493,14 +2491,6 @@ Your output must be:
             updatedAt: timestamp,
         };
 
-        await repositories.conversationRepository.updateMetadata(conversation.id, {
-            title: nextTitle,
-            providerId: model.providerId,
-            modelId: model.modelId,
-            selectedFileIds: [],
-            updatedAt: timestamp,
-        });
-
         const appliedSkills = resolveAppliedSkills({
             content: cleanContent,
             selectedSkillIds: conversation.selectedSkillIds,
@@ -2525,43 +2515,23 @@ Your output must be:
 
         const userMetadata: import("@/core/types/app-state").MessageMetadata | null =
             Object.keys(userMetadataEntries).length > 0 ? userMetadataEntries : null;
-        const userMessage = await repositories.messageRepository.create({
+        const userMessageId = Crypto.randomUUID();
+        const assistantMessageId = Crypto.randomUUID();
+        const agentRunId = Crypto.randomUUID();
+
+        const optimisticUserMessage: StoredMessage = {
             conversationId: conversation.id,
             content: cleanContent,
+            createdAt: timestamp,
+            error: null,
+            id: userMessageId,
             metadata: userMetadata,
             role: "user",
             sequence: userSequence,
             status: "completed",
-        });
-        const assistantMessage = await repositories.messageRepository.create({
-            conversationId: conversation.id,
-            content: "",
-            metadata: null,
-            role: "assistant",
-            sequence: assistantSequence,
-            status: "streaming",
-        });
-        const agentRun = await repositories.agentRunRepository.create({
-            assistantMessageId: assistantMessage.id,
-            conversationId: conversation.id,
-            externalFolderSession,
-            fileContextSource,
-            input: cleanContent,
-            modelId: model.modelId,
-            providerId: model.providerId,
-            selectedFileIds,
-            status: "queued",
-            userMessageId: userMessage.id,
-        });
-
-        logMessageDebug("send-created-db-messages", {
-            assistantMessageId: assistantMessage.id,
-            conversationId: conversation.id,
-            userMessageId: userMessage.id,
-            userSequence,
-            assistantSequence,
-        });
-        const assistantMetadata = buildAssistantMetadata({
+            updatedAt: timestamp,
+        };
+        const optimisticAssistantMetadata = buildAssistantMetadata({
             appliedSkillIds,
             executionTimeline: [
                 createExecutionTimelineEvent({
@@ -2569,42 +2539,72 @@ Your output must be:
                     kind: "run",
                     status: "pending",
                     title: "Run queued",
-                    createdAt: agentRun.startedAt,
+                    createdAt: timestamp,
                 }),
             ],
-            runId: agentRun.id,
+            runId: agentRunId,
             toolExecutions: [],
         });
-
-        await repositories.messageRepository.updateContent({
-            id: assistantMessage.id,
+        const optimisticAssistantMessage: StoredMessage = {
+            conversationId: conversation.id,
             content: "",
+            createdAt: timestamp,
             error: null,
-            metadata: assistantMetadata,
+            id: assistantMessageId,
+            metadata: optimisticAssistantMetadata,
+            role: "assistant",
+            sequence: assistantSequence,
             status: "streaming",
-        });
+            updatedAt: timestamp,
+        };
+        const optimisticAgentRun: AgentRun = {
+            assistantMessageId,
+            completedAt: null,
+            conversationId: conversation.id,
+            externalFolderSession,
+            fileContextSource,
+            id: agentRunId,
+            input: cleanContent,
+            lastError: null,
+            lastRetryAt: null,
+            maxRetries: 3,
+            modelId: model.modelId,
+            providerId: model.providerId,
+            resumeCount: 0,
+            retryCount: 0,
+            selectedFileIds,
+            startedAt: timestamp,
+            status: "queued",
+            updatedAt: timestamp,
+            userMessageId,
+        };
 
-        setSnapshot((current) => {
+        const patchLiveMessages = (
+            current: AppStateSnapshot,
+            nextMessages: StoredMessage[],
+            nextAgentRun: AgentRun,
+            nextConversation: Conversation,
+        ) => {
             logMessageDebug("send-before-live-patch", {
                 conversationId: conversation.id,
                 currentConversationId: current.currentConversation?.id ?? null,
                 shouldPatchMessages:
                     current.currentConversation?.id === conversation.id,
                 currentMessages: buildMessageDebugSummary(current.messages),
-                nextAssistantId: assistantMessage.id,
-                nextUserId: userMessage.id,
+                nextAssistantId: assistantMessageId,
+                nextUserId: userMessageId,
             });
 
             return {
                 ...current,
-                agentRuns: upsertAgentRun(current.agentRuns, agentRun),
+                agentRuns: upsertAgentRun(current.agentRuns, nextAgentRun),
                 conversations: upsertConversation(
                     current.conversations,
-                    updatedConversation,
+                    nextConversation,
                 ),
                 currentConversation:
-                    current.currentConversation?.id === updatedConversation.id
-                        ? updatedConversation
+                    current.currentConversation?.id === nextConversation.id
+                        ? nextConversation
                         : current.currentConversation,
                 currentSelectedFileIds:
                     current.currentConversation?.id === conversation.id
@@ -2620,16 +2620,120 @@ Your output must be:
                         : current.currentSelectedSkillIds,
                 messages:
                     current.currentConversation?.id === conversation.id
-                        ? upsertMessages(current.messages, [
-                            userMessage,
-                            {
-                                ...assistantMessage,
-                                metadata: assistantMetadata,
-                            },
-                        ])
+                        ? upsertMessages(current.messages, nextMessages)
                         : current.messages,
             };
-        });
+        };
+
+        setSnapshot((current) =>
+            patchLiveMessages(
+                current,
+                [optimisticUserMessage, optimisticAssistantMessage],
+                optimisticAgentRun,
+                updatedConversation,
+            ),
+        );
+
+        let agentRun: AgentRun;
+        let userMessage: StoredMessage;
+        let assistantMessage: StoredMessage;
+        let assistantMetadata: import("@/core/types/app-state").MessageMetadata | null;
+
+        try {
+            await ensureConversationPersisted(conversation);
+
+            await repositories.conversationRepository.updateMetadata(conversation.id, {
+                title: nextTitle,
+                providerId: model.providerId,
+                modelId: model.modelId,
+                selectedFileIds: [],
+                updatedAt: timestamp,
+            });
+
+            userMessage = await repositories.messageRepository.create({
+                conversationId: conversation.id,
+                content: cleanContent,
+                id: userMessageId,
+                metadata: userMetadata,
+                role: "user",
+                sequence: userSequence,
+                status: "completed",
+            });
+            assistantMessage = await repositories.messageRepository.create({
+                conversationId: conversation.id,
+                content: "",
+                id: assistantMessageId,
+                metadata: null,
+                role: "assistant",
+                sequence: assistantSequence,
+                status: "streaming",
+            });
+            agentRun = await repositories.agentRunRepository.create({
+                assistantMessageId: assistantMessage.id,
+                conversationId: conversation.id,
+                externalFolderSession,
+                fileContextSource,
+                id: agentRunId,
+                input: cleanContent,
+                modelId: model.modelId,
+                providerId: model.providerId,
+                selectedFileIds,
+                status: "queued",
+                userMessageId: userMessage.id,
+            });
+
+            logMessageDebug("send-created-db-messages", {
+                assistantMessageId: assistantMessage.id,
+                conversationId: conversation.id,
+                userMessageId: userMessage.id,
+                userSequence,
+                assistantSequence,
+            });
+            assistantMetadata = buildAssistantMetadata({
+                appliedSkillIds,
+                executionTimeline: [
+                    createExecutionTimelineEvent({
+                        detail: `${model.providerLabel} · ${model.label}`,
+                        kind: "run",
+                        status: "pending",
+                        title: "Run queued",
+                        createdAt: agentRun.startedAt,
+                    }),
+                ],
+                runId: agentRun.id,
+                toolExecutions: [],
+            });
+
+            await repositories.messageRepository.updateContent({
+                id: assistantMessage.id,
+                content: "",
+                error: null,
+                metadata: assistantMetadata,
+                status: "streaming",
+            });
+        } catch (error) {
+            setSnapshot((current) => ({
+                ...current,
+                agentRuns: current.agentRuns.filter(
+                    (run) => run.id !== agentRunId,
+                ),
+                messages: current.messages.filter(
+                    (message) =>
+                        message.id !== userMessageId &&
+                        message.id !== assistantMessageId,
+                ),
+            }));
+            throw error;
+        }
+
+        setSnapshot((current) =>
+            patchLiveMessages(
+                current,
+                [userMessage, { ...assistantMessage, metadata: assistantMetadata }],
+                agentRun,
+                updatedConversation,
+            ),
+        );
 
         void executeAgentRunRef.current(agentRun.id).catch((runError) => {
             setError(

@@ -8,7 +8,7 @@ import type { AppDatabase, MessageRepository } from "@/core/db/repositories/type
 export function createMessageRepository(db: AppDatabase): MessageRepository {
   return {
     async create(input) {
-      const id = Crypto.randomUUID();
+      const id = input.id ?? Crypto.randomUUID();
       const timestamp = nowIso();
 
       await db.insert(messages).values({

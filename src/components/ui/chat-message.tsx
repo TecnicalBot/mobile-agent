@@ -45,6 +45,7 @@ import Markdown, {
   MarkdownIt,
   type RenderRules,
 } from "react-native-markdown-display";
+import { useRecyclingState } from "@shopify/flash-list";
 
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
@@ -83,8 +84,6 @@ refractor.register(jsx);
 refractor.register(tsx);
 
 const MARKDOWN_PARSER = MarkdownIt({ linkify: true, typographer: true });
-
-const MARKDOWN_DEFER_THRESHOLD = 1500;
 
 const MARKDOWN_MAX_RENDER_LENGTH = 4000;
 
@@ -345,7 +344,7 @@ function getTableText(node: ASTNode) {
 
 function CopyButton({ label, value }: { label: string; value: string }) {
   const theme = useTheme();
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useRecyclingState(false, [value]);
 
   useEffect(() => {
     if (!copied) {
@@ -359,7 +358,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
     return () => {
       clearTimeout(timeout);
     };
-  }, [copied]);
+  }, [copied, setCopied]);
 
   return (
     <Pressable
@@ -474,33 +473,13 @@ function CopyableCodeBlock({
 const MarkdownContent = memo(function MarkdownContent({
   content,
   onLinkPress,
-  streaming = false,
   styles,
 }: {
   content: string;
   onLinkPress: (url: string) => boolean;
-  streaming?: boolean;
   styles: ReturnType<typeof createMarkdownStyles>;
 }) {
-  const [upgraded, setUpgraded] = useState(
-    !streaming && content.length <= MARKDOWN_DEFER_THRESHOLD,
-  );
-
-  useEffect(() => {
-    if (
-      streaming ||
-      upgraded ||
-      content.length > MARKDOWN_MAX_RENDER_LENGTH
-    ) {
-      return;
-    }
-
-    const handle = setTimeout(() => setUpgraded(true), 0);
-
-    return () => clearTimeout(handle);
-  }, [streaming, upgraded, content.length]);
-
-  if (streaming || !upgraded) {
+  if (content.length > MARKDOWN_MAX_RENDER_LENGTH) {
     return (
       <Text selectable style={styles.body}>
         {content}
@@ -675,19 +654,31 @@ export const ChatMessage = memo(function ChatMessage({
   workspaceFiles,
 }: ChatMessageProps) {
   const theme = useTheme();
-  const [copied, setCopied] = useState(false);
-  const [imageAction, setImageAction] = useState<"download" | "share" | null>(
+  const [copied, setCopied] = useRecyclingState(false, [message.id]);
+  const [imageAction, setImageAction] = useRecyclingState<
+    "download" | "share" | null
+  >(null, [message.id]);
+  const [memoryExpanded, setMemoryExpanded] = useRecyclingState(false, [
+    message.id,
+  ]);
+  const [openingFileId, setOpeningFileId] = useRecyclingState<string | null>(
     null,
+    [message.id],
   );
-  const [memoryExpanded, setMemoryExpanded] = useState(false);
-  const [openingFileId, setOpeningFileId] = useState<string | null>(null);
-  const [sharingFileId, setSharingFileId] = useState<string | null>(null);
-  const [reasoningExpanded, setReasoningExpanded] = useState(
-    message.status === "streaming",
+  const [sharingFileId, setSharingFileId] = useRecyclingState<string | null>(
+    null,
+    [message.id],
   );
-  const [previewImage, setPreviewImage] =
-    useState<GeneratedImageAttachment | null>(null);
-  const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [reasoningExpanded, setReasoningExpanded] = useRecyclingState(
+    () => message.status === "streaming",
+    [message.id],
+  );
+  const [previewImage, setPreviewImage] = useRecyclingState<
+    GeneratedImageAttachment | null
+  >(null, [message.id]);
+  const [timelineExpanded, setTimelineExpanded] = useRecyclingState(false, [
+    message.id,
+  ]);
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
   const align = isUser ? "end" : "start";
@@ -741,7 +732,7 @@ export const ChatMessage = memo(function ChatMessage({
     return () => {
       clearTimeout(timeout);
     };
-  }, [copied]);
+  }, [copied, setCopied]);
 
   const handleCopy = async () => {
     if (!message.content.trim()) {
@@ -1093,7 +1084,6 @@ export const ChatMessage = memo(function ChatMessage({
                             <MarkdownContent
                               content={reasoningText}
                               onLinkPress={handleLinkPress}
-                              streaming={reasoningInProgress}
                               styles={reasoningMarkdownStyles}
                             />
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
@@ -1109,7 +1099,6 @@ export const ChatMessage = memo(function ChatMessage({
                     <MarkdownContent
                       content={message.content}
                       onLinkPress={handleLinkPress}
-                      streaming={message.status === "streaming"}
                       styles={markdownStyles}
                     />
                   ) : memoryEventLabel ? (

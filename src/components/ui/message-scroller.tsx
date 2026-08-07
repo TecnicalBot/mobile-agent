@@ -42,6 +42,10 @@ function MessageScrollerSeparator() {
   return <View className="h-sp-3" />;
 }
 
+const DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION = {
+  disabled: true,
+} as const;
+
 type ScrollState = {
   end: boolean;
   start: boolean;
@@ -286,6 +290,7 @@ function MessageScrollerListInner<ItemT>(
     contentContainerClassName,
     ItemSeparatorComponent = MessageScrollerSeparator,
     keyboardShouldPersistTaps = "handled",
+    maintainVisibleContentPosition = DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION,
     maxItemsInRecyclePool = 0,
     onContentSizeChange,
     onLayout,
@@ -350,6 +355,7 @@ function MessageScrollerListInner<ItemT>(
       contentContainerClassName={contentContainerClassName}
       ItemSeparatorComponent={ItemSeparatorComponent}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+      maintainVisibleContentPosition={maintainVisibleContentPosition}
       maxItemsInRecyclePool={maxItemsInRecyclePool}
       onContentSizeChange={handleContentSizeChange}
       onLayout={handleLayout}

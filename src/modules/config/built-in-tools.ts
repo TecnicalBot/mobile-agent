@@ -132,7 +132,19 @@ export function isDeviceAutomationEnabled(settings: BuiltInToolSettings) {
   return DEVICE_TOOL_KEYS.some((key) => settings[key]);
 }
 
-export function countEnabledDeviceTools(settings: BuiltInToolSettings) {
+export type DeviceToolPermissions = {
+  accessibilityEnabled: boolean;
+  screenCaptureActive: boolean;
+};
+
+export function countEnabledDeviceTools(
+  settings: BuiltInToolSettings,
+  permissions: DeviceToolPermissions,
+) {
+  if (!permissions.accessibilityEnabled || !permissions.screenCaptureActive) {
+    return 0;
+  }
+
   return DEVICE_TOOL_CONTROLS.filter((control) =>
     isBuiltInFileToolEnabled(settings, control.keys),
   ).length;
@@ -158,4 +170,14 @@ export function countEnabledBuiltInFileTools(settings: BuiltInToolSettings) {
   return BUILT_IN_FILE_TOOL_CONTROLS.filter((control) =>
     isBuiltInFileToolEnabled(settings, control.keys),
   ).length;
+}
+
+export function countEnabledBuiltInTools(
+  settings: BuiltInToolSettings,
+  permissions: DeviceToolPermissions,
+) {
+  return (
+    countEnabledBuiltInFileTools(settings) +
+    countEnabledDeviceTools(settings, permissions)
+  );
 }

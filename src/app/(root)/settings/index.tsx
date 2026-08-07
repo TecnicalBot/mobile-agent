@@ -22,8 +22,9 @@ import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
+import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
-import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
+import { countEnabledBuiltInTools } from "@/modules/config/built-in-tools";
 import { useUpdate } from "@/providers/check-for-updates";
 import {
   hasNotificationPermission,
@@ -92,7 +93,11 @@ export default function SettingsScreen() {
   }, [openDrawer]);
 
   const providerCount = providers.length;
-  const enabledToolCount = countEnabledBuiltInFileTools(toolSettings);
+  const devicePermissions = useDeviceAutomationPermissions();
+  const enabledToolCount = countEnabledBuiltInTools(
+    toolSettings,
+    devicePermissions,
+  );
   const enabledMcpServerCount = mcpServers.filter(
     (server) => server.enabled,
   ).length;

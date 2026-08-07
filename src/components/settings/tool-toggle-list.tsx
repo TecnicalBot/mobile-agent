@@ -14,7 +14,13 @@ type ToolControl = {
   label: string;
 };
 
-export function ToolToggleList({ controls }: { controls: ToolControl[] }) {
+export function ToolToggleList({
+  controls,
+  disabled = false,
+}: {
+  controls: ToolControl[];
+  disabled?: boolean;
+}) {
   const { toolSettings, updateBuiltInToolSettings } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -40,25 +46,33 @@ export function ToolToggleList({ controls }: { controls: ToolControl[] }) {
           toolSettings,
           control.keys,
         );
+        const inactive = disabled || busyKey === key;
 
         return (
           <View key={control.label}>
             <Pressable
               accessibilityRole="switch"
-              accessibilityState={{ checked, disabled: busyKey === key }}
+              accessibilityState={{ checked, disabled: inactive }}
               className={cn(
                 "min-h-14 flex-row items-center justify-between gap-sp-3 px-sp-4 py-sp-3",
-                busyKey === key && "opacity-50",
+                inactive && "opacity-50",
               )}
-              disabled={busyKey === key}
+              disabled={inactive}
               onPress={() => {
                 setEnabled(control, !checked).catch(console.error);
               }}
               style={({ pressed }) =>
-                pressed && busyKey !== key ? { opacity: 0.82 } : null
+                pressed && !inactive ? { opacity: 0.82 } : null
               }
             >
-              <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+              <Text
+                className={cn(
+                  "flex-1 font-sans text-base",
+                  inactive
+                    ? "text-muted-foreground dark:text-muted-foreground-dark"
+                    : "text-foreground dark:text-foreground-dark",
+                )}
+              >
                 {control.label}
               </Text>
               <View pointerEvents="none">

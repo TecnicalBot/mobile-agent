@@ -177,6 +177,10 @@ function messageKeyExtractor(message: StoredMessage) {
   return message.id;
 }
 
+function messageItemType(message: StoredMessage) {
+  return message.role;
+}
+
 function MessageListFooter() {
   return <View className="h-sp-1" />;
 }
@@ -425,6 +429,7 @@ export default function Screen() {
                   <MessageScrollerList
                     contentContainerClassName="py-sp-3 pb-12"
                     data={messages}
+                    getItemType={messageItemType}
                     keyExtractor={messageKeyExtractor}
                     renderItem={renderMessage}
                     showsVerticalScrollIndicator={false}

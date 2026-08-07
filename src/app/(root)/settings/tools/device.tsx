@@ -7,6 +7,7 @@ import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useConfig } from "@/hooks/use-config";
+import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
 import {
   countEnabledDeviceTools,
@@ -17,6 +18,9 @@ export default function SettingsDeviceToolsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { toolSettings } = useConfig();
+  const permissions = useDeviceAutomationPermissions();
+  const permissionsGranted =
+    permissions.accessibilityEnabled && permissions.screenCaptureActive;
 
   return (
     <Container
@@ -36,7 +40,7 @@ export default function SettingsDeviceToolsScreen() {
             Device controls
           </Text>
           <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-            {countEnabledDeviceTools(toolSettings)} active
+            {countEnabledDeviceTools(toolSettings, permissions)} active
           </Text>
         </View>
       </View>
@@ -58,14 +62,23 @@ export default function SettingsDeviceToolsScreen() {
               Permissions
             </Text>
             <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              Accessibility and screen capture
+              Required for device control
             </Text>
           </View>
           <ChevronRight color={theme.textSecondary} size={18} />
         </Pressable>
       </Card>
 
-      <ToolToggleList controls={DEVICE_TOOL_CONTROLS} />
+      {!permissionsGranted ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          Grant the permissions above to enable device controls.
+        </Text>
+      ) : null}
+
+      <ToolToggleList
+        controls={DEVICE_TOOL_CONTROLS}
+        disabled={!permissionsGranted}
+      />
     </Container>
   );
 }

@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
+import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
 import {
   countEnabledBuiltInFileTools,
@@ -32,6 +33,7 @@ import {
 export default function SettingsToolsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const devicePermissions = useDeviceAutomationPermissions();
   const {
     maxToolSteps,
     toolSettings,
@@ -94,7 +96,7 @@ export default function SettingsToolsScreen() {
             icon={<Smartphone color={theme.text} size={19} />}
             label="Device controls"
             onPress={() => router.push("/settings/tools/device" as never)}
-            value={`${countEnabledDeviceTools(toolSettings)} active`}
+            value={`${countEnabledDeviceTools(toolSettings, devicePermissions)} active`}
           />
         ) : null}
       </Card>

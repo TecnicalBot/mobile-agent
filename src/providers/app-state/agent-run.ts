@@ -39,6 +39,7 @@ import {
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
+import { stopScreenCapture } from "device-automation";
 import { Platform } from "react-native";
 import {
   buildDeviceSystemPrompt,
@@ -643,6 +644,7 @@ export async function executeClaimedAgentRun(
 
   let mcpRuntime: Awaited<ReturnType<typeof createMcpRuntimeTools>> | null =
     null;
+  let deviceToolsActive = false;
 
   const recordPromptArtifact = (artifact: PromptArtifact) => {
     promptArtifacts.push(artifact);
@@ -854,6 +856,9 @@ export async function executeClaimedAgentRun(
             onRecord: handleToolExecutionRecord,
           })
         : undefined;
+    if (deviceRuntimeTools) {
+      deviceToolsActive = true;
+    }
 
     const unapprovedRuntimeTools =
       builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools
@@ -1514,6 +1519,10 @@ export async function executeClaimedAgentRun(
 
     if (snapshotRef.current.settings.backgroundAgentEnabled) {
       stopBackgroundAgent();
+    }
+
+    if (deviceToolsActive) {
+      stopScreenCapture().catch(() => {});
     }
 
     await mcpRuntime?.close();

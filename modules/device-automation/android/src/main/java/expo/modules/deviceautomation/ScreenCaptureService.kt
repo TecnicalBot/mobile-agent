@@ -17,8 +17,11 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.WindowManager
 
 /**
@@ -33,22 +36,61 @@ import android.view.WindowManager
 class ScreenCaptureService : Service() {
 
   companion object {
+    private const val TAG = "ScreenCaptureService"
     const val EXTRA_RESULT_CODE = "resultCode"
     const val EXTRA_RESULT_DATA = "resultData"
     private const val CHANNEL_ID = "screen_capture"
     private const val NOTIFICATION_ID = 2001
     private const val MAX_FRAME_WAIT_MS = 2000L
+    private const val IDLE_STOP_MS = 60_000L
+    private const val MAX_PROJECTION_RETRIES = 5
+    private const val PROJECTION_RETRY_DELAY_MS = 200L
 
     @Volatile private var projection: MediaProjection? = null
     @Volatile private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var imageReader: ImageReader? = null
 
+    @Volatile private var instance: ScreenCaptureService? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var idleStopRunnable: Runnable? = null
+    @Volatile private var captureRetries = 0
+
     @Synchronized
     fun isActive(): Boolean = projection != null && imageReader != null
+
+    /**
+     * Capture keeps running while the agent is actively using it: every frame
+     * pushes back the auto-stop so the foreground service (and its notification
+     * + privacy indicator) only stays up while it is actually needed.
+     */
+    @Synchronized
+    fun touch() {
+      scheduleIdleStop()
+    }
+
+    @Synchronized
+    private fun scheduleIdleStop() {
+      idleStopRunnable?.let { mainHandler.removeCallbacks(it) }
+      val runnable = Runnable {
+        idleStopRunnable = null
+        stop()
+        instance?.stopSelf()
+      }
+      idleStopRunnable = runnable
+      mainHandler.postDelayed(runnable, IDLE_STOP_MS)
+    }
+
+    @Synchronized
+    private fun cancelIdleStop() {
+      idleStopRunnable?.let { mainHandler.removeCallbacks(it) }
+      idleStopRunnable = null
+    }
 
     /** Grab the latest frame as a bitmap, or null if no frame is available yet. */
     @Synchronized
     fun captureFrame(): Bitmap? {
+      touch()
       val reader = imageReader ?: return null
       var image: Image? = null
       var waited = 0L
@@ -90,6 +132,7 @@ class ScreenCaptureService : Service() {
     fun stop(): Boolean {
       val hadActive =
         projection != null || virtualDisplay != null || imageReader != null
+      cancelIdleStop()
       try {
         imageReader?.close()
       } catch (_: Exception) {
@@ -110,6 +153,11 @@ class ScreenCaptureService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onCreate() {
+    super.onCreate()
+    instance = this
+  }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent != null) {
@@ -160,13 +208,40 @@ class ScreenCaptureService : Service() {
     }
   }
 
-  private fun startCapture(resultCode: Int, resultData: Intent) {
+  private fun startCapture(resultCode: Int, resultData: Intent, isRetry: Boolean = false) {
     stop()
+    if (!isRetry) captureRetries = 0
     val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-    val proj = mpm.getMediaProjection(resultCode, resultData) ?: run {
-      stopSelf()
-      return
+    try {
+      val proj = mpm.getMediaProjection(resultCode, resultData)
+      if (proj == null) {
+        Log.e(TAG, "getMediaProjection returned null")
+        stopSelf()
+        return
+      }
+      setupProjection(proj)
+      captureRetries = 0
+    } catch (e: SecurityException) {
+      if (captureRetries >= MAX_PROJECTION_RETRIES) {
+        Log.e(TAG, "getMediaProjection failed after ${MAX_PROJECTION_RETRIES + 1} attempts", e)
+        stopSelf()
+        return
+      }
+      captureRetries++
+      Log.w(
+        TAG,
+        "Media projection FGS type not registered yet (attempt ${captureRetries + 1}), retrying",
+        e,
+      )
+      mainHandler.postDelayed(
+        { startCapture(resultCode, resultData, isRetry = true) },
+        PROJECTION_RETRY_DELAY_MS,
+      )
     }
+  }
+
+  private fun setupProjection(proj: MediaProjection) {
+    projection = proj
     proj.registerCallback(
       object : MediaProjection.Callback() {
         override fun onStop() {
@@ -194,9 +269,9 @@ class ScreenCaptureService : Service() {
       null,
       null,
     )
-    projection = proj
     imageReader = reader
     virtualDisplay = display
+    scheduleIdleStop()
   }
 
   private fun screenSize(): DisplayMetrics {
@@ -208,6 +283,7 @@ class ScreenCaptureService : Service() {
   }
 
   override fun onDestroy() {
+    instance = null
     stop()
     super.onDestroy()
   }

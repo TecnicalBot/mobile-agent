@@ -8,6 +8,7 @@ import {
   drag,
   getClipboard,
   getUiTree,
+  isAccessibilityPermissionGranted,
   isScreenCaptureActive,
   launchDeepLink,
   listInstalledApps,
@@ -29,8 +30,16 @@ export type DeviceToolFactoryParams = {
   onRecord?: (record: ToolExecutionRecord) => void;
 };
 
-const ACCESSIBILITY_HINT =
-  "The accessibility service is not enabled. Tell the user to open Settings -> Accessibility -> Mobile Agent and enable 'Mobile Agent device control' (or tap the Enable button in the app's Settings -> Tools), then try again.";
+const NOT_ENABLED_HINT =
+  "The accessibility service is not enabled. Tell the user to open Settings -> Accessibility -> Mobile Agent and enable 'Mobile Agent device control' (or tap the Enable button in the app's Settings -> Tools -> Device controls -> Permissions), then try again.";
+
+const GRANTED_NOT_RUNNING_HINT =
+  "The accessibility service is enabled in system Settings but is not running — Android usually stops it when the app process is killed. Tell the user to reopen the app (it reconnects automatically) or re-toggle 'Mobile Agent device control' in Settings -> Accessibility, then try again.";
+
+async function accessibilityHint(): Promise<string> {
+  const granted = await isAccessibilityPermissionGranted();
+  return granted ? GRANTED_NOT_RUNNING_HINT : NOT_ENABLED_HINT;
+}
 
 function toResultMessage(result: { success: boolean; error?: string }) {
   return result.success ? "Done." : result.error ?? "Action failed.";
@@ -101,7 +110,7 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
       try {
         const tree = await getUiTree();
         if (!tree.success) {
-          return ACCESSIBILITY_HINT;
+          return await accessibilityHint();
         }
         const screen = formatUiTree(tree);
         record("readScreen", "(screen)", "completed", {
@@ -466,7 +475,7 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
 
   const takeScreenshotTool = tool({
     description:
-      "Capture a screenshot of the phone screen and return it as a base64 JPEG data URL. Use this when readScreen's UI tree is not enough (canvas/drawing content, images, videos, games, or apps with few accessibility nodes). The first time it is called, the system shows a screen-capture consent dialog that the user must accept. Screenshots capture everything on screen, so avoid using them when sensitive data (passwords, codes) is visible.",
+      "Capture a screenshot of the phone screen and return it as a base64 JPEG data URL. Use this when readScreen's UI tree is not enough (canvas/drawing content, images, videos, games, or apps with few accessibility nodes). Screen capture is started on demand for this call and stops automatically when the run finishes, so the system only captures while the agent actually needs it. On Android 14+ the consent dialog reappears for each new capture session; on older versions it is usually requested only once. Screenshots capture everything on screen, so avoid using them when sensitive data (passwords, codes) is visible.",
     inputSchema: z.object({}),
     execute: async () => {
       try {
@@ -531,4 +540,4 @@ export function buildDeviceSystemPrompt(): string {
   ].join("\n");
 }
 
-export { formatUiTree, ACCESSIBILITY_HINT };
+export { formatUiTree };

@@ -134,6 +134,7 @@ export function isDeviceAutomationEnabled(settings: BuiltInToolSettings) {
 
 export type DeviceToolPermissions = {
   accessibilityEnabled: boolean;
+  accessibilityPermissionGranted: boolean;
   screenCaptureActive: boolean;
 };
 
@@ -141,7 +142,7 @@ export function countEnabledDeviceTools(
   settings: BuiltInToolSettings,
   permissions: DeviceToolPermissions,
 ) {
-  if (!permissions.accessibilityEnabled || !permissions.screenCaptureActive) {
+  if (!permissions.accessibilityEnabled) {
     return 0;
   }
 

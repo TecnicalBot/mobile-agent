@@ -94,6 +94,7 @@ type DeviceAutomationNativeModule = {
       | "power_dialog",
   ): Promise<DeviceActionResult>;
   isAccessibilityEnabled(): Promise<boolean>;
+  isAccessibilityPermissionGranted(): Promise<boolean>;
   openAccessibilitySettings(): Promise<boolean>;
   setClipboard(text: string): Promise<DeviceActionResult>;
   getClipboard(): Promise<DeviceActionResult & { text?: string }>;
@@ -195,6 +196,11 @@ export async function performGlobalAction(
 export async function isAccessibilityEnabled(): Promise<boolean> {
   if (!NativeModule) return false;
   return requireModule().isAccessibilityEnabled();
+}
+
+export async function isAccessibilityPermissionGranted(): Promise<boolean> {
+  if (!NativeModule) return false;
+  return requireModule().isAccessibilityPermissionGranted();
 }
 
 export async function setClipboard(text: string): Promise<DeviceActionResult> {

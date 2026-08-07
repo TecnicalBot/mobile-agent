@@ -3,6 +3,7 @@ package expo.modules.deviceautomation
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -11,6 +12,8 @@ import android.graphics.Bitmap
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
 import android.content.ContentUris
@@ -43,6 +46,7 @@ class DeviceAutomationModule : Module() {
     private const val TAG = "DeviceAutomation"
     private const val SCREEN_CAPTURE_REQUEST_CODE = 0x0D4E
     private const val FILE_PICK_REQUEST_CODE = 0x0D4F
+    private const val SCREEN_CAPTURE_START_TIMEOUT_MS = 5000L
   }
 
   private val context: Context
@@ -53,6 +57,8 @@ class DeviceAutomationModule : Module() {
 
   @Volatile
   private var pendingFilePick: CompletableFuture<String?>? = null
+
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun definition() = ModuleDefinition {
     Name("DeviceAutomation")
@@ -71,56 +77,60 @@ class DeviceAutomationModule : Module() {
 
     AsyncFunction("getUiTree") {
       service()?.getUiTree()
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("tapAt") { x: Int, y: Int ->
       service()?.tapAt(x, y)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("tapNode") { index: Int ->
       service()?.tapNode(index)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("type") { text: String ->
       service()?.typeText(text)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("swipe") { x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int ->
       service()?.swipe(x1, y1, x2, y2, durationMs)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("longPress") { x: Int, y: Int, durationMs: Int ->
       service()?.longPress(x, y, durationMs)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("longPressNode") { index: Int, durationMs: Int ->
       service()?.longPressNode(index, durationMs)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("drag") { x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int ->
       service()?.drag(x1, y1, x2, y2, durationMs)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("scroll") { direction: String ->
       service()?.scroll(direction)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("globalAction") { name: String ->
       service()?.performGlobalAction(name)
-        ?: mapOf("success" to false, "error" to "Accessibility service is not enabled.")
+        ?: mapOf("success" to false, "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.")
     }
 
     AsyncFunction("isAccessibilityEnabled") {
       DeviceAutomationAccessibilityService.isConnected()
+    }
+
+    AsyncFunction("isAccessibilityPermissionGranted") {
+      isAccessibilityPermissionGranted()
     }
 
     AsyncFunction("setClipboard") { text: String ->
@@ -284,6 +294,34 @@ class DeviceAutomationModule : Module() {
   private fun service(): DeviceAutomationAccessibilityService? =
     DeviceAutomationAccessibilityService.getInstance()
 
+  /**
+   * Whether the user has granted our accessibility service in system settings.
+   * Unlike [DeviceAutomationAccessibilityService.isConnected], this reads the
+   * persistent Settings.Secure state and stays true even when the app process
+   * was killed and the service has not been re-bound yet (which the system
+   * surfaces as "Not working" in the Accessibility settings screen).
+   */
+  private fun isAccessibilityPermissionGranted(): Boolean {
+    return try {
+      val enabled = Settings.Secure.getInt(
+        context.contentResolver,
+        Settings.Secure.ACCESSIBILITY_ENABLED,
+        0,
+      ) == 1
+      if (!enabled) return false
+      val services = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+      ) ?: return false
+      val componentName = ComponentName(context, DeviceAutomationAccessibilityService::class.java)
+      services
+        .split(':')
+        .any { it.equals(componentName.flattenToString(), ignoreCase = true) }
+    } catch (_: Exception) {
+      false
+    }
+  }
+
   private fun registerActivityEventListener() {
     val reactContext = appContext.reactContext ?: return
     try {
@@ -327,14 +365,11 @@ class DeviceAutomationModule : Module() {
             putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
             putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
           }
-          try {
-            context.startForegroundService(serviceIntent)
-          } catch (e: Exception) {
-            Log.e(TAG, "startForegroundService failed", e)
-          }
+          startScreenCaptureService(serviceIntent)
+        } else {
+          pendingCaptureRequest?.complete(false)
+          pendingCaptureRequest = null
         }
-        pendingCaptureRequest?.complete(granted)
-        pendingCaptureRequest = null
       }
       FILE_PICK_REQUEST_CODE -> {
         val picked = if (resultCode == Activity.RESULT_OK && data?.data != null) {
@@ -353,6 +388,50 @@ class DeviceAutomationModule : Module() {
         pendingFilePick?.complete(picked)
         pendingFilePick = null
       }
+    }
+  }
+
+  /**
+   * Starts [ScreenCaptureService] for media projection.
+   *
+   * [Activity.onActivityResult] fires before the activity resumes, so at this
+   * point Android still considers the app background. Starting the
+   * mediaProjection foreground service from the background makes Android 13+
+   * silently skip registering the FGS type, which then makes
+   * [MediaProjectionManager.getMediaProjection] throw
+   * "Media projections require a foreground service of type
+   * FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION". Posting to the main looper defers
+   * the start until the activity is actually back in the foreground. The
+   * permission promise is only resolved once the capture service is up.
+   */
+  private fun startScreenCaptureService(serviceIntent: Intent) {
+    mainHandler.post {
+      try {
+        context.startForegroundService(serviceIntent)
+      } catch (e: Exception) {
+        Log.e(TAG, "startForegroundService failed", e)
+        pendingCaptureRequest?.complete(false)
+        pendingCaptureRequest = null
+        return@post
+      }
+      Thread {
+        var active = false
+        var waited = 0L
+        while (waited < SCREEN_CAPTURE_START_TIMEOUT_MS) {
+          if (ScreenCaptureService.isActive()) {
+            active = true
+            break
+          }
+          try {
+            Thread.sleep(50)
+          } catch (_: InterruptedException) {
+            break
+          }
+          waited += 50
+        }
+        pendingCaptureRequest?.complete(active)
+        pendingCaptureRequest = null
+      }.start()
     }
   }
 

@@ -19,8 +19,10 @@ export default function SettingsDeviceToolsScreen() {
   const theme = useTheme();
   const { toolSettings } = useConfig();
   const permissions = useDeviceAutomationPermissions();
-  const permissionsGranted =
-    permissions.accessibilityEnabled && permissions.screenCaptureActive;
+  const permissionsGranted = permissions.accessibilityEnabled;
+  const accessibilityStale =
+    permissions.accessibilityPermissionGranted &&
+    !permissions.accessibilityEnabled;
 
   return (
     <Container
@@ -69,9 +71,16 @@ export default function SettingsDeviceToolsScreen() {
         </Pressable>
       </Card>
 
-      {!permissionsGranted ? (
+      {accessibilityStale ? (
         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-          Grant the permissions above to enable device controls.
+          The service is enabled in system Settings but not running, usually
+          because Android stopped the app. Open Permissions to reconnect, or
+          just reopen the app.
+        </Text>
+      ) : !permissionsGranted ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          Enable the accessibility service to use device controls. Screen
+          capture is requested on demand when needed.
         </Text>
       ) : null}
 

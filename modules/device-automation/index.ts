@@ -28,6 +28,7 @@ export type UiTreeResult = DeviceActionResult & {
   truncated?: boolean;
   screenWidth?: number;
   screenHeight?: number;
+  snapshotId?: number;
   nodes?: DeviceUiNode[];
 };
 
@@ -113,7 +114,16 @@ type DeviceAutomationNativeModule = {
     pick?: boolean;
   }): Promise<InstallApkResult>;
   requestScreenCapturePermission(): Promise<DeviceActionResult & { granted?: boolean }>;
+  supportsFastScreenshot(): Promise<boolean>;
   captureScreenshot(): Promise<ScreenshotResult>;
+  waitForIdle(
+    quietMs: number,
+    timeoutMs: number,
+  ): Promise<DeviceActionResult & { idle?: boolean }>;
+  waitForPackage(
+    packageName: string,
+    timeoutMs: number,
+  ): Promise<DeviceActionResult & { matched?: boolean }>;
   stopScreenCapture(): Promise<DeviceActionResult & { wasActive?: boolean }>;
   isScreenCaptureActive(): Promise<boolean>;
 };
@@ -264,6 +274,25 @@ export async function requestScreenCapturePermission(): Promise<
 
 export async function captureScreenshot(): Promise<ScreenshotResult> {
   return requireModule().captureScreenshot();
+}
+
+export async function supportsFastScreenshot(): Promise<boolean> {
+  if (!NativeModule) return false;
+  return requireModule().supportsFastScreenshot();
+}
+
+export async function waitForIdle(
+  quietMs: number,
+  timeoutMs: number,
+): Promise<DeviceActionResult & { idle?: boolean }> {
+  return requireModule().waitForIdle(quietMs, timeoutMs);
+}
+
+export async function waitForPackage(
+  packageName: string,
+  timeoutMs: number,
+): Promise<DeviceActionResult & { matched?: boolean }> {
+  return requireModule().waitForPackage(packageName, timeoutMs);
 }
 
 export async function stopScreenCapture(): Promise<

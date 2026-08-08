@@ -18,11 +18,14 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Foreground service that owns the [MediaProjection] session and exposes a
@@ -51,6 +54,17 @@ class ScreenCaptureService : Service() {
     @Volatile private var imageReader: ImageReader? = null
 
     @Volatile private var instance: ScreenCaptureService? = null
+
+    /**
+     * Frame pipeline. Frames arrive asynchronously on a dedicated
+     * [HandlerThread] via [ImageReader.OnImageAvailableListener]; [captureFrame]
+     * waits on the latch for the first frame and then returns the latest one.
+     * This replaces a busy-poll loop that could sleep up to [MAX_FRAME_WAIT_MS].
+     */
+    private val captureThread = HandlerThread("mobile-agent-screen-capture").apply { start() }
+    private val captureHandler = Handler(captureThread.looper)
+    @Volatile private var frameLatch: CountDownLatch? = null
+    @Volatile private var latestFrame: Bitmap? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var idleStopRunnable: Runnable? = null
@@ -87,44 +101,61 @@ class ScreenCaptureService : Service() {
       idleStopRunnable = null
     }
 
-    /** Grab the latest frame as a bitmap, or null if no frame is available yet. */
+    /**
+     * Grab the latest frame as a bitmap, or null if no frame arrived within
+     * [MAX_FRAME_WAIT_MS]. The first call blocks until the projection produces a
+     * frame; later calls return the most recent frame (reuse for a static screen).
+     */
     @Synchronized
     fun captureFrame(): Bitmap? {
       touch()
-      val reader = imageReader ?: return null
-      var image: Image? = null
-      var waited = 0L
-      while (waited < MAX_FRAME_WAIT_MS) {
-        image = reader.acquireNextImage()
-        if (image != null) break
+      if (imageReader == null) return null
+      val latch = frameLatch
+      if (latch != null && latch.count > 0L) {
         try {
-          Thread.sleep(50)
+          latch.await(MAX_FRAME_WAIT_MS, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
+          Thread.currentThread().interrupt()
           return null
         }
-        waited += 50
       }
-      val frame = image ?: return null
-      try {
-        val plane = frame.planes[0]
-        val buffer = plane.buffer
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * frame.width
-        val bitmap = Bitmap.createBitmap(
-          frame.width + rowPadding / pixelStride,
-          frame.height,
-          Bitmap.Config.ARGB_8888,
-        )
-        buffer.rewind()
-        bitmap.copyPixelsFromBuffer(buffer)
-        return if (rowPadding == 0) {
-          bitmap
-        } else {
-          Bitmap.createBitmap(bitmap, 0, 0, frame.width, frame.height)
+      // If the listener has not converted a frame yet (or the screen is static and
+      // no new frame arrived), grab whatever the reader has synchronously.
+      if (latestFrame == null) {
+        val frame = try {
+          imageReader?.acquireLatestImage()
+        } catch (_: Exception) {
+          null
         }
-      } finally {
-        frame.close()
+        if (frame != null) {
+          latestFrame = try {
+            imageToBitmap(frame)
+          } finally {
+            frame.close()
+          }
+          frameLatch?.countDown()
+        }
+      }
+      return latestFrame
+    }
+
+    private fun imageToBitmap(frame: Image): Bitmap {
+      val plane = frame.planes[0]
+      val buffer = plane.buffer
+      val pixelStride = plane.pixelStride
+      val rowStride = plane.rowStride
+      val rowPadding = rowStride - pixelStride * frame.width
+      val bitmap = Bitmap.createBitmap(
+        frame.width + rowPadding / pixelStride,
+        frame.height,
+        Bitmap.Config.ARGB_8888,
+      )
+      buffer.rewind()
+      bitmap.copyPixelsFromBuffer(buffer)
+      return if (rowPadding == 0) {
+        bitmap
+      } else {
+        Bitmap.createBitmap(bitmap, 0, 0, frame.width, frame.height)
       }
     }
 
@@ -148,6 +179,8 @@ class ScreenCaptureService : Service() {
       imageReader = null
       virtualDisplay = null
       projection = null
+      frameLatch = null
+      latestFrame = null
       return hadActive
     }
   }
@@ -259,6 +292,23 @@ class ScreenCaptureService : Service() {
     if (height % 2 != 0) height -= 1
 
     val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+    frameLatch = CountDownLatch(1)
+    latestFrame = null
+    reader.setOnImageAvailableListener({ source ->
+      val frame = try {
+        source.acquireLatestImage()
+      } catch (_: Exception) {
+        null
+      }
+      if (frame != null) {
+        latestFrame = try {
+          imageToBitmap(frame)
+        } finally {
+          frame.close()
+        }
+        frameLatch?.countDown()
+      }
+    }, captureHandler)
     val display = proj.createVirtualDisplay(
       "mobile-agent-capture",
       width,

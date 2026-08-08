@@ -292,7 +292,17 @@ class DeviceAutomationModule : Module() {
     }
 
     AsyncFunction("requestScreenCapturePermission") {
-      requestScreenCapturePermission()
+      // On Android 11+ the accessibility service captures screenshots directly,
+      // with no consent dialog, no notification and no foreground service.
+      if (Build.VERSION.SDK_INT >= 30 && service() != null) {
+        mapOf("success" to true, "granted" to true, "via" to "accessibility")
+      } else {
+        requestScreenCapturePermission()
+      }
+    }
+
+    AsyncFunction("supportsFastScreenshot") {
+      Build.VERSION.SDK_INT >= 30 && service() != null
     }
 
     AsyncFunction("captureScreenshot") {
@@ -302,26 +312,40 @@ class DeviceAutomationModule : Module() {
           "error" to "The app on screen is on your do-not-touch list. The agent is not allowed to capture it.",
         )
       }
-      if (!ScreenCaptureService.isActive()) {
-        mapOf("success" to false, "error" to "Screen capture is not active. Call requestScreenCapturePermission first.")
-      } else {
-        val bitmap = ScreenCaptureService.captureFrame()
-        if (bitmap == null) {
-          mapOf("success" to false, "error" to "Could not grab a screen frame.")
-        } else {
-          val scaled = downscale(bitmap, 1024)
-          val bytes = ByteArrayOutputStream().use { out ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, 75, out)
-            out.toByteArray()
-          }
-          mapOf(
-            "success" to true,
-            "mimeType" to "image/jpeg",
-            "imageBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP),
-            "width" to scaled.width,
-            "height" to scaled.height,
-          )
+      // Fast path: accessibility screenshot, no consent/notification/FGS.
+      if (Build.VERSION.SDK_INT >= 30) {
+        val bitmap = service()?.takeScreenshot()
+        if (bitmap != null) {
+          return@AsyncFunction encodeScreenshot(bitmap, 1024, Bitmap.CompressFormat.WEBP, 75)
         }
+      }
+      // Fallback (API 26-29, or API 30+ when the a11y capture was rejected).
+      captureViaMediaProjection()
+    }
+
+    AsyncFunction("waitForIdle") { quietMs: Int, timeoutMs: Int ->
+      val svc = service()
+      if (svc == null) {
+        mapOf(
+          "success" to false,
+          "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.",
+        )
+      } else {
+        val idle = svc.waitForIdle(quietMs, timeoutMs)
+        mapOf("success" to true, "idle" to idle)
+      }
+    }
+
+    AsyncFunction("waitForPackage") { packageName: String, timeoutMs: Int ->
+      val svc = service()
+      if (svc == null) {
+        mapOf(
+          "success" to false,
+          "error" to "The accessibility service is not connected. It may be enabled in Settings but stopped — reopen the app or re-toggle it in Settings -> Accessibility, then try again.",
+        )
+      } else {
+        val matched = svc.waitForPackage(packageName, timeoutMs)
+        mapOf("success" to true, "matched" to matched)
       }
     }
 
@@ -537,6 +561,47 @@ class DeviceAutomationModule : Module() {
       (height * scale).toInt(),
       true,
     )
+  }
+
+  /**
+   * Encoding pipeline for screenshots. Hardware bitmaps (from a11y
+   * [android.hardware.HardwareBuffer] captures) are copied into software
+   * memory first — they cannot be read or scaled in-place.
+   */
+  private fun encodeScreenshot(
+    bitmap: Bitmap,
+    maxDimension: Int,
+    format: Bitmap.CompressFormat,
+    quality: Int,
+  ): Map<String, Any?> {
+    val software = if (bitmap.config == Bitmap.Config.ARGB_8888 && !bitmap.isHardware) {
+      bitmap
+    } else {
+      bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+    }
+    val scaled = downscale(software, maxDimension)
+    val bytes = ByteArrayOutputStream().use { out ->
+      scaled.compress(format, quality, out)
+      out.toByteArray()
+    }
+    return mapOf(
+      "success" to true,
+      "mimeType" to "image/webp",
+      "imageBase64" to Base64.encodeToString(bytes, Base64.NO_WRAP),
+      "width" to scaled.width,
+      "height" to scaled.height,
+    )
+  }
+
+  private fun captureViaMediaProjection(): Map<String, Any?> {
+    if (!ScreenCaptureService.isActive()) {
+      return mapOf("success" to false, "error" to "Screen capture is not active. Call requestScreenCapturePermission first.")
+    }
+    val bitmap = ScreenCaptureService.captureFrame()
+    if (bitmap == null) {
+      return mapOf("success" to false, "error" to "Could not grab a screen frame.")
+    }
+    return encodeScreenshot(bitmap, 1024, Bitmap.CompressFormat.WEBP, 75)
   }
 
   private fun openStream(uriString: String): InputStream? {

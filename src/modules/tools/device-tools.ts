@@ -7,7 +7,6 @@ import {
   captureScreenshot,
   drag,
   getClipboard,
-  getForegroundApp,
   getUiTree,
   isAccessibilityPermissionGranted,
   isScreenCaptureActive,
@@ -20,10 +19,13 @@ import {
   requestScreenCapturePermission,
   scroll,
   setClipboard,
+  supportsFastScreenshot,
   swipe,
   tapAt,
   tapNode,
   typeText,
+  waitForIdle,
+  waitForPackage,
   type DeviceUiNode,
 } from "device-automation";
 
@@ -69,13 +71,16 @@ function formatUiTree(result: {
   truncated?: boolean;
   screenWidth?: number;
   screenHeight?: number;
+  snapshotId?: number;
   nodes?: DeviceUiNode[];
 }): string {
   const dims =
     result.screenWidth != null && result.screenHeight != null
       ? `, ${result.screenWidth}x${result.screenHeight}`
       : "";
-  const header = `SCREEN (${result.nodeCount ?? 0} nodes${dims}${
+  const snapshot =
+    result.snapshotId != null ? `, snapshot ${result.snapshotId}` : "";
+  const header = `SCREEN (${result.nodeCount ?? 0} nodes${dims}${snapshot}${
     result.truncated ? ", truncated" : ""
   })`;
   const body = (result.nodes ?? [])
@@ -93,14 +98,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
 
   const blockedMessage = (packageName?: string) =>
     `This app (${packageName ?? "unknown"}) is on your do-not-touch list. The agent is not allowed to read or control it. Use back/home to navigate away.`;
-
-  const ensureForegroundAllowed = async (): Promise<string | null> => {
-    const foreground = await getForegroundApp();
-    if (foreground.success && isProtectedApp(foreground.packageName)) {
-      return blockedMessage(foreground.packageName);
-    }
-    return null;
-  };
 
   const record = (
     toolName: string,
@@ -125,8 +122,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     inputSchema: z.object({}),
     execute: async () => {
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) return blocked;
         const tree = await getUiTree();
         if (!tree.success) {
           return await accessibilityHint();
@@ -164,11 +159,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async (input) => {
       const inputSummary = summarizeValue(input);
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("tap", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         let result;
         if (input.index !== undefined) {
           result = await tapNode(input.index);
@@ -199,11 +189,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ text }) => {
       const inputSummary = summarizeValue({ text });
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("type", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         const result = await typeText(text);
         record("type", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -233,11 +218,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ x1, y1, x2, y2, durationMs }) => {
       const inputSummary = summarizeValue({ x1, y1, x2, y2, durationMs });
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("swipe", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         const result = await swipe(x1, y1, x2, y2, durationMs);
         record("swipe", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -278,11 +258,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async (input) => {
       const inputSummary = summarizeValue(input);
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("longPress", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         const result =
           input.index !== undefined
             ? await longPressNode(input.index, input.durationMs)
@@ -315,11 +290,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ x1, y1, x2, y2, durationMs }) => {
       const inputSummary = summarizeValue({ x1, y1, x2, y2, durationMs });
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("drag", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         const result = await drag(x1, y1, x2, y2, durationMs);
         record("drag", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -343,11 +313,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ text }) => {
       const inputSummary = summarizeValue({ text });
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("setClipboard", inputSummary, "failed", { error: blocked });
-          return blocked;
-        }
         const result = await setClipboard(text);
         record("setClipboard", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -370,11 +335,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     inputSchema: z.object({}),
     execute: async () => {
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("getClipboard", "(clipboard)", "failed", { error: blocked });
-          return blocked;
-        }
         const result = await getClipboard();
         record("getClipboard", "(clipboard)", result.success ? "completed" : "failed", {
           outputSummary: result.success ? summarizeValue(result.text) : toResultMessage(result),
@@ -399,11 +359,6 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     }),
     execute: async ({ direction }) => {
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("scroll", direction, "failed", { error: blocked });
-          return blocked;
-        }
         const result = await scroll(direction);
         record("scroll", direction, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -539,22 +494,20 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
 
   const takeScreenshotTool = tool({
     description:
-      "Capture a screenshot of the phone screen and return it as a base64 JPEG data URL. Use this when readScreen's UI tree is not enough (canvas/drawing content, images, videos, games, or apps with few accessibility nodes). Screen capture is started on demand for this call and stops automatically when the run finishes, so the system only captures while the agent actually needs it. On Android 14+ the consent dialog reappears for each new capture session; on older versions it is usually requested only once. Screenshots capture everything on screen, so avoid using them when sensitive data (passwords, codes) is visible.",
+      "Capture a screenshot of the phone screen and return it as a base64 data URL. Use this when readScreen's UI tree is not enough (canvas/drawing content, images, videos, games, or apps with few accessibility nodes). On Android 11+ screenshots are captured directly by the accessibility service — no consent, no notification, no foreground service. On older versions the screen capture service is started on demand for this call and stops automatically when the run finishes. Screenshots capture everything on screen, so avoid using them when sensitive data (passwords, codes) is visible.",
     inputSchema: z.object({}),
     execute: async () => {
       try {
-        const blocked = await ensureForegroundAllowed();
-        if (blocked) {
-          record("takeScreenshot", "(screen)", "failed", { error: blocked });
-          return blocked;
-        }
-        if (!(await isScreenCaptureActive())) {
-          const permission = await requestScreenCapturePermission();
-          if (!permission.success || !permission.granted) {
-            return (
-              permission.error ??
-              "Screen capture permission was not granted. Ask the user to allow it and try again."
-            );
+        // Android 11+ needs no MediaProjection at all; older versions do.
+        if (!(await supportsFastScreenshot())) {
+          if (!(await isScreenCaptureActive())) {
+            const permission = await requestScreenCapturePermission();
+            if (!permission.success || !permission.granted) {
+              return (
+                permission.error ??
+                "Screen capture permission was not granted. Ask the user to allow it and try again."
+              );
+            }
           }
         }
         const shot = await captureScreenshot();
@@ -568,6 +521,83 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
         return `Screenshot (${shot.width}x${shot.height}px): ${dataUrl}`;
       } catch (error) {
         record("takeScreenshot", "(screen)", "failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  });
+
+  const waitForScreenSettledTool = tool({
+    description:
+      "Wait until the phone screen stops changing (no accessibility events for a quiet period), up to a timeout. Call this after navigation, swipes, scrolls, long-presses that open menus, or app transitions — before re-reading the screen — so you never read the screen mid-animation and index-based taps stay valid.",
+    inputSchema: z.object({
+      quietMs: z
+        .number()
+        .int()
+        .positive()
+        .max(2000)
+        .default(300)
+        .describe("How long the screen must stay unchanged before settling is confirmed, in milliseconds."),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(15000)
+        .default(5000)
+        .describe("Maximum time to wait for the screen to settle, in milliseconds."),
+    }),
+    execute: async ({ quietMs, timeoutMs }) => {
+      const inputSummary = summarizeValue({ quietMs, timeoutMs });
+      try {
+        const result = await waitForIdle(quietMs, timeoutMs);
+        const settled = result.success && result.idle === true;
+        record("waitForScreenSettled", inputSummary, settled ? "completed" : "failed", {
+          outputSummary: settled ? "screen settled" : "screen still changing",
+        });
+        return settled
+          ? `Screen is settled (no changes for ${quietMs}ms). Safe to re-read.`
+          : `Timed out after ${timeoutMs}ms — the screen is still changing. Call readScreen to see its current state.`;
+      } catch (error) {
+        record("waitForScreenSettled", inputSummary, "failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  });
+
+  const waitForForegroundTool = tool({
+    description:
+      "Wait until a specific app (by package name) becomes the foreground app, up to a timeout. Use after openApp or launchDeepLink to confirm the app actually opened before interacting with it.",
+    inputSchema: z.object({
+      packageName: z
+        .string()
+        .min(1)
+        .describe("Android package name to wait for, e.g. com.whatsapp."),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(15000)
+        .default(5000)
+        .describe("Maximum time to wait, in milliseconds."),
+    }),
+    execute: async ({ packageName, timeoutMs }) => {
+      const inputSummary = summarizeValue({ packageName, timeoutMs });
+      try {
+        const result = await waitForPackage(packageName, timeoutMs);
+        const matched = result.success && result.matched === true;
+        record("waitForForeground", inputSummary, matched ? "completed" : "failed", {
+          outputSummary: matched
+            ? `${packageName} in foreground`
+            : `${packageName} not in foreground`,
+        });
+        return matched
+          ? `${packageName} is now in the foreground.`
+          : `${packageName} did not come to the foreground within ${timeoutMs}ms. Call readScreen to see what is actually on screen.`;
+      } catch (error) {
+        record("waitForForeground", inputSummary, "failed", {
           error: error instanceof Error ? error.message : String(error),
         });
         throw error;
@@ -591,6 +621,8 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     setClipboard: setClipboardTool,
     getClipboard: getClipboardTool,
     takeScreenshot: takeScreenshotTool,
+    waitForScreenSettled: waitForScreenSettledTool,
+    waitForForeground: waitForForegroundTool,
   };
 }
 
@@ -604,7 +636,7 @@ export function buildDeviceSystemPrompt(protectedApps: string[] = []): string {
     "- Always start by calling readScreen to see the current screen. It returns numbered UI elements.",
     "- Prefer tapping by element index (from the latest readScreen result). If that fails, tap by pixel coordinates.",
     "- If the UI tree is missing important content (canvas, images, video, games), use takeScreenshot to get a picture of the screen.",
-    "- Re-read the screen after navigation (openApp, back, launchDeepLink, scroll, swipe, drag) and whenever you are unsure. You may continue without re-reading after type, paste, or taps that errored on an unchanged screen.",
+    "- After any gesture or navigation (openApp, back, launchDeepLink, scroll, swipe, drag, long-press that opens a menu), call waitForScreenSettled to let the screen finish animating, then re-read the screen. After openApp or launchDeepLink, prefer waitForForeground with the target package name to confirm the app opened.",
     "- For text entry, tap the target field first, then use type. If typing is rejected, use setClipboard and paste, or type character by character.",
     "- Use longPress for context menus and drag for pick-and-place moves.",
     "- If a tool reports that the accessibility service is not enabled, stop and tell the user to enable it in Settings > Accessibility > Mobile Agent (or in the app's Settings > Tools > Device automation), then wait.",

@@ -58,6 +58,10 @@ export type ScreenshotResult = DeviceActionResult & {
   height?: number;
 };
 
+export type ForegroundAppResult = DeviceActionResult & {
+  packageName?: string;
+};
+
 type DeviceAutomationNativeModule = {
   getUiTree(): Promise<UiTreeResult>;
   tapAt(x: number, y: number): Promise<DeviceActionResult>;
@@ -95,6 +99,8 @@ type DeviceAutomationNativeModule = {
   ): Promise<DeviceActionResult>;
   isAccessibilityEnabled(): Promise<boolean>;
   isAccessibilityPermissionGranted(): Promise<boolean>;
+  setProtectedApps(packages: string[]): Promise<DeviceActionResult>;
+  getForegroundApp(): Promise<ForegroundAppResult>;
   openAccessibilitySettings(): Promise<boolean>;
   setClipboard(text: string): Promise<DeviceActionResult>;
   getClipboard(): Promise<DeviceActionResult & { text?: string }>;
@@ -201,6 +207,18 @@ export async function isAccessibilityEnabled(): Promise<boolean> {
 export async function isAccessibilityPermissionGranted(): Promise<boolean> {
   if (!NativeModule) return false;
   return requireModule().isAccessibilityPermissionGranted();
+}
+
+export async function setProtectedApps(
+  packages: string[],
+): Promise<DeviceActionResult> {
+  if (!NativeModule) return { success: true };
+  return requireModule().setProtectedApps(packages);
+}
+
+export async function getForegroundApp(): Promise<ForegroundAppResult> {
+  if (!NativeModule) return { success: false, error: "Not available on this platform." };
+  return requireModule().getForegroundApp();
 }
 
 export async function setClipboard(text: string): Promise<DeviceActionResult> {

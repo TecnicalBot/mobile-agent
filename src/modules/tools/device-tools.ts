@@ -7,6 +7,7 @@ import {
   captureScreenshot,
   drag,
   getClipboard,
+  getForegroundApp,
   getUiTree,
   isAccessibilityPermissionGranted,
   isScreenCaptureActive,
@@ -28,6 +29,7 @@ import {
 
 export type DeviceToolFactoryParams = {
   onRecord?: (record: ToolExecutionRecord) => void;
+  protectedApps?: string[];
 };
 
 const NOT_ENABLED_HINT =
@@ -83,7 +85,22 @@ function formatUiTree(result: {
 }
 
 export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
-  const { onRecord } = params;
+  const { onRecord, protectedApps = [] } = params;
+  const protectedAppSet = new Set(protectedApps);
+
+  const isProtectedApp = (packageName?: string) =>
+    packageName != null && protectedAppSet.has(packageName);
+
+  const blockedMessage = (packageName?: string) =>
+    `This app (${packageName ?? "unknown"}) is on your do-not-touch list. The agent is not allowed to read or control it. Use back/home to navigate away.`;
+
+  const ensureForegroundAllowed = async (): Promise<string | null> => {
+    const foreground = await getForegroundApp();
+    if (foreground.success && isProtectedApp(foreground.packageName)) {
+      return blockedMessage(foreground.packageName);
+    }
+    return null;
+  };
 
   const record = (
     toolName: string,
@@ -108,6 +125,8 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     inputSchema: z.object({}),
     execute: async () => {
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) return blocked;
         const tree = await getUiTree();
         if (!tree.success) {
           return await accessibilityHint();
@@ -145,6 +164,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async (input) => {
       const inputSummary = summarizeValue(input);
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("tap", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         let result;
         if (input.index !== undefined) {
           result = await tapNode(input.index);
@@ -175,6 +199,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ text }) => {
       const inputSummary = summarizeValue({ text });
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("type", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await typeText(text);
         record("type", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -204,6 +233,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ x1, y1, x2, y2, durationMs }) => {
       const inputSummary = summarizeValue({ x1, y1, x2, y2, durationMs });
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("swipe", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await swipe(x1, y1, x2, y2, durationMs);
         record("swipe", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -244,6 +278,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async (input) => {
       const inputSummary = summarizeValue(input);
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("longPress", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         const result =
           input.index !== undefined
             ? await longPressNode(input.index, input.durationMs)
@@ -276,6 +315,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ x1, y1, x2, y2, durationMs }) => {
       const inputSummary = summarizeValue({ x1, y1, x2, y2, durationMs });
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("drag", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await drag(x1, y1, x2, y2, durationMs);
         record("drag", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -299,6 +343,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     execute: async ({ text }) => {
       const inputSummary = summarizeValue({ text });
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("setClipboard", inputSummary, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await setClipboard(text);
         record("setClipboard", inputSummary, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -321,6 +370,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     inputSchema: z.object({}),
     execute: async () => {
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("getClipboard", "(clipboard)", "failed", { error: blocked });
+          return blocked;
+        }
         const result = await getClipboard();
         record("getClipboard", "(clipboard)", result.success ? "completed" : "failed", {
           outputSummary: result.success ? summarizeValue(result.text) : toResultMessage(result),
@@ -345,6 +399,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     }),
     execute: async ({ direction }) => {
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("scroll", direction, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await scroll(direction);
         record("scroll", direction, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -407,6 +466,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     }),
     execute: async ({ packageName }) => {
       try {
+        if (isProtectedApp(packageName)) {
+          const blocked = blockedMessage(packageName);
+          record("openApp", packageName, "failed", { error: blocked });
+          return blocked;
+        }
         const result = await openApp(packageName);
         record("openApp", packageName, result.success ? "completed" : "failed", {
           outputSummary: toResultMessage(result),
@@ -479,6 +543,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
     inputSchema: z.object({}),
     execute: async () => {
       try {
+        const blocked = await ensureForegroundAllowed();
+        if (blocked) {
+          record("takeScreenshot", "(screen)", "failed", { error: blocked });
+          return blocked;
+        }
         if (!(await isScreenCaptureActive())) {
           const permission = await requestScreenCapturePermission();
           if (!permission.success || !permission.granted) {
@@ -525,7 +594,11 @@ export function createDeviceTools(params: DeviceToolFactoryParams = {}) {
   };
 }
 
-export function buildDeviceSystemPrompt(): string {
+export function buildDeviceSystemPrompt(protectedApps: string[] = []): string {
+  const protectedLine =
+    protectedApps.length > 0
+      ? `\n- These apps are on the user's do-not-touch list and must never be read, controlled, opened, or screenshotted: ${protectedApps.join(", ")}. If a protected app is on screen, use back or home to navigate away and continue elsewhere.`
+      : "";
   return [
     "You can control the Android phone directly. Follow this loop:",
     "- Always start by calling readScreen to see the current screen. It returns numbered UI elements.",
@@ -537,7 +610,10 @@ export function buildDeviceSystemPrompt(): string {
     "- If a tool reports that the accessibility service is not enabled, stop and tell the user to enable it in Settings > Accessibility > Mobile Agent (or in the app's Settings > Tools > Device automation), then wait.",
     "- Use openApp with the package name to switch apps, and listInstalledApps to discover package names.",
     "- When the user asks to message someone on WhatsApp/Telegram, prefer launchDeepLink with a https://wa.me/<number>?text=... or https://t.me/<username> URL, then readScreen and tap/type to send if needed.",
-  ].join("\n");
+    protectedLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export { formatUiTree };

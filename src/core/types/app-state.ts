@@ -374,6 +374,7 @@ export type AppSettings = {
   databaseUrl: string | null;
   memoryEnabled: boolean;
   maxToolSteps: number;
+  protectedApps: string[];
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
   backgroundAgentEnabled: boolean;

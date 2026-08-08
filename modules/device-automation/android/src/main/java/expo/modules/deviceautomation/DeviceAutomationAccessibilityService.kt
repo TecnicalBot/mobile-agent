@@ -55,8 +55,24 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   // Perception
   // -------------------------------------------------------------------------
 
+  /** Package name of the currently focused app, or null when unavailable. */
+  fun getForegroundPackage(): String? = runOnMain {
+    rootInActiveWindow?.packageName?.toString()
+  }
+
+  /** Refuse perception/input when the foreground app is on the do-not-touch list. */
+  private fun blockedIfProtected(): Map<String, Any?>? {
+    val packageName = rootInActiveWindow?.packageName?.toString()
+    if (!ProtectedApps.isProtected(packageName)) return null
+    return mapOf(
+      "success" to false,
+      "error" to "This app ($packageName) is on your do-not-touch list. The agent is not allowed to read or control it. Use back/home to navigate away.",
+    )
+  }
+
   /** Serialize the current window's UI tree into a compact, LLM-friendly list of nodes. */
   fun getUiTree(): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val (screenWidth, screenHeight) = screenSize()
     val root = pickRoot()
     if (root == null) {
@@ -199,6 +215,7 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   // -------------------------------------------------------------------------
 
   fun tapAt(x: Int, y: Int): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val (cx, cy) = clampToScreen(x, y)
     val gesture = GestureDescription.Builder()
       .addStroke(
@@ -213,6 +230,7 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
   fun tapNode(index: Int): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val node = collectNodes().getOrNull(index)
     if (node == null) {
       return@runOnMain mapOf("success" to false, "error" to "No node with index $index. Re-read the screen.")
@@ -222,6 +240,7 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
   fun typeText(text: String): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val nodes = collectNodes()
     val target = nodes.firstOrNull { it.isFocused && it.isEditable }
       ?: nodes.firstOrNull { it.isEditable }
@@ -258,10 +277,12 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     y2: Int,
     durationMs: Int,
   ): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     swipeGesture(x1, y1, x2, y2, durationMs)
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
   fun longPress(x: Int, y: Int, durationMs: Int): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val (cx, cy) = clampToScreen(x, y)
     val gesture = GestureDescription.Builder()
       .addStroke(
@@ -276,6 +297,7 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
   fun longPressNode(index: Int, durationMs: Int): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val node = collectNodes().getOrNull(index)
     if (node == null) {
       return@runOnMain mapOf("success" to false, "error" to "No node with index $index. Re-read the screen.")
@@ -292,10 +314,12 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     y2: Int,
     durationMs: Int,
   ): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     swipeGesture(x1, y1, x2, y2, durationMs.coerceAtLeast(400))
   } ?: mapOf("success" to false, "error" to "Accessibility service is not connected.")
 
   fun scroll(direction: String): Map<String, Any?> = runOnMain {
+    blockedIfProtected()?.let { return@runOnMain it }
     val target = collectNodes().firstOrNull { it.isScrollable }
     if (target == null) {
       return@runOnMain mapOf("success" to false, "error" to "No scrollable area found.")

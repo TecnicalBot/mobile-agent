@@ -192,6 +192,15 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
     async setBackgroundAgentEnabled(enabled) {
       await this.setSetting("background_agent_enabled", enabled ? "true" : "false");
     },
+    async setProtectedApps(packageNames) {
+      const normalized = Array.from(new Set(packageNames)).filter(
+        (name) => typeof name === "string" && name.length > 0,
+      );
+      await this.setSetting(
+        "device_protected_apps_json",
+        JSON.stringify(normalized),
+      );
+    },
     async setNotificationSettings(input) {
       const settings = await this.getSettings();
       const nextSettings = {

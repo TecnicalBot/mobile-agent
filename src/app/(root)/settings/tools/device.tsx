@@ -1,11 +1,12 @@
 import { useRouter } from "expo-router";
-import { ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, ShieldCheck, ShieldOff } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
 import { ToolToggleList } from "@/components/settings/tool-toggle-list";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
@@ -17,7 +18,7 @@ import {
 export default function SettingsDeviceToolsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { toolSettings } = useConfig();
+  const { toolSettings, protectedApps } = useConfig();
   const permissions = useDeviceAutomationPermissions();
   const permissionsGranted = permissions.accessibilityEnabled;
   const accessibilityStale =
@@ -67,6 +68,33 @@ export default function SettingsDeviceToolsScreen() {
               Required for device control
             </Text>
           </View>
+          <ChevronRight color={theme.textSecondary} size={18} />
+        </Pressable>
+        <Separator />
+        <Pressable
+          accessibilityRole="button"
+          className="min-h-16 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+          onPress={() =>
+            router.push("/settings/tools/device/protected-apps" as never)
+          }
+          style={({ pressed }) => (pressed ? { opacity: 0.84 } : null)}
+        >
+          <View className="size-10 items-center justify-center rounded-xl bg-muted dark:bg-muted-dark">
+            <ShieldOff color={theme.text} size={19} />
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
+              Protected apps
+            </Text>
+            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+              The agent will not touch these apps
+            </Text>
+          </View>
+          {protectedApps.length > 0 ? (
+            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              {protectedApps.length}
+            </Text>
+          ) : null}
           <ChevronRight color={theme.textSecondary} size={18} />
         </Pressable>
       </Card>

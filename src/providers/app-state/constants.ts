@@ -54,6 +54,7 @@ export const EMPTY_SETTINGS: AppSettings = {
   databaseUrl: null,
   memoryEnabled: true,
   maxToolSteps: 50,
+  protectedApps: [],
   themeMode: "system",
   toolApprovalMode: "ask",
   backgroundAgentEnabled: true,

@@ -133,7 +133,31 @@ class DeviceAutomationModule : Module() {
       isAccessibilityPermissionGranted()
     }
 
+    AsyncFunction("setProtectedApps") { packages: List<String> ->
+      ProtectedApps.packages = packages.toSet()
+      mapOf("success" to true, "count" to packages.size)
+    }
+
+    AsyncFunction("getForegroundApp") {
+      val service = service()
+      val packageName = service?.getForegroundPackage()
+      if (packageName == null) {
+        mapOf(
+          "success" to false,
+          "error" to "The accessibility service is not connected, so the foreground app cannot be determined.",
+        )
+      } else {
+        mapOf("success" to true, "packageName" to packageName)
+      }
+    }
+
     AsyncFunction("setClipboard") { text: String ->
+      if (isForegroundProtected()) {
+        return@AsyncFunction mapOf(
+          "success" to false,
+          "error" to "The app on screen is on your do-not-touch list. The agent is not allowed to touch its clipboard."
+        )
+      }
       try {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("text", text))
@@ -145,6 +169,12 @@ class DeviceAutomationModule : Module() {
     }
 
     AsyncFunction("getClipboard") {
+      if (isForegroundProtected()) {
+        return@AsyncFunction mapOf(
+          "success" to false,
+          "error" to "The app on screen is on your do-not-touch list. The agent is not allowed to read its clipboard."
+        )
+      }
       try {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = clipboard.primaryClip
@@ -176,6 +206,12 @@ class DeviceAutomationModule : Module() {
     }
 
     AsyncFunction("openApp") { packageName: String ->
+      if (ProtectedApps.isProtected(packageName)) {
+        return@AsyncFunction mapOf(
+          "success" to false,
+          "error" to "$packageName is on your do-not-touch list. The agent is not allowed to open it.",
+        )
+      }
       try {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
         if (intent == null) {
@@ -192,6 +228,13 @@ class DeviceAutomationModule : Module() {
     }
 
     AsyncFunction("launchDeepLink") { uri: String ->
+      val protectedTarget = resolveDeepLinkTarget(uri)
+      if (protectedTarget != null) {
+        return@AsyncFunction mapOf(
+          "success" to false,
+          "error" to "$protectedTarget is on your do-not-touch list. The agent is not allowed to open it.",
+        )
+      }
       try {
         val parsed = Uri.parse(uri)
         val intent = Intent(Intent.ACTION_VIEW, parsed).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -253,6 +296,12 @@ class DeviceAutomationModule : Module() {
     }
 
     AsyncFunction("captureScreenshot") {
+      if (isForegroundProtected()) {
+        return@AsyncFunction mapOf(
+          "success" to false,
+          "error" to "The app on screen is on your do-not-touch list. The agent is not allowed to capture it.",
+        )
+      }
       if (!ScreenCaptureService.isActive()) {
         mapOf("success" to false, "error" to "Screen capture is not active. Call requestScreenCapturePermission first.")
       } else {
@@ -293,6 +342,24 @@ class DeviceAutomationModule : Module() {
 
   private fun service(): DeviceAutomationAccessibilityService? =
     DeviceAutomationAccessibilityService.getInstance()
+
+  /** Whether the app currently on screen is on the do-not-touch list. */
+  private fun isForegroundProtected(): Boolean {
+    val service = service() ?: return false
+    return ProtectedApps.isProtected(service.getForegroundPackage())
+  }
+
+  /** If a deep link resolves into a protected app, returns that package name, else null. */
+  private fun resolveDeepLinkTarget(uri: String): String? {
+    return try {
+      val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+      val resolveInfo = intent.resolveActivity(context.packageManager) ?: return null
+      val packageName = resolveInfo.activityInfo?.packageName ?: return null
+      if (ProtectedApps.isProtected(packageName)) packageName else null
+    } catch (_: Exception) {
+      null
+    }
+  }
 
   /**
    * Whether the user has granted our accessibility service in system settings.

@@ -1009,6 +1009,7 @@ export async function executeClaimedAgentRun(
       isDeviceAutomationEnabled(snapshotRef.current.settings.builtInToolSettings)
         ? createDeviceTools({
             onRecord: handleToolExecutionRecord,
+            protectedApps: snapshotRef.current.settings.protectedApps,
           })
         : undefined;
     if (deviceRuntimeTools) {
@@ -1080,7 +1081,7 @@ export async function executeClaimedAgentRun(
         : undefined;
     const deviceRuntimeSystem =
       Platform.OS === "android" && deviceRuntimeTools
-        ? buildDeviceSystemPrompt()
+        ? buildDeviceSystemPrompt(snapshotRef.current.settings.protectedApps)
         : undefined;
     const selectedFilesContext = useInlineFileContext
       ? await buildSelectedFilesInlineContext({

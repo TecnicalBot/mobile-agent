@@ -1,13 +1,13 @@
 import { useRouter } from "expo-router";
-import { ChevronLeft, Search } from "lucide-react-native";
+import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
+import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { listInstalledApps, type InstalledApp } from "device-automation";
@@ -59,8 +59,6 @@ export default function SettingsProtectedAppsScreen() {
     );
   }, [apps, query]);
 
-  const protectedCount = protectedApps.length;
-
   return (
     <Container
       scroll
@@ -79,27 +77,18 @@ export default function SettingsProtectedAppsScreen() {
             Protected apps
           </Text>
           <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-            Do-not-touch list · {protectedCount} protected
+            The agent will not touch these apps
           </Text>
         </View>
       </View>
 
-      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-        The agent will refuse to read, control, open, or screenshot any app on
-        this list. Back / Home navigation stays available so it can always leave
-        a protected app.
-      </Text>
-
-      <View className="flex-row items-center gap-sp-2">
-        <Search color={theme.textSecondary} size={16} />
-        <Input
-          autoCorrect={false}
-          clearButtonMode="while-editing"
-          onChangeText={setQuery}
-          placeholder="Search apps"
-          value={query}
-        />
-      </View>
+      <SearchBox
+        autoCorrect={false}
+        clearButtonMode="while-editing"
+        onChangeText={setQuery}
+        placeholder="Search apps"
+        value={query}
+      />
 
       {loading ? (
         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">

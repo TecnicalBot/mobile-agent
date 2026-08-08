@@ -228,7 +228,8 @@ export function Questionnaire({
                   setFreeform((prev) => ({ ...prev, [item.id]: text }))
                 }
                 placeholder={
-                  item.choices ? "Another answer" : "Type your answer…"
+                  item.freeformPlaceholder ??
+                  (item.choices ? "Other" : "Type your answer…")
                 }
                 value={freeform[item.id] ?? ""}
               />

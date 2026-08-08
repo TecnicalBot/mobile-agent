@@ -1,3 +1,4 @@
+import { useRecyclingState } from "@shopify/flash-list";
 import * as Clipboard from "expo-clipboard";
 import { Directory, File, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
@@ -6,6 +7,7 @@ import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import {
+  Bookmark,
   Brain,
   Check,
   CheckCircle2,
@@ -15,23 +17,27 @@ import {
   Clock3,
   Copy,
   Download,
-  Bookmark,
-  ListChecks,
   Loader,
   Pencil,
   Share2,
 } from "lucide-react-native";
 import {
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
 } from "react";
-import { refractor } from "refractor";
-import jsx from "refractor/jsx";
-import tsx from "refractor/tsx";
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import {
   ActivityIndicator,
   Alert,
@@ -49,7 +55,9 @@ import Markdown, {
   MarkdownIt,
   type RenderRules,
 } from "react-native-markdown-display";
-import { useRecyclingState } from "@shopify/flash-list";
+import { refractor } from "refractor";
+import jsx from "refractor/jsx";
+import tsx from "refractor/tsx";
 
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
@@ -73,8 +81,6 @@ import {
   isTextWorkspaceFile,
   resolveWorkspaceFile,
 } from "@/core/services/workspace-file-service";
-import { useTheme } from "@/hooks/use-theme";
-import { cn } from "@/core/utils";
 import type {
   ExecutionTimelineEvent,
   GeneratedImageAttachment,
@@ -82,6 +88,8 @@ import type {
   StoredMessage,
   WorkspaceFile,
 } from "@/core/types/app-state";
+import { cn } from "@/core/utils";
+import { useTheme } from "@/hooks/use-theme";
 import { Asset } from "expo-media-library";
 
 refractor.register(jsx);
@@ -124,11 +132,14 @@ MARKDOWN_PARSER.core.ruler.after(
         continue;
       }
 
-      const inline = state.tokens.slice(index + 1).find(
-        (token) =>
-          token.type === "inline" ||
-          (token.type === "list_item_close" && token.level === listItem.level),
-      );
+      const inline = state.tokens
+        .slice(index + 1)
+        .find(
+          (token) =>
+            token.type === "inline" ||
+            (token.type === "list_item_close" &&
+              token.level === listItem.level),
+        );
       const firstText =
         inline?.type === "inline" ? inline.children?.[0] : undefined;
       const taskMarker = firstText?.content.match(/^\[([ xX])\]\s+/);
@@ -173,8 +184,7 @@ const MARKDOWN_RULES = {
   list_item: (node, children, parent, styles) => {
     const list = parent.find(
       (parentNode) =>
-        parentNode.type === "bullet_list" ||
-        parentNode.type === "ordered_list",
+        parentNode.type === "bullet_list" || parentNode.type === "ordered_list",
     );
 
     if (node.attributes.task === "true") {
@@ -436,7 +446,8 @@ function CopyableCodeBlock({
     }
 
     try {
-      const nodes = refractor.highlight(code, language).children as SyntaxNode[];
+      const nodes = refractor.highlight(code, language)
+        .children as SyntaxNode[];
       return nodes;
     } catch {
       return null;
@@ -600,7 +611,10 @@ const SYNTAX_KIND_CLASSES: Record<SyntaxTokenKind, readonly string[]> = {
 
 function getSyntaxTokenKind(classNames: string[]): SyntaxTokenKind {
   for (const [kind, classes] of Object.entries(SYNTAX_KIND_CLASSES)) {
-    if (kind !== "default" && classNames.some((name) => classes.includes(name))) {
+    if (
+      kind !== "default" &&
+      classNames.some((name) => classes.includes(name))
+    ) {
       return kind as SyntaxTokenKind;
     }
   }
@@ -650,6 +664,37 @@ function getTableColumnCount(node: ASTNode): number {
   return 0;
 }
 
+function SpinningLoader({ color, size }: { color: string; size: number }) {
+  const reduceMotion = useReducedMotion();
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      return;
+    }
+
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1,
+      false,
+    );
+
+    return () => {
+      cancelAnimation(rotation);
+    };
+  }, [rotation, reduceMotion]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <Animated.View style={[{ marginTop: 1 }, animatedStyle]}>
+      <Loader color={color} size={size} />
+    </Animated.View>
+  );
+}
+
 export const ChatMessage = memo(function ChatMessage({
   canEditAndResend = false,
   message,
@@ -681,9 +726,8 @@ export const ChatMessage = memo(function ChatMessage({
     () => message.status === "streaming",
     [message.id],
   );
-  const [previewImage, setPreviewImage] = useRecyclingState<
-    GeneratedImageAttachment | null
-  >(null, [message.id]);
+  const [previewImage, setPreviewImage] =
+    useRecyclingState<GeneratedImageAttachment | null>(null, [message.id]);
   const [timelineExpanded, setTimelineExpanded] = useRecyclingState(false, [
     message.id,
   ]);
@@ -750,13 +794,10 @@ export const ChatMessage = memo(function ChatMessage({
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
   };
-  const handleLinkPress = useCallback(
-    (url: string) => {
-      openMarkdownLink(url).catch(console.error);
-      return false;
-    },
-    [],
-  );
+  const handleLinkPress = useCallback((url: string) => {
+    openMarkdownLink(url).catch(console.error);
+    return false;
+  }, []);
   const closePreview = () => {
     setImageAction(null);
     setPreviewImage(null);
@@ -1125,7 +1166,7 @@ export const ChatMessage = memo(function ChatMessage({
                           pressed ? { opacity: 0.72 } : null
                         }
                       >
-                        <ListChecks color={theme.textSecondary} size={16} />
+                        {/* <ListChecks color={theme.textSecondary} size={16} /> */}
                         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                           {taskLabel}
                         </Text>
@@ -1154,10 +1195,9 @@ export const ChatMessage = memo(function ChatMessage({
                                   style={{ marginTop: 1 }}
                                 />
                               ) : task.status === "in_progress" ? (
-                                <Loader
+                                <SpinningLoader
                                   color={theme.textSecondary}
                                   size={16}
-                                  style={{ marginTop: 1 }}
                                 />
                               ) : (
                                 <Circle

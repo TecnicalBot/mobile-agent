@@ -1170,6 +1170,7 @@ const ChatInput = memo(function ChatInput({
     sendingRef.current = true;
     setPrompt("");
     KeyboardController.dismiss();
+    composerRef.current?.blur();
 
     try {
       await setSelectedFileIds([]);
@@ -1215,6 +1216,7 @@ const ChatInput = memo(function ChatInput({
       setFolderNotice(`Using ${session.displayName} for this chat.`);
       setPrompt("");
       KeyboardController.dismiss();
+      composerRef.current?.blur();
       await setSelectedFileIds([]);
       scrollToEnd();
       await onSend({
@@ -1732,22 +1734,6 @@ const ChatInput = memo(function ChatInput({
             </Pressable>
 
             <Pressable
-              accessibilityLabel="Select reasoning level"
-              accessibilityRole="button"
-              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
-              onPress={() => {
-                setReasoningDrawerOpen(true);
-              }}
-              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-            >
-              <Brain color={theme.textSecondary} size={14} />
-              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-                {getReasoningEffortLabel(reasoningEffort)}
-              </Text>
-              <ChevronDown color={theme.textSecondary} size={14} />
-            </Pressable>
-
-            <Pressable
               accessibilityLabel="Select agent mode"
               accessibilityRole="button"
               className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
@@ -1781,6 +1767,7 @@ const ChatInput = memo(function ChatInput({
                   const cleanEditPrompt = prompt.trim();
                   if (!cleanEditPrompt) return;
                   KeyboardController.dismiss();
+                  composerRef.current?.blur();
                   onEditSend(cleanEditPrompt).catch(console.error);
                   return;
                 }

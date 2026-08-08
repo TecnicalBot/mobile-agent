@@ -377,8 +377,8 @@ class DeviceAutomationModule : Module() {
   private fun resolveDeepLinkTarget(uri: String): String? {
     return try {
       val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
-      val resolveInfo = intent.resolveActivity(context.packageManager) ?: return null
-      val packageName = resolveInfo.activityInfo?.packageName ?: return null
+      val activityInfo = intent.resolveActivityInfo(context.packageManager, 0) ?: return null
+      val packageName = activityInfo.packageName
       if (ProtectedApps.isProtected(packageName)) packageName else null
     } catch (_: Exception) {
       null
@@ -568,13 +568,21 @@ class DeviceAutomationModule : Module() {
    * [android.hardware.HardwareBuffer] captures) are copied into software
    * memory first — they cannot be read or scaled in-place.
    */
+  /**
+   * Hardware bitmaps expose no public isHardware() (removed from the SDK) and
+   * cannot be read or scaled in-place. They are identified by their config,
+   * which has reported [Bitmap.Config.HARDWARE] since API 26 (our minSdk).
+   */
+  private fun isHardwareBitmap(bitmap: Bitmap): Boolean =
+    bitmap.config == Bitmap.Config.HARDWARE
+
   private fun encodeScreenshot(
     bitmap: Bitmap,
     maxDimension: Int,
     format: Bitmap.CompressFormat,
     quality: Int,
   ): Map<String, Any?> {
-    val software = if (bitmap.config == Bitmap.Config.ARGB_8888 && !bitmap.isHardware) {
+    val software = if (bitmap.config == Bitmap.Config.ARGB_8888 && !isHardwareBitmap(bitmap)) {
       bitmap
     } else {
       bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap

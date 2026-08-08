@@ -22,6 +22,7 @@ const questionnaireItemSchema = z.object({
     .max(MAX_CHOICES)
     .optional(),
   description: z.string().trim().max(500).optional(),
+  freeformPlaceholder: z.string().trim().max(200).optional(),
   id: z.string().trim().min(1).max(64),
   multiple: z.boolean().optional(),
   prompt: z.string().trim().min(1).max(500),
@@ -53,6 +54,7 @@ export function createAskQuestionTool(input: {
               allowFreeform: item.allowFreeform ?? true,
               choices: item.choices,
               description: item.description ?? null,
+              freeformPlaceholder: item.freeformPlaceholder ?? null,
               id: item.id,
               multiple: item.multiple ?? false,
               prompt: item.prompt,

@@ -392,6 +392,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
+    const coldStartRef = useRef(true);
     const executeAgentRunRef = useRef<(runId: string) => Promise<void>>(
         async () => {},
     );
@@ -735,13 +736,13 @@ Your output must be:
                     conv.id,
                 );
                 if (msgs.length > 0) continue;
-                if (conversations.length <= 1 && conv.id === settings.activeConversationId) continue;
+                if (conv.id === settings.activeConversationId) continue;
                 await repositories.conversationRepository.deleteById(conv.id);
             }
 
             conversations = await repositories.conversationRepository.list();
 
-            if (conversations.length === 0) {
+            if (conversations.length === 0 && !coldStartRef.current) {
                 const firstConversation =
                     await repositories.conversationRepository.create({
                         title: "New chat",
@@ -780,10 +781,32 @@ Your output must be:
                 { discoverRemote: false },
             );
 
-            const currentConversation =
-                conversations.find(
-                    (conversation) => conversation.id === settings.activeConversationId,
-                ) ?? null;
+            let currentConversation: Conversation | null;
+            if (coldStartRef.current) {
+                coldStartRef.current = false;
+                const freshConversation =
+                    await repositories.conversationRepository.create({
+                        title: "New chat",
+                        providerId: resolvedConfig.currentModel?.providerId ?? null,
+                        modelId: resolvedConfig.currentModel?.modelId ?? null,
+                    });
+                await repositories.configRepository.setSetting(
+                    "active_conversation_id",
+                    freshConversation.id,
+                );
+                conversations = upsertConversation(conversations, freshConversation);
+                settings = {
+                    ...settings,
+                    activeConversationId: freshConversation.id,
+                };
+                currentConversation = freshConversation;
+            } else {
+                currentConversation =
+                    conversations.find(
+                        (conversation) =>
+                            conversation.id === settings.activeConversationId,
+                    ) ?? null;
+            }
             const agentRuns = await repositories.agentRunRepository.list();
             const staleRuns = agentRuns.filter(
                 (run) =>
@@ -1684,8 +1707,20 @@ Your output must be:
             updatedAt: now,
         };
 
+        const saved = await repositoriesRef.current.conversationRepository.create({
+            id: conversation.id,
+            title: conversation.title,
+            providerId: conversation.providerId,
+            modelId: conversation.modelId,
+        });
+        await repositoriesRef.current.configRepository.setSetting(
+            "active_conversation_id",
+            saved.id,
+        );
+
         setSnapshot((current) => ({
             ...current,
+            conversations: upsertConversation(current.conversations, saved),
             currentConversation: conversation,
             currentSelectedFileIds: [],
             currentSelectedMcpServerIds: null,

@@ -1,10 +1,11 @@
 import { useRouter } from "expo-router";
 import { Plus } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 
 import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
 import { Container } from "@/components/shared/container";
+import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -47,6 +48,21 @@ export default function McpCatalogScreen() {
   const [error, setError] = useState<string | null>(null);
   const [setupPresetId, setSetupPresetId] = useState<string | null>(null);
   const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filteredPresets = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+
+    if (!needle) {
+      return catalogPresets;
+    }
+
+    return catalogPresets.filter(
+      (preset) =>
+        preset.label.toLowerCase().includes(needle) ||
+        preset.description.toLowerCase().includes(needle),
+    );
+  }, [catalogPresets, query]);
 
   const loadCatalog = async (signal?: AbortSignal) => {
     setCatalogLoading(true);
@@ -139,26 +155,41 @@ export default function McpCatalogScreen() {
       />
 
       {catalogPresets.length > 0 ? (
-        <Card className="overflow-hidden">
-          {catalogPresets.map((preset, index) => {
-            const connected = mcpServers.some(
-              (server) =>
-                normalizeMcpUrl(server.url) === normalizeMcpUrl(preset.url),
-            );
+        <>
+          <SearchBox
+            onChangeText={setQuery}
+            placeholder="Search MCP servers"
+            value={query}
+          />
+          {filteredPresets.length > 0 ? (
+            <Card className="overflow-hidden">
+              {filteredPresets.map((preset, index) => {
+                const connected = mcpServers.some(
+                  (server) =>
+                    normalizeMcpUrl(server.url) === normalizeMcpUrl(preset.url),
+                );
 
-            return (
-              <View key={preset.id}>
-                {index > 0 ? <Separator /> : null}
-                <PresetRow
-                  busy={busyKey === preset.id}
-                  connected={connected}
-                  onPress={() => connectPreset(preset).catch(console.error)}
-                  preset={preset}
-                />
-              </View>
-            );
-          })}
-        </Card>
+                return (
+                  <View key={preset.id}>
+                    {index > 0 ? <Separator /> : null}
+                    <PresetRow
+                      busy={busyKey === preset.id}
+                      connected={connected}
+                      onPress={() => connectPreset(preset).catch(console.error)}
+                      preset={preset}
+                    />
+                  </View>
+                );
+              })}
+            </Card>
+          ) : (
+            <Card className="px-sp-4 py-sp-4">
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {`No MCP servers match "${query}".`}
+              </Text>
+            </Card>
+          )}
+        </>
       ) : catalogLoading ? (
         <Card className="px-sp-4 py-sp-4">
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">

@@ -443,30 +443,34 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
    * [timeoutMs] elapses. Lets the agent let animations/transitions settle before
    * re-reading the screen, instead of polling readScreen.
    */
-  fun waitForIdle(quietMs: Int, timeoutMs: Int): Boolean = try {
-    val deadline = SystemClock.uptimeMillis() + timeoutMs
-    while (SystemClock.uptimeMillis() < deadline) {
-      if (SystemClock.uptimeMillis() - lastEventTimestamp >= quietMs) return true
-      Thread.sleep(50)
+  fun waitForIdle(quietMs: Int, timeoutMs: Int): Boolean {
+    return try {
+      val deadline = SystemClock.uptimeMillis() + timeoutMs
+      while (SystemClock.uptimeMillis() < deadline) {
+        if (SystemClock.uptimeMillis() - lastEventTimestamp >= quietMs) return true
+        Thread.sleep(50)
+      }
+      SystemClock.uptimeMillis() - lastEventTimestamp >= quietMs
+    } catch (_: InterruptedException) {
+      Thread.currentThread().interrupt()
+      false
     }
-    SystemClock.uptimeMillis() - lastEventTimestamp >= quietMs
-  } catch (_: InterruptedException) {
-    Thread.currentThread().interrupt()
-    false
   }
 
   /** Returns true once [packageName] is the foreground app, or when [timeoutMs] elapses. */
-  fun waitForPackage(packageName: String, timeoutMs: Int): Boolean = try {
-    val deadline = SystemClock.uptimeMillis() + timeoutMs
-    while (SystemClock.uptimeMillis() < deadline) {
-      val current = getForegroundPackage()
-      if (current != null && current == packageName) return true
-      Thread.sleep(50)
+  fun waitForPackage(packageName: String, timeoutMs: Int): Boolean {
+    return try {
+      val deadline = SystemClock.uptimeMillis() + timeoutMs
+      while (SystemClock.uptimeMillis() < deadline) {
+        val current = getForegroundPackage()
+        if (current != null && current == packageName) return true
+        Thread.sleep(50)
+      }
+      getForegroundPackage() == packageName
+    } catch (_: InterruptedException) {
+      Thread.currentThread().interrupt()
+      false
     }
-    getForegroundPackage() == packageName
-  } catch (_: InterruptedException) {
-    Thread.currentThread().interrupt()
-    false
   }
 
   // -------------------------------------------------------------------------
@@ -707,88 +711,90 @@ class DeviceAutomationAccessibilityService : AccessibilityService() {
     durationMs: Int,
   ): Map<String, Any?> = swipeGesture(x1, y1, x2, y2, durationMs.coerceAtLeast(400))
 
-  fun scroll(direction: String): Map<String, Any?> = try {
+  fun scroll(direction: String): Map<String, Any?> {
     if (direction !in setOf("up", "down", "left", "right")) {
       return mapOf("success" to false, "error" to "Unknown direction: $direction")
     }
-    val step = runOnMain {
-      blockedIfProtected()?.let { Step.Error(it["error"] as? String ?: "Blocked") } ?: run {
-        val target = cachedNodes()
-          .filter { it.isScrollable }
-          .maxByOrNull { node ->
-            val r = Rect()
-            node.getBoundsInScreen(r)
-            r.width().toLong() * r.height()
-          }
-        if (target == null) {
-          Step.Error("No scrollable area found.")
-        } else {
-          val bounds = Rect()
-          target.getBoundsInScreen(bounds)
-          Step.Ok(ScrollTarget(target, bounds))
-        }
-      }
-    }
-    when (step) {
-      is Step.Error -> mapOf("success" to false, "error" to step.message)
-      is Step.Ok -> {
-        val target = step.value
-        val semanticallyScrolled = runOnMain {
-          val action = if (direction == "up" || direction == "left") {
-            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+    return try {
+      val step = runOnMain {
+        blockedIfProtected()?.let { Step.Error(it["error"] as? String ?: "Blocked") } ?: run {
+          val target = cachedNodes()
+            .filter { it.isScrollable }
+            .maxByOrNull { node ->
+              val r = Rect()
+              node.getBoundsInScreen(r)
+              r.width().toLong() * r.height()
+            }
+          if (target == null) {
+            Step.Error("No scrollable area found.")
           } else {
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-          }
-          try {
-            target.node.performAction(action)
-          } catch (_: Exception) {
-            false
-          }
-        }
-        if (semanticallyScrolled) {
-          mapOf("success" to true, "via" to "semantic")
-        } else {
-          val bounds = target.bounds
-          val gestureResult = when (direction) {
-            "up" -> swipeGesture(
-              bounds.left + bounds.width() / 2,
-              bounds.top + bounds.height() * 4 / 5,
-              bounds.left + bounds.width() / 2,
-              bounds.top + bounds.height() / 5,
-              250,
-            )
-            "down" -> swipeGesture(
-              bounds.left + bounds.width() / 2,
-              bounds.top + bounds.height() / 5,
-              bounds.left + bounds.width() / 2,
-              bounds.top + bounds.height() * 4 / 5,
-              250,
-            )
-            "left" -> swipeGesture(
-              bounds.left + bounds.width() * 4 / 5,
-              bounds.top + bounds.height() / 2,
-              bounds.left + bounds.width() / 5,
-              bounds.top + bounds.height() / 2,
-              250,
-            )
-            else -> swipeGesture(
-              bounds.left + bounds.width() / 5,
-              bounds.top + bounds.height() / 2,
-              bounds.left + bounds.width() * 4 / 5,
-              bounds.top + bounds.height() / 2,
-              250,
-            )
-          }
-          if (gestureResult["success"] == true) {
-            mapOf("success" to true, "via" to "gesture")
-          } else {
-            mapOf("success" to false, "error" to "Scroll failed: neither the semantic action nor a swipe gesture worked.")
+            val bounds = Rect()
+            target.getBoundsInScreen(bounds)
+            Step.Ok(ScrollTarget(target, bounds))
           }
         }
       }
+      when (step) {
+        is Step.Error -> mapOf("success" to false, "error" to step.message)
+        is Step.Ok -> {
+          val target = step.value
+          val semanticallyScrolled = runOnMain {
+            val action = if (direction == "up" || direction == "left") {
+              AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            } else {
+              AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            }
+            try {
+              target.node.performAction(action)
+            } catch (_: Exception) {
+              false
+            }
+          }
+          if (semanticallyScrolled) {
+            mapOf("success" to true, "via" to "semantic")
+          } else {
+            val bounds = target.bounds
+            val gestureResult = when (direction) {
+              "up" -> swipeGesture(
+                bounds.left + bounds.width() / 2,
+                bounds.top + bounds.height() * 4 / 5,
+                bounds.left + bounds.width() / 2,
+                bounds.top + bounds.height() / 5,
+                250,
+              )
+              "down" -> swipeGesture(
+                bounds.left + bounds.width() / 2,
+                bounds.top + bounds.height() / 5,
+                bounds.left + bounds.width() / 2,
+                bounds.top + bounds.height() * 4 / 5,
+                250,
+              )
+              "left" -> swipeGesture(
+                bounds.left + bounds.width() * 4 / 5,
+                bounds.top + bounds.height() / 2,
+                bounds.left + bounds.width() / 5,
+                bounds.top + bounds.height() / 2,
+                250,
+              )
+              else -> swipeGesture(
+                bounds.left + bounds.width() / 5,
+                bounds.top + bounds.height() / 2,
+                bounds.left + bounds.width() * 4 / 5,
+                bounds.top + bounds.height() / 2,
+                250,
+              )
+            }
+            if (gestureResult["success"] == true) {
+              mapOf("success" to true, "via" to "gesture")
+            } else {
+              mapOf("success" to false, "error" to "Scroll failed: neither the semantic action nor a swipe gesture worked.")
+            }
+          }
+        }
+      }
+    } catch (e: Exception) {
+      mapOf("success" to false, "error" to (e.message ?: "Scroll failed."))
     }
-  } catch (e: Exception) {
-    mapOf("success" to false, "error" to (e.message ?: "Scroll failed."))
   }
 
   fun performGlobalAction(name: String): Map<String, Any?> = try {

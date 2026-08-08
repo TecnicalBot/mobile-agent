@@ -134,6 +134,7 @@ export type QuestionnaireItem = {
   multiple?: boolean;
   choices?: string[];
   allowFreeform?: boolean;
+  freeformPlaceholder?: string | null;
 };
 export type PendingQuestionnaireRequest = {
   id: string;

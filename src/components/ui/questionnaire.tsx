@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Check } from "lucide-react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, Text, TextInput, View } from "react-native";
+import type { KeyboardAwareScrollViewRef } from "react-native-keyboard-controller";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +13,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Textarea } from "@/components/ui/textarea";
+import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/core/utils";
 import type {
   PendingQuestionnaire,
@@ -50,20 +52,6 @@ function itemHasValue(
   freeform: FreeformText,
 ) {
   return hasChoiceValue(item, selections) || hasFreeformValue(item, freeform);
-}
-
-function isDraftValid(
-  questionnaire: PendingQuestionnaire,
-  selections: ChoiceSelections,
-  freeform: FreeformText,
-) {
-  return questionnaire.items.every((item) => {
-    if (!item.required) {
-      return true;
-    }
-
-    return itemHasValue(item, selections, freeform);
-  });
 }
 
 function buildAnswers(
@@ -121,15 +109,70 @@ export function Questionnaire({
   onDismiss,
   onSubmit,
 }: QuestionnaireProps) {
+  const [activeIndex, setActiveIndex] = useState(0);
   const [selections, setSelections] = useState<ChoiceSelections>({});
   const [freeform, setFreeform] = useState<FreeformText>({});
-  const valid = isDraftValid(questionnaire, selections, freeform);
+  const [attempted, setAttempted] = useState<Record<string, boolean>>({});
+  const bodyRef = useRef<KeyboardAwareScrollViewRef>(null);
+  const total = questionnaire.items.length;
+  const item = questionnaire.items[activeIndex];
+  const hasValue = itemHasValue(item, selections, freeform);
+  const showError = attempted[item.id] === true && !hasValue;
+  const isFirst = activeIndex === 0;
+  const isLast = activeIndex === total - 1;
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ y: 0, animated: false });
+  }, [activeIndex]);
+
+  function markAttempted() {
+    setAttempted((prev) => ({ ...prev, [item.id]: true }));
+  }
+
+  function goPrevious() {
+    setActiveIndex((index) => Math.max(0, index - 1));
+  }
+
+  function goNext() {
+    if (!hasValue) {
+      markAttempted();
+      return;
+    }
+
+    setActiveIndex((index) => Math.min(total - 1, index + 1));
+  }
+
+  function skipCurrent() {
+    if (isLast) {
+      onSubmit(buildAnswers(questionnaire, selections, freeform));
+      return;
+    }
+
+    setActiveIndex((index) => index + 1);
+  }
+
+  function handleSubmit() {
+    if (!hasValue) {
+      markAttempted();
+      return;
+    }
+
+    onSubmit(buildAnswers(questionnaire, selections, freeform));
+  }
 
   return (
-    <Drawer dismissible={false} open>
+    <Drawer
+      dismissible
+      onOpenChange={(open) => {
+        if (!open) {
+          onDismiss();
+        }
+      }}
+      open
+    >
       <DrawerContent
         closeOnOverlayPress={false}
-        showCloseButton={false}
+        showCloseButton
         showHandle
       >
         <DrawerHeader>
@@ -138,107 +181,167 @@ export function Questionnaire({
             The assistant paused to ask you a few questions.
           </DrawerDescription>
         </DrawerHeader>
-        <DrawerBody contentContainerClassName="gap-sp-4">
-          {questionnaire.items.map((item, index) => {
-            const selected = getSelectedChoices(selections, item);
+        <DrawerBody contentContainerClassName="gap-sp-3" ref={bodyRef}>
+          <Text
+            accessibilityLabel="Questionnaire progress"
+            accessibilityLiveRegion="polite"
+            accessibilityRole="progressbar"
+            className="font-sans text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark"
+            style={{ fontVariant: ["tabular-nums"] }}
+          >
+            Question {activeIndex + 1} of {total}
+          </Text>
+          <View className="flex-col gap-sp-3">
+            <Text className="font-sans text-base leading-snug font-medium text-foreground dark:text-foreground-dark">
+              {item.prompt}
+            </Text>
+            {item.description ? (
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                {item.description}
+              </Text>
+            ) : null}
+            {item.choices ? (
+              <View className="gap-sp-2">
+                {item.choices.map((choice) => {
+                  const checked = getSelectedChoices(selections, item).includes(
+                    choice,
+                  );
 
-            return (
-              <View
-                key={item.id}
-                className="gap-sp-2 rounded-ui border border-border bg-card p-sp-4 dark:border-border-dark dark:bg-card-dark"
-              >
-                <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
-                  {index + 1}. {item.prompt}
-                  {item.required ? (
-                    <Text className="text-destructive dark:text-destructive-dark">
-                      {" "}
-                      *
-                    </Text>
-                  ) : null}
-                </Text>
-                {item.description ? (
-                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                    {item.description}
-                  </Text>
-                ) : null}
-                {item.choices ? (
-                  <View className="flex-row flex-wrap gap-sp-2">
-                    {item.choices.map((choice) => {
-                      const active = selected.includes(choice);
-
-                      return (
-                        <ChoiceChip
-                          key={choice}
-                          active={active}
-                          label={choice}
-                          onPress={() =>
-                            toggleChoice(item, choice, selections, setSelections)
-                          }
-                        />
-                      );
-                    })}
-                  </View>
-                ) : null}
-                {item.allowFreeform ? (
-                  <Textarea
-                    maxLength={MAX_FREEFORM_LENGTH}
-                    onChangeText={(text) =>
-                      setFreeform((prev) => ({ ...prev, [item.id]: text }))
-                    }
-                    placeholder={
-                      item.choices ? "Type a custom answer…" : "Type your answer…"
-                    }
-                    value={freeform[item.id] ?? ""}
-                  />
-                ) : null}
+                  return (
+                    <ChoiceRow
+                      key={choice}
+                      checked={checked}
+                      label={choice}
+                      multiple={item.multiple ?? false}
+                      onPress={() =>
+                        toggleChoice(item, choice, selections, setSelections)
+                      }
+                    />
+                  );
+                })}
               </View>
-            );
-          })}
+            ) : null}
+            {item.allowFreeform ? (
+              <FreeformInput
+                maxLength={MAX_FREEFORM_LENGTH}
+                onChangeText={(text) =>
+                  setFreeform((prev) => ({ ...prev, [item.id]: text }))
+                }
+                placeholder={
+                  item.choices ? "Another answer" : "Type your answer…"
+                }
+                value={freeform[item.id] ?? ""}
+              />
+            ) : null}
+            {showError ? (
+              <Text className="mt-sp-2 font-sans text-sm text-destructive dark:text-destructive-dark">
+                {item.required
+                  ? "Choose an answer to continue."
+                  : "Choose an answer or skip this question."}
+              </Text>
+            ) : null}
+          </View>
         </DrawerBody>
         <DrawerFooter>
-          <Button onPress={onDismiss} variant="ghost">
-            Skip for now
-          </Button>
-          <Button
-            disabled={!valid}
-            onPress={() => onSubmit(buildAnswers(questionnaire, selections, freeform))}
-          >
-            Submit
-          </Button>
+          <View className="flex-row items-center gap-sp-2">
+            {total > 1 && !isFirst ? (
+              <Button onPress={goPrevious} variant="outline">
+                Previous
+              </Button>
+            ) : null}
+            <View className="flex-1" />
+            {!item.required ? (
+              <Button onPress={skipCurrent} variant="outline">
+                Skip
+              </Button>
+            ) : null}
+            {total > 1 && !isLast ? (
+              <Button onPress={goNext}>Next</Button>
+            ) : (
+              <Button onPress={handleSubmit}>Submit</Button>
+            )}
+          </View>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
   );
 }
 
-type ChoiceChipProps = {
-  active: boolean;
+type ChoiceRowProps = {
+  checked: boolean;
   label: string;
+  multiple: boolean;
   onPress: () => void;
 };
 
-function ChoiceChip({ active, label, onPress }: ChoiceChipProps) {
+function ChoiceRow({ checked, label, multiple, onPress }: ChoiceRowProps) {
+  const theme = useTheme();
+
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={multiple ? "checkbox" : "radio"}
+      accessibilityState={{ checked }}
       className={cn(
-        "rounded-full border px-sp-4 py-sp-2",
-        active
-          ? "border-foreground bg-foreground dark:border-foreground-dark dark:bg-foreground-dark"
-          : "border-border bg-background dark:border-border-dark dark:bg-background-dark",
+        "min-h-11 flex-row items-start gap-2.5 rounded-lg border px-3 py-2.5",
+        "dark:bg-input-dark/20 active:bg-muted/50 dark:active:bg-muted-dark/50",
+        checked
+          ? "border-foreground/40 bg-muted dark:border-foreground-dark/40 dark:bg-muted-dark"
+          : "border-border bg-transparent dark:border-border-dark",
       )}
       onPress={onPress}
     >
-      <Text
+      <View
         className={cn(
-          "font-sans text-sm font-medium",
-          active
-            ? "text-background dark:text-background-dark"
-            : "text-foreground dark:text-foreground-dark",
+          "mt-[2px] size-4 items-center justify-center border",
+          multiple ? "rounded-[4px]" : "rounded-full",
+          checked
+            ? "border-foreground bg-foreground dark:border-foreground-dark dark:bg-foreground-dark"
+            : "border-border bg-transparent dark:border-border-dark dark:bg-input-dark/30",
         )}
       >
+        {checked
+          ? multiple
+            ? (
+                <Check color={theme.background} size={14} />
+              )
+            : (
+                <View className="size-2 rounded-full bg-background dark:bg-background-dark" />
+              )
+          : null}
+      </View>
+      <Text className="flex-1 font-sans text-sm leading-snug font-medium text-foreground dark:text-foreground-dark">
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+type FreeformInputProps = {
+  maxLength?: number;
+  onChangeText?: (text: string) => void;
+  placeholder?: string;
+  value?: string;
+};
+
+function FreeformInput({
+  maxLength,
+  onChangeText,
+  placeholder,
+  value,
+}: FreeformInputProps) {
+  const theme = useTheme();
+
+  return (
+    <TextInput
+      className="min-h-11 w-full rounded-lg border border-border bg-transparent px-2.5 font-sans text-base text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"
+      cursorColor={theme.text}
+      maxLength={maxLength}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={theme.textSecondary}
+      selectionColor={theme.backgroundSelected}
+      selectionHandleColor={theme.text}
+      value={value}
+    />
   );
 }

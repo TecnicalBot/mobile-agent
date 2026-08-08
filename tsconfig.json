@@ -9,7 +9,8 @@
         "./modules/background-agent-service/index.ts"
       ],
       "process-text": ["./modules/process-text/index.ts"],
-      "device-automation": ["./modules/device-automation/index.ts"]
+      "device-automation": ["./modules/device-automation/index.ts"],
+      "saf-file-operations": ["./modules/saf-file-operations/index.ts"]
     }
   },
   "include": [

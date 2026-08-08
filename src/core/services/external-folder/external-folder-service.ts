@@ -1,5 +1,9 @@
 import { Directory, File } from "expo-file-system";
 import { Platform } from "react-native";
+import {
+  createSafEntry,
+  relocateSafEntry,
+} from "saf-file-operations";
 
 import type {
   ExternalFolderPlatform,
@@ -28,6 +32,10 @@ function normalizePlatform(): ExternalFolderPlatform {
 
 function getRootDirectory(session: ExternalFolderSession) {
   return new Directory(session.uri);
+}
+
+function isAndroidSafSession(session: ExternalFolderSession) {
+  return Platform.OS === "android" && session.uri.startsWith("content://");
 }
 
 function splitRelativePath(path: string) {
@@ -224,6 +232,17 @@ function resolveExistingEntry(session: ExternalFolderSession, path: string) {
   throw new Error(`No file or folder exists at "${relativePath || "."}".`);
 }
 
+function tryResolveEntry(
+  session: ExternalFolderSession,
+  path: string,
+): Directory | File | null {
+  try {
+    return resolveExistingEntry(session, path);
+  } catch {
+    return null;
+  }
+}
+
 export function createExternalFolderService() {
   return {
     async pickDirectory(
@@ -280,7 +299,17 @@ export function createExternalFolderService() {
       let file = findChildFile(parent, fileName);
 
       if (!file) {
-        file = parent.createFile(fileName, inferMimeType(fileName));
+        file = isAndroidSafSession(session)
+          ? new File(
+              await createSafEntry(
+                session.uri,
+                parent.uri,
+                fileName,
+                inferMimeType(fileName),
+                false,
+              ),
+            )
+          : parent.createFile(fileName, inferMimeType(fileName));
       }
 
       file.write(content);
@@ -303,7 +332,17 @@ export function createExternalFolderService() {
       let file = findChildFile(parent, fileName);
 
       if (!file) {
-        file = parent.createFile(fileName, inferMimeType(fileName));
+        file = isAndroidSafSession(session)
+          ? new File(
+              await createSafEntry(
+                session.uri,
+                parent.uri,
+                fileName,
+                inferMimeType(fileName),
+                false,
+              ),
+            )
+          : parent.createFile(fileName, inferMimeType(fileName));
       }
 
       file.write(content, { append: mode === "append" });
@@ -326,7 +365,17 @@ export function createExternalFolderService() {
           continue;
         }
 
-        current = current.createDirectory(part);
+        current = isAndroidSafSession(session)
+          ? new Directory(
+              await createSafEntry(
+                session.uri,
+                current.uri,
+                part,
+                null,
+                true,
+              ),
+            )
+          : current.createDirectory(part);
       }
 
       await assertDirectoryVisible(session, path);
@@ -341,48 +390,160 @@ export function createExternalFolderService() {
       toPath: string,
     ) {
       const entry = resolveExistingEntry(session, fromPath);
+      const fromRelativePath = getRelativePath(fromPath);
       const nextRelativePath = getRelativePath(toPath);
-      const destination =
-        entry instanceof Directory
-          ? resolveDirectory(session, nextRelativePath)
-          : resolveFile(session, nextRelativePath);
 
-      ensureParentDirectoryExists(session, nextRelativePath);
-      await entry.move(destination);
-
-      if (entry instanceof Directory) {
-        await assertDirectoryVisible(session, nextRelativePath);
-      } else {
-        await assertFileVisible(session, nextRelativePath);
+      if (!fromRelativePath) {
+        throw new Error("Cannot move the granted folder itself.");
       }
 
+      if (!nextRelativePath) {
+        throw new Error("A destination path is required.");
+      }
+
+      if (nextRelativePath === fromRelativePath) {
+        throw new Error("Source and destination are the same path.");
+      }
+
+      if (
+        entry instanceof Directory &&
+        nextRelativePath.startsWith(`${fromRelativePath}/`)
+      ) {
+        throw new Error("A folder cannot be moved into its own contents.");
+      }
+
+      const destinationParts = splitRelativePath(nextRelativePath);
+      const destinationName = destinationParts[destinationParts.length - 1];
+      const parent = ensureParentDirectoryExists(session, nextRelativePath);
+      const existingDestination = tryResolveEntry(session, nextRelativePath);
+      const sourceParts = splitRelativePath(fromRelativePath);
+      const sourceParent = resolveDirectory(
+        session,
+        sourceParts.slice(0, -1).join("/"),
+      );
+
+      let finalPath: string;
+
+      if (existingDestination instanceof Directory) {
+        if (
+          existingDestination
+            .list()
+            .some((sibling) => sibling.name === entry.name)
+        ) {
+          throw new Error(
+            `"${entry.name}" already exists at "${nextRelativePath}". Delete it first or choose a different destination.`,
+          );
+        }
+
+        finalPath = `${nextRelativePath}/${entry.name}`;
+      } else if (existingDestination instanceof File) {
+        throw new Error(
+          `A file already exists at "${nextRelativePath}". Delete it first or choose a different destination.`,
+        );
+      } else {
+        finalPath = nextRelativePath;
+      }
+
+      if (isAndroidSafSession(session)) {
+        const destinationParent =
+          existingDestination instanceof Directory
+            ? existingDestination
+            : parent;
+        const finalName =
+          existingDestination instanceof Directory
+            ? entry.name
+            : destinationName;
+
+        await relocateSafEntry(
+          session.uri,
+          entry.uri,
+          sourceParent.uri,
+          destinationParent.uri,
+          finalName,
+        );
+      } else {
+        const destination =
+          existingDestination instanceof Directory
+            ? existingDestination
+            : entry instanceof Directory
+              ? new Directory(parent.uri, destinationName)
+              : new File(parent.uri, destinationName);
+        await entry.move(destination, { overwrite: false });
+      }
+
+      if (entry instanceof Directory) {
+        await assertDirectoryVisible(session, finalPath);
+      } else {
+        await assertFileVisible(session, finalPath);
+      }
+      await assertEntryAbsent(session, fromRelativePath);
+
       return {
-        fromPath: getRelativePath(fromPath),
-        toPath: nextRelativePath,
+        fromPath: fromRelativePath,
+        toPath: finalPath,
       };
     },
     async renameEntry(session: ExternalFolderSession, path: string, newName: string) {
       const trimmedName = newName.trim();
 
-      if (!trimmedName || trimmedName.includes("/") || trimmedName.includes("\\")) {
+      if (
+        !trimmedName ||
+        trimmedName === "." ||
+        trimmedName === ".." ||
+        trimmedName.includes("/") ||
+        trimmedName.includes("\\")
+      ) {
         throw new Error("Provide a valid file or folder name.");
+      }
+
+      const parts = splitRelativePath(path);
+
+      if (parts.length === 0) {
+        throw new Error("Cannot rename the granted folder itself.");
       }
 
       const entry = resolveExistingEntry(session, path);
       const previousPath = getRelativePath(path);
 
-      entry.rename(trimmedName);
+      if (trimmedName === parts[parts.length - 1]) {
+        return {
+          path: previousPath,
+          previousPath,
+        };
+      }
 
-      const parts = splitRelativePath(previousPath);
-      parts[parts.length - 1] = trimmedName;
+      const parentPath = parts.slice(0, -1).join("/");
+      const parent = resolveDirectory(session, parentPath);
 
-      const nextPath = parts.join("/");
+      if (parent.list().some((sibling) => sibling.name === trimmedName)) {
+        throw new Error(
+          `A file or folder named "${trimmedName}" already exists at "${previousPath}".`,
+        );
+      }
+
+      const nextParts = [...parts];
+      nextParts[nextParts.length - 1] = trimmedName;
+
+      const nextPath = nextParts.join("/");
+
+      if (isAndroidSafSession(session)) {
+        await relocateSafEntry(
+          session.uri,
+          entry.uri,
+          parent.uri,
+          parent.uri,
+          trimmedName,
+        );
+      } else {
+        entry.rename(trimmedName);
+      }
 
       if (entry instanceof Directory) {
         await assertDirectoryVisible(session, nextPath);
       } else {
         await assertFileVisible(session, nextPath);
       }
+      await assertEntryAbsent(session, previousPath);
 
       return {
         path: nextPath,

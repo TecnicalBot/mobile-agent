@@ -4,7 +4,6 @@ import {
   ChevronRight,
   ListChecks,
   Smartphone,
-  Sparkles,
   Wrench,
 } from "lucide-react-native";
 import { useState, type ReactNode } from "react";
@@ -27,7 +26,6 @@ import { useConfig } from "@/hooks/use-config";
 import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
 import {
-  countEnabledAgentTools,
   countEnabledBuiltInFileTools,
   countEnabledDeviceTools,
 } from "@/modules/config/built-in-tools";
@@ -91,13 +89,6 @@ export default function SettingsToolsScreen() {
           label="Core tools"
           onPress={() => router.push("/settings/tools/core" as never)}
           value={`${countEnabledBuiltInFileTools(toolSettings)} active`}
-        />
-        <Separator />
-        <ToolGroupRow
-          icon={<Sparkles color={theme.text} size={19} />}
-          label="Agent tools"
-          onPress={() => router.push("/settings/tools/agent" as never)}
-          value={`${countEnabledAgentTools(toolSettings)} active`}
         />
         {Platform.OS === "android" ? <Separator /> : null}
         {Platform.OS === "android" ? (

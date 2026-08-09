@@ -31,6 +31,7 @@ import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createAskQuestionTool } from "@/modules/tools/built-in/question";
+import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import { createUpdateTodosTool } from "@/modules/tools/built-in/todos";
 import {
@@ -104,6 +105,7 @@ const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "editFile",
   "exportWorkspaceFileToFolder",
   "importFolderFileToWorkspace",
+  "manageSkill",
   "moveEntry",
   "renameEntry",
   "writeFile",
@@ -183,6 +185,7 @@ export type AgentRunDeps = {
     status: "success" | "failed";
     title: string;
   }) => Promise<void>;
+  onSkillsChange: () => void;
   ui: RunUiPublisher;
   retryRun: (runId: string, delayMs: number) => void;
 };
@@ -1000,6 +1003,16 @@ export async function executeClaimedAgentRun(
             requestQuestionnaire: (request) => requestRunQuestionnaire(request),
           })
         : null;
+    const skillRuntime = runtimeSupportsTools
+      ? createSkillTools({
+          onRecord: handleToolExecutionRecord,
+          onSkillsChange: () => {
+            deps.onSkillsChange();
+            markActivity();
+          },
+          repository: repositories.skillRepository,
+        })
+      : null;
 
     for (const serverResult of mcpRuntime?.serverResults ?? []) {
       repositories.mcpServerRepository
@@ -1028,13 +1041,14 @@ export async function executeClaimedAgentRun(
     }
 
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools || todosRuntime || questionRuntime
+      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools || todosRuntime || questionRuntime || skillRuntime
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(deviceRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
             ...(todosRuntime?.tools ?? {}),
             ...(questionRuntime?.tools ?? {}),
+            ...(skillRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
     const autoApprovedToolNames = new Set([
@@ -1043,6 +1057,7 @@ export async function executeClaimedAgentRun(
         : [...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES]),
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
+      ...(skillRuntime ? ["loadSkill"] : []),
     ]);
     const approvedRuntimeTools = unapprovedRuntimeTools
       ? wrapToolsWithApproval(unapprovedRuntimeTools, {
@@ -1121,11 +1136,20 @@ export async function executeClaimedAgentRun(
     if (selectedFilesContext) {
       appendContextToLatestUserMessage(runtimeMessages, selectedFilesContext);
     }
+    const skillsForPrompt =
+      snapshotRef.current.settings.skillInjectionMode === "catalog"
+        ? snapshotRef.current.skills.filter((skill) => skill.enabled)
+        : appliedSkills;
     const skillsRuntimeSystem = buildSkillsSystemPrompt({
       builtInToolSettings: snapshotRef.current.settings.builtInToolSettings,
       mcpServers: runMcpServers,
-      skills: appliedSkills,
+      mode: snapshotRef.current.settings.skillInjectionMode,
+      skills: skillsForPrompt,
     });
+    const skillManagementRuntimeSystem =
+      skillRuntime && runtimeSupportsTools && !isPlanMode
+        ? "You can create, update, delete, and list skills with the manageSkill tool. Skills follow the SKILL.md format: a name, a short description, and markdown instructions. Create a skill when the user explicitly asks to save one, or when a repeated task would benefit from reusable instructions."
+        : undefined;
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
       ? buildMemorySystemPrompt(snapshotRef.current.memory, {
           canWrite: runtimeSupportsTools && !isPlanMode,
@@ -1157,6 +1181,7 @@ export async function executeClaimedAgentRun(
         mcpRuntime?.systemPrompt,
         memoryRuntimeSystem,
         skillsRuntimeSystem,
+        skillManagementRuntimeSystem,
         toolLoopRuntimeSystem,
       ]
         .filter((part): part is string => Boolean(part?.trim()))

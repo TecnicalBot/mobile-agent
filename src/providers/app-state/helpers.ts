@@ -20,6 +20,7 @@ import type {
   ReasoningBlock,
   ResolvedModel,
   SkillConfig,
+  SkillInjectionMode,
   StoredMessage,
   ToolExecutionRecord,
   WorkspaceFile,
@@ -360,6 +361,7 @@ export function resolveAppliedSkills(input: {
 export function buildSkillsSystemPrompt(input: {
   builtInToolSettings: BuiltInToolSettings;
   mcpServers: McpServerConfig[];
+  mode: SkillInjectionMode;
   skills: SkillConfig[];
 }) {
   if (input.skills.length === 0) {
@@ -379,14 +381,15 @@ export function buildSkillsSystemPrompt(input: {
       control.keys.map((key) => [key, control.label] as const),
     ),
   );
-  const sections = input.skills.map((skill) => {
+  const buildToolNotes = (skill: SkillConfig) => {
     const disabledMcpServers = skill.recommendedMcpServerIds
       .filter((serverId) => !enabledMcpServerIds.has(serverId))
       .map((serverId) => mcpServerLabelById.get(serverId) ?? serverId);
     const disabledBuiltInTools = skill.recommendedBuiltInToolKeys
       .filter((toolKey) => !input.builtInToolSettings[toolKey])
       .map((toolKey) => builtInToolLabelByKey.get(toolKey) ?? toolKey);
-    const recommendationNotes = [
+
+    return [
       disabledMcpServers.length > 0
         ? `Recommended MCP servers not enabled: ${disabledMcpServers.join(", ")}.`
         : null,
@@ -394,22 +397,50 @@ export function buildSkillsSystemPrompt(input: {
         ? `Recommended built-in tools not enabled: ${disabledBuiltInTools.join(", ")}.`
         : null,
     ].filter(Boolean);
+  };
 
-    return [
-      `Skill: ${skill.title}`,
-      skill.description?.trim()
-        ? `Description: ${skill.description.trim()}`
-        : null,
-      `Instructions:\n${skill.instructions.trim()}`,
-      recommendationNotes.length > 0
-        ? `Tool notes: ${recommendationNotes.join(" ")}`
-        : null,
+  if (input.mode === "inline") {
+    const sections = input.skills.map((skill) => {
+      const toolNotes = buildToolNotes(skill);
+
+      return [
+        `Skill: ${skill.title}`,
+        skill.description?.trim()
+          ? `Description: ${skill.description.trim()}`
+          : null,
+        `Instructions:\n${skill.instructions.trim()}`,
+        toolNotes.length > 0 ? `Tool notes: ${toolNotes.join(" ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    });
+
+    return ["Skills:", ...sections].join("\n\n");
+  }
+
+  const catalog = input.skills.map((skill) => {
+    const toolNotes = buildToolNotes(skill);
+    const description = [
+      skill.description?.trim() ?? null,
+      toolNotes.length > 0 ? `Tool notes: ${toolNotes.join(" ")}` : null,
     ]
       .filter(Boolean)
-      .join("\n");
+      .join(" ");
+
+    return [
+      "  <skill>",
+      `    <name>${skill.title}</name>`,
+      `    <description>${description || "No description."}</description>`,
+      "  </skill>",
+    ].join("\n");
   });
 
-  return ["Skills:", ...sections].join("\n\n");
+  return [
+    "<available_skills>",
+    ...catalog,
+    "</available_skills>",
+    "When the current task matches one of these skills, call the loadSkill tool with the exact skill name to load its full instructions before continuing. You may load more than one skill when needed.",
+  ].join("\n");
 }
 
 export function normalizeMetric(value: number | null | undefined) {

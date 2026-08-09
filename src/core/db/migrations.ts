@@ -1,6 +1,8 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 18;
+import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
+
+const DATABASE_VERSION = 19;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -181,6 +183,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         title TEXT NOT NULL,
         description TEXT,
         instructions TEXT NOT NULL,
+        source_markdown TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         auto_match INTEGER NOT NULL DEFAULT 0,
         match_keywords_json TEXT NOT NULL DEFAULT '[]',
@@ -407,6 +410,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         title TEXT NOT NULL,
         description TEXT,
         instructions TEXT NOT NULL,
+        source_markdown TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         auto_match INTEGER NOT NULL DEFAULT 0,
         match_keywords_json TEXT NOT NULL DEFAULT '[]',
@@ -546,6 +550,66 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 18;
+  }
+
+  if (currentVersion === 18) {
+    const skillColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(skills)",
+    );
+
+    if (!skillColumns.some((column) => column.name === "source_markdown")) {
+      await db.execAsync(`
+        ALTER TABLE skills
+        ADD COLUMN source_markdown TEXT;
+      `);
+    }
+
+    const rows = await db.getAllAsync<{
+      auto_match: number;
+      description: string | null;
+      id: string;
+      instructions: string;
+      match_keywords_json: string;
+      recommended_built_in_tool_keys_json: string;
+      recommended_mcp_server_ids_json: string;
+      title: string;
+    }>(
+      `SELECT id, title, description, instructions, auto_match,
+              match_keywords_json, recommended_built_in_tool_keys_json,
+              recommended_mcp_server_ids_json
+       FROM skills`,
+    );
+
+    for (const row of rows) {
+      let sourceMarkdown: string | null = null;
+
+      try {
+        sourceMarkdown = serializeSkillToMarkdown({
+          autoMatch: row.auto_match === 1,
+          description: row.description,
+          instructions: row.instructions,
+          matchKeywords: JSON.parse(row.match_keywords_json),
+          recommendedBuiltInToolKeys: JSON.parse(
+            row.recommended_built_in_tool_keys_json,
+          ),
+          recommendedMcpServerIds: JSON.parse(
+            row.recommended_mcp_server_ids_json,
+          ),
+          title: row.title,
+        });
+      } catch {
+        sourceMarkdown = null;
+      }
+
+      if (sourceMarkdown) {
+        await db.runAsync(
+          `UPDATE skills SET source_markdown = ? WHERE id = ?`,
+          [sourceMarkdown, row.id],
+        );
+      }
+    }
+
+    currentVersion = 19;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

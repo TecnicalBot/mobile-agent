@@ -1,5 +1,12 @@
 import { useRouter } from "expo-router";
-import { ChevronLeft, Plus, Trash2 } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import {
+  ChevronLeft,
+  Copy,
+  FileDown,
+  Plus,
+  Trash2,
+} from "lucide-react-native";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
@@ -20,9 +27,14 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
+import { parseSkillMarkdown } from "@/modules/skills/skill-markdown";
 import { BUILT_IN_FILE_TOOL_CONTROLS } from "@/modules/config/built-in-tools";
 import { cn } from "@/core/utils";
-import type { BuiltInToolKey, SkillConfig } from "@/core/types/app-state";
+import type {
+  BuiltInToolKey,
+  SkillConfig,
+  SkillInjectionMode,
+} from "@/core/types/app-state";
 
 type Draft = {
   autoMatch: boolean;
@@ -87,13 +99,30 @@ function toggleToolGroup(values: BuiltInToolKey[], keys: BuiltInToolKey[]) {
 export default function SettingsSkillsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { createSkill, deleteSkill, mcpServers, skills, updateSkill } =
-    useConfig();
+  const {
+    createSkill,
+    deleteSkill,
+    exportSkillMarkdown,
+    importSkillMarkdown,
+    mcpServers,
+    setSkillInjectionMode,
+    skillInjectionMode,
+    skills,
+    updateSkill,
+  } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [editingSkill, setEditingSkill] = useState<SkillConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMarkdown, setImportMarkdown] = useState("");
+  const [importPreview, setImportPreview] = useState<
+    ReturnType<typeof parseSkillMarkdown> | null
+  >(null);
+  const [importPreviewError, setImportPreviewError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open) {
@@ -163,6 +192,50 @@ export default function SettingsSkillsScreen() {
     setOpen(false);
   };
 
+  const previewImport = async () => {
+    setImportPreviewError(null);
+
+    try {
+      setImportPreview(parseSkillMarkdown(importMarkdown));
+    } catch (previewError) {
+      setImportPreview(null);
+      setImportPreviewError(
+        previewError instanceof Error
+          ? previewError.message
+          : "Invalid skill markdown.",
+      );
+    }
+  };
+
+  const saveImport = async () => {
+    if (!importPreview) {
+      throw new Error("Preview the skill before importing.");
+    }
+
+    const existing = skills.find(
+      (skill) => skill.title.toLowerCase() === importPreview.title.toLowerCase(),
+    );
+
+    await importSkillMarkdown({
+      markdown: importMarkdown,
+      replaceById: existing?.id ?? null,
+    });
+
+    setImportOpen(false);
+    setImportMarkdown("");
+    setImportPreview(null);
+    setImportPreviewError(null);
+  };
+
+  const copySkillMarkdown = async (skillId: string) => {
+    const markdown = exportSkillMarkdown(skillId);
+    await Clipboard.setStringAsync(markdown);
+  };
+
+  const changeInjectionMode = async (mode: SkillInjectionMode) => {
+    await setSkillInjectionMode(mode);
+  };
+
   return (
     <Container
       scroll
@@ -187,6 +260,19 @@ export default function SettingsSkillsScreen() {
           </Text>
         </View>
         <Button
+          leftIcon={<FileDown color={theme.text} size={16} />}
+          onPress={() => {
+            setImportPreview(null);
+            setImportPreviewError(null);
+            setImportMarkdown("");
+            setImportOpen(true);
+          }}
+          size="sm"
+          variant="outline"
+        >
+          Import
+        </Button>
+        <Button
           leftIcon={<Plus color={theme.background} size={16} />}
           onPress={openCreate}
           size="sm"
@@ -194,6 +280,27 @@ export default function SettingsSkillsScreen() {
           Add
         </Button>
       </View>
+
+      <Card className="gap-sp-3 px-sp-4 py-sp-4">
+        <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+          Skill instructions
+        </Text>
+        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          Choose how skill instructions are injected into the agent prompt.
+        </Text>
+        <View className="flex-row gap-sp-2">
+          <ModePill
+            label="Lazy (loadSkill)"
+            onPress={() => changeInjectionMode("catalog")}
+            selected={skillInjectionMode === "catalog"}
+          />
+          <ModePill
+            label="Always inline"
+            onPress={() => changeInjectionMode("inline")}
+            selected={skillInjectionMode === "inline"}
+          />
+        </View>
+      </Card>
 
       {skills.length === 0 ? (
         <Card className="px-sp-4 py-sp-4">
@@ -213,6 +320,11 @@ export default function SettingsSkillsScreen() {
                   })
                 }
                 onEdit={() => openEdit(skill)}
+                onExport={() =>
+                  runAction(`export:${skill.id}`, () =>
+                    copySkillMarkdown(skill.id),
+                  )
+                }
                 onToggle={(enabled) =>
                   runAction(`toggle:${skill.id}`, async () => {
                     await updateSkill(skill.id, { enabled });
@@ -355,6 +467,83 @@ export default function SettingsSkillsScreen() {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      <Drawer onOpenChange={setImportOpen} open={importOpen}>
+        <DrawerContent showCloseButton>
+          <DrawerHeader>
+            <DrawerTitle>Import skill</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody>
+            <ScrollView className="gap-sp-3">
+              <Field label="Skill markdown">
+                <Textarea
+                  className="min-h-48 max-h-96 font-mono"
+                  onChangeText={(value) => {
+                    setImportMarkdown(value);
+                    setImportPreview(null);
+                    setImportPreviewError(null);
+                  }}
+                  placeholder="---\nname: code-review\ndescription: Review changes\n...\n\nInstructions go here."
+                  value={importMarkdown}
+                />
+              </Field>
+              {importPreviewError ? (
+                <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                  {importPreviewError}
+                </Text>
+              ) : null}
+              {importPreview ? (
+                <View className="gap-sp-2 rounded-ui border border-border bg-background px-sp-3 py-sp-3 dark:border-border-dark dark:bg-background-dark">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    {importPreview.title}
+                  </Text>
+                  {importPreview.description ? (
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {importPreview.description}
+                    </Text>
+                  ) : null}
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    {importPreview.matchKeywords.length > 0
+                      ? `Keywords: ${importPreview.matchKeywords.join(", ")}`
+                      : "No keywords"}
+                    {importPreview.autoMatch ? " · Auto-match" : ""}
+                  </Text>
+                  {skills.some(
+                    (skill) =>
+                      skill.title.toLowerCase() ===
+                      importPreview.title.toLowerCase(),
+                  ) ? (
+                    <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+                      A skill with this name already exists. Importing will
+                      replace it.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </ScrollView>
+          </DrawerBody>
+          <DrawerFooter>
+            <Button
+              loading={busyKey === "import-preview"}
+              onPress={() => {
+                runAction("import-preview", previewImport).catch(console.error);
+              }}
+              variant="outline"
+            >
+              Preview
+            </Button>
+            <Button
+              disabled={!importPreview}
+              loading={busyKey === "import-save"}
+              onPress={() => {
+                runAction("import-save", saveImport).catch(console.error);
+              }}
+            >
+              Import
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </Container>
   );
 }
@@ -374,12 +563,14 @@ function SkillRow({
   busyKey,
   onDelete,
   onEdit,
+  onExport,
   onToggle,
   skill,
 }: {
   busyKey: string | null;
   onDelete: () => void;
   onEdit: () => void;
+  onExport: () => void;
   onToggle: (enabled: boolean) => void;
   skill: SkillConfig;
 }) {
@@ -429,6 +620,15 @@ function SkillRow({
           variant="outline"
         >
           {skill.enabled ? "Disable" : "Enable"}
+        </Button>
+        <Button
+          leftIcon={<Copy color={theme.text} size={14} />}
+          loading={busyKey === `export:${skill.id}`}
+          onPress={onExport}
+          size="sm"
+          variant="ghost"
+        >
+          Copy
         </Button>
         <Button
           leftIcon={<Trash2 color={theme.destructive} size={14} />}
@@ -519,5 +719,41 @@ function StatusPill({ text }: { text: string }) {
         {text}
       </Text>
     </View>
+  );
+}
+
+function ModePill({
+  label,
+  onPress,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      className={cn(
+        "min-h-10 flex-1 items-center justify-center rounded-ui border px-sp-3 py-sp-2",
+        selected
+          ? "border-foreground bg-secondary dark:border-foreground-dark dark:bg-secondary-dark"
+          : "border-border bg-background dark:border-border-dark dark:bg-background-dark",
+      )}
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.84 } : null)}
+    >
+      <Text
+        className={cn(
+          "font-sans text-sm",
+          selected
+            ? "text-foreground dark:text-foreground-dark"
+            : "text-muted-foreground dark:text-muted-foreground-dark",
+        )}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }

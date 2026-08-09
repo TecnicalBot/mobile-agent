@@ -57,6 +57,7 @@ export const EMPTY_SETTINGS: AppSettings = {
   protectedApps: [],
   themeMode: "system",
   toolApprovalMode: "ask",
+  skillInjectionMode: "catalog",
   backgroundAgentEnabled: true,
   notificationSettings: {
     approvalRequests: true,

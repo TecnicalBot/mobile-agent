@@ -16,6 +16,7 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
         title: input.title,
         description: input.description ?? null,
         instructions: input.instructions,
+        sourceMarkdown: input.sourceMarkdown ?? null,
         enabled: input.enabled ?? true,
         autoMatch: input.autoMatch ?? false,
         matchKeywords: input.matchKeywords ?? [],
@@ -67,6 +68,10 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
             current.recommendedBuiltInToolKeys,
           recommendedMcpServerIds:
             input.recommendedMcpServerIds ?? current.recommendedMcpServerIds,
+          sourceMarkdown:
+            input.sourceMarkdown !== undefined
+              ? input.sourceMarkdown
+              : current.sourceMarkdown,
           title: input.title ?? current.title,
           updatedAt: nowIso(),
         })

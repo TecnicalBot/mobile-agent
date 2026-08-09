@@ -52,6 +52,10 @@ import {
 } from "@/modules/runtime/run-manager";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
+import {
+    parseSkillMarkdown,
+    serializeSkillToMarkdown,
+} from "@/modules/skills/skill-markdown";
 import type {
     AgentMode,
     AgentRun,
@@ -76,6 +80,7 @@ import type {
     SavedPrompt,
     SendMessageInput,
     SkillConfig,
+    SkillInjectionMode,
     StoredMessage,
     WorkspaceFile,
 } from "@/core/types/app-state";
@@ -186,6 +191,12 @@ type AppStateContextValue = {
         recommendedMcpServerIds?: string[];
         title: string;
     }) => Promise<SkillConfig>;
+    importSkillMarkdown: (input: {
+        markdown: string;
+        replaceById?: string | null;
+    }) => Promise<SkillConfig>;
+    exportSkillMarkdown: (skillId: string) => string;
+    setSkillInjectionMode: (mode: SkillInjectionMode) => Promise<void>;
     createSavedPrompt: (input: {
         content: string;
         title: string;
@@ -1515,6 +1526,65 @@ Your output must be:
         await hydrate();
     }
 
+    async function importSkillMarkdown(input: {
+        markdown: string;
+        replaceById?: string | null;
+    }) {
+        const parsed = parseSkillMarkdown(input.markdown);
+        let skill: SkillConfig;
+
+        if (input.replaceById) {
+            await repositoriesRef.current.skillRepository.update(input.replaceById, {
+                autoMatch: parsed.autoMatch,
+                description: parsed.description,
+                enabled: true,
+                instructions: parsed.instructions,
+                matchKeywords: parsed.matchKeywords,
+                recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
+                recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                title: parsed.title,
+            });
+            const replaced = await repositoriesRef.current.skillRepository.getById(
+                input.replaceById,
+            );
+
+            if (!replaced) {
+                throw new Error(`Skill not found: ${input.replaceById}`);
+            }
+
+            skill = replaced;
+        } else {
+            skill = await repositoriesRef.current.skillRepository.create({
+                autoMatch: parsed.autoMatch,
+                description: parsed.description,
+                enabled: true,
+                instructions: parsed.instructions,
+                matchKeywords: parsed.matchKeywords,
+                recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
+                recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                title: parsed.title,
+            });
+        }
+
+        await hydrate();
+        return skill;
+    }
+
+    function exportSkillMarkdown(skillId: string) {
+        const skill = snapshotRef.current.skills.find((item) => item.id === skillId);
+
+        if (!skill) {
+            throw new Error(`Skill not found: ${skillId}`);
+        }
+
+        return serializeSkillToMarkdown(skill);
+    }
+
+    async function setSkillInjectionMode(mode: SkillInjectionMode) {
+        await repositoriesRef.current.configRepository.setSkillInjectionMode(mode);
+        await hydrate();
+    }
+
     async function createSavedPrompt(input: {
         content: string;
         title: string;
@@ -2250,6 +2320,9 @@ Your output must be:
                 generateAndApplyConversationTitle,
                 notifyRunStateChange,
                 ui,
+                onSkillsChange: () => {
+                    hydrate().catch(() => {});
+                },
                 retryRun: (retryRunId, delayMs) => {
                     setTimeout(() => {
                         executeAgentRun(retryRunId).catch(() => {});
@@ -2988,6 +3061,9 @@ Your output must be:
                 hydrating,
                 importFiles,
                 inAppNotification,
+                importSkillMarkdown,
+                exportSkillMarkdown,
+                setSkillInjectionMode,
                 messages: snapshot.messages,
                 editAndResendMessage,
                 savedPrompts: snapshot.savedPrompts,
@@ -3086,6 +3162,9 @@ export function useConfig() {
         createModelPreset: context.createModelPreset,
         createSavedPrompt: context.createSavedPrompt,
         createSkill: context.createSkill,
+        importSkillMarkdown: context.importSkillMarkdown,
+        exportSkillMarkdown: context.exportSkillMarkdown,
+        setSkillInjectionMode: context.setSkillInjectionMode,
         createWorkspaceFile: context.createWorkspaceFile,
         deleteMcpServer: context.deleteMcpServer,
         deleteProvider: context.deleteProvider,
@@ -3117,6 +3196,7 @@ export function useConfig() {
         testMcpServer: context.testMcpServer,
         toolApprovalMode: context.settings.toolApprovalMode,
         themeMode: context.settings.themeMode,
+        skillInjectionMode: context.settings.skillInjectionMode,
         toolSettings: context.settings.builtInToolSettings,
         updateDatabaseSettings: context.updateDatabaseSettings,
         updateMcpServer: context.updateMcpServer,

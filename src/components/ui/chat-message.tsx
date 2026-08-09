@@ -95,9 +95,13 @@ import { Asset } from "expo-media-library";
 refractor.register(jsx);
 refractor.register(tsx);
 
-const MARKDOWN_PARSER = MarkdownIt({ linkify: true, typographer: true });
+const MARKDOWN_PARSER = MarkdownIt({
+  breaks: true,
+  linkify: true,
+  typographer: true,
+});
 
-const MARKDOWN_MAX_RENDER_LENGTH = 4000;
+const MARKDOWN_MAX_RENDER_LENGTH = 30_000;
 
 type MarkdownToken = {
   attrSet: (name: string, value: string) => void;

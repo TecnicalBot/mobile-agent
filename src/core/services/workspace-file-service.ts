@@ -225,6 +225,34 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
         sourceKind: "artifact",
       });
     },
+    async importBytesFile(input: {
+      bytes: Uint8Array;
+      mimeType?: string | null;
+      name: string;
+    }) {
+      const id = Crypto.randomUUID();
+      const displayName = sanitizeFileName(input.name);
+      const relativePath = buildRelativePath(id, displayName);
+
+      await ensureWorkspaceDirectory();
+
+      const file = resolveWorkspaceFile(relativePath);
+      file.create({
+        intermediates: true,
+        overwrite: true,
+      });
+      file.write(input.bytes);
+
+      return repository.create({
+        id,
+        displayName,
+        mimeType: input.mimeType ?? "application/octet-stream",
+        originalName: displayName,
+        relativePath,
+        size: file.size ?? input.bytes.byteLength,
+        sourceKind: "imported",
+      });
+    },
     async readTextFile(workspaceFile: WorkspaceFile) {
       if (!isTextWorkspaceFile(workspaceFile)) {
         throw new Error(`${workspaceFile.displayName} is not a readable text file.`);

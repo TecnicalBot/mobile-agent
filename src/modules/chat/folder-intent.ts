@@ -4,7 +4,7 @@ export type FolderIntentMatch = {
 };
 
 const FOLDER_TARGET_PATTERN =
-  /\b(?:go to|open|browse|list|show|put|save|write|create|generate|make)\b[\s\S]{0,120}\b(?:downloads?|documents?|folder)\b/i;
+  /\b(?:go to|open|browse|list|show|put|save|write|create|generate|make|move|copy|export|import|transfer|send)\b[\s\S]{0,120}\b(?:downloads?|documents?|folder)\b/i;
 const NAMED_FOLDER_PATTERN =
   /\b(?:my\s+)?([a-z0-9][a-z0-9 _-]{0,40})\s+folder\b/i;
 const COMMON_FOLDER_PATTERN = /\b(downloads?|documents?)\b/i;

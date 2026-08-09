@@ -38,6 +38,10 @@ import {
   createExternalFolderTools,
 } from "@/modules/tools/external-folder-tools";
 import {
+  buildTransferSystemPrompt,
+  createTransferTools,
+} from "@/modules/tools/built-in/external-folder/transfer";
+import {
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
@@ -98,9 +102,30 @@ const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "createFile",
   "deleteEntry",
   "editFile",
+  "exportWorkspaceFileToFolder",
+  "importFolderFileToWorkspace",
   "moveEntry",
   "renameEntry",
   "writeFile",
+]);
+
+const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
+  "createFile",
+  "editFile",
+  "listFiles",
+  "readFile",
+  "searchText",
+  "writeFile",
+]);
+
+const FOLDER_BOUND_TOOL_NAMES = new Set([
+  "createDirectory",
+  "deleteEntry",
+  "exportWorkspaceFileToFolder",
+  "importFolderFileToWorkspace",
+  "listDirectory",
+  "moveEntry",
+  "renameEntry",
 ]);
 
 function filterToolsToAgentMode(
@@ -505,8 +530,10 @@ export async function executeClaimedAgentRun(
     currentRunWorkspaceFiles.length > 0;
   const externalFolderSession: ExternalFolderSession | null =
     run.fileContextSource === "external-folder"
-      ? run.externalFolderSession
+      ? (run.externalFolderSession ?? conversation.externalFolderSession)
       : null;
+  const activeFolderSession: ExternalFolderSession | null =
+    conversation.externalFolderSession;
   const runMcpServers =
     conversation.selectedMcpServerIds === null
       ? snapshotRef.current.mcpServers
@@ -836,115 +863,99 @@ export async function executeClaimedAgentRun(
       );
     }
 
-    const builtInRuntimeTools: ToolSet | undefined =
-      runtimeSupportsTools && run.fileContextSource === "external-folder"
-        ? (() => {
+    const builtInRuntimeTools: ToolSet | undefined = runtimeSupportsTools
+      ? (() => {
+          const tools: Record<string, unknown> = {};
+          const toolSettings =
+            snapshotRef.current.settings.builtInToolSettings;
+
+          if (run.fileContextSource === "external-folder") {
             const folderTools = createExternalFolderTools({
               session: externalFolderSession as ExternalFolderSession,
               onRecord: handleToolExecutionRecord,
             }).tools;
 
-            const enabledTools = filterToolsBySettings(folderTools, [
-              [
-                "createDirectory",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderCreateDirectory,
-              ],
-              [
-                "createFile",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderCreateFile,
-              ],
-              [
-                "deleteEntry",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderDeleteEntry,
-              ],
-              [
-                "editFile",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderEditFile,
-              ],
-              [
-                "listDirectory",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderListDirectory,
-              ],
-              [
-                "moveEntry",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderMoveEntry,
-              ],
-              [
-                "readFile",
-                snapshotRef.current.settings.builtInToolSettings.folderReadFile,
-              ],
-              [
-                "renameEntry",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderRenameEntry,
-              ],
-              [
-                "searchText",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderSearchText,
-              ],
-              [
-                "writeFile",
-                snapshotRef.current.settings.builtInToolSettings
-                  .folderWriteFile,
-              ],
-            ]);
+            Object.assign(
+              tools,
+              filterToolsBySettings(folderTools, [
+                ["createDirectory", toolSettings.folderCreateDirectory],
+                ["createFile", toolSettings.folderCreateFile],
+                ["deleteEntry", toolSettings.folderDeleteEntry],
+                ["editFile", toolSettings.folderEditFile],
+                ["listDirectory", toolSettings.folderListDirectory],
+                ["moveEntry", toolSettings.folderMoveEntry],
+                ["readFile", toolSettings.folderReadFile],
+                ["renameEntry", toolSettings.folderRenameEntry],
+                ["searchText", toolSettings.folderSearchText],
+                ["writeFile", toolSettings.folderWriteFile],
+              ]),
+            );
 
-            return Object.keys(enabledTools).length > 0
-              ? (filterToolsToAgentMode(enabledTools, isPlanMode) as ToolSet)
-              : undefined;
-          })()
-        : runtimeSupportsTools
-          ? (() => {
-              const workspaceTools = createWorkspaceTools({
-                repository: repositories.workspaceRepository,
+            const workspaceDiscoveryTools = createWorkspaceTools({
+              repository: repositories.workspaceRepository,
+              onRecord: handleToolExecutionRecord,
+            }).tools;
+
+            Object.assign(
+              tools,
+              filterToolsBySettings(workspaceDiscoveryTools, [
+                ["listFiles", toolSettings.workspaceListFiles],
+              ]),
+            );
+          } else {
+            const workspaceTools = createWorkspaceTools({
+              repository: repositories.workspaceRepository,
+              onRecord: handleToolExecutionRecord,
+            }).tools;
+
+            Object.assign(
+              tools,
+              filterToolsBySettings(workspaceTools, [
+                ["createFile", toolSettings.workspaceCreateFile],
+                ["editFile", toolSettings.workspaceEditFile],
+                ["listFiles", toolSettings.workspaceListFiles],
+                ["readFile", toolSettings.workspaceReadFile],
+                ["searchText", toolSettings.workspaceSearchText],
+                ["writeFile", toolSettings.workspaceWriteFile],
+              ]),
+            );
+
+            if (activeFolderSession) {
+              const folderDiscoveryTools = createExternalFolderTools({
+                session: activeFolderSession,
                 onRecord: handleToolExecutionRecord,
               }).tools;
 
-              const enabledTools = filterToolsBySettings(workspaceTools, [
-                [
-                  "createFile",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceCreateFile,
-                ],
-                [
-                  "editFile",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceEditFile,
-                ],
-                [
-                  "listFiles",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceListFiles,
-                ],
-                [
-                  "readFile",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceReadFile,
-                ],
-                [
-                  "searchText",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceSearchText,
-                ],
-                [
-                  "writeFile",
-                  snapshotRef.current.settings.builtInToolSettings
-                    .workspaceWriteFile,
-                ],
-              ]);
+              Object.assign(
+                tools,
+                filterToolsBySettings(folderDiscoveryTools, [
+                  ["listDirectory", toolSettings.folderListDirectory],
+                ]),
+              );
+            }
+          }
 
-              return Object.keys(enabledTools).length > 0
-                ? (filterToolsToAgentMode(enabledTools, isPlanMode) as ToolSet)
-                : undefined;
-            })()
-          : undefined;
+          if (activeFolderSession) {
+            const transferEnabled =
+              toolSettings.folderReadFile && toolSettings.folderWriteFile;
+
+            if (transferEnabled) {
+              Object.assign(
+                tools,
+                createTransferTools({
+                  repository: repositories.workspaceRepository,
+                  session: activeFolderSession,
+                  onRecord: handleToolExecutionRecord,
+                }),
+              );
+            }
+          }
+
+          return Object.keys(tools).length > 0
+            ? (filterToolsToAgentMode(tools, isPlanMode) as ToolSet)
+            : undefined;
+        })()
+      : undefined;
     mcpRuntime =
       runtimeSupportsTools && !isPlanMode && runMcpServers.length > 0
          ? await createMcpRuntimeTools({
@@ -1028,8 +1039,8 @@ export async function executeClaimedAgentRun(
         : undefined;
     const autoApprovedToolNames = new Set([
       ...(run.fileContextSource === "external-folder"
-        ? []
-        : Object.keys(builtInRuntimeTools ?? {})),
+        ? ["listFiles"]
+        : [...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES]),
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
     ]);
@@ -1040,6 +1051,17 @@ export async function executeClaimedAgentRun(
 
             if (mcpDisplayName) {
               return `${mcpDisplayName}: ${summarizeToolInput(toolInput)}`;
+            }
+
+            if (
+              activeFolderSession &&
+              FOLDER_BOUND_TOOL_NAMES.has(toolName)
+            ) {
+              return buildExternalToolApprovalSummary(
+                activeFolderSession,
+                toolName,
+                toolInput,
+              );
             }
 
             if (run.fileContextSource === "external-folder") {
@@ -1078,6 +1100,12 @@ export async function executeClaimedAgentRun(
       builtInRuntimeTools &&
       ("createFile" in builtInRuntimeTools || "writeFile" in builtInRuntimeTools)
         ? buildWorkspaceSystemPrompt()
+        : undefined;
+    const transferRuntimeSystem =
+      builtInRuntimeTools &&
+      ("exportWorkspaceFileToFolder" in builtInRuntimeTools ||
+        "importFolderFileToWorkspace" in builtInRuntimeTools)
+        ? buildTransferSystemPrompt(activeFolderSession as ExternalFolderSession)
         : undefined;
     const deviceRuntimeSystem =
       Platform.OS === "android" && deviceRuntimeTools
@@ -1124,6 +1152,7 @@ export async function executeClaimedAgentRun(
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,
         workspaceRuntimeSystem,
+        transferRuntimeSystem,
         deviceRuntimeSystem,
         mcpRuntime?.systemPrompt,
         memoryRuntimeSystem,

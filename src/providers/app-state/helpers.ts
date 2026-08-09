@@ -270,6 +270,22 @@ export function buildExternalToolApprovalSummary(
       : `Move ${target}`;
   }
 
+  if (toolName === "exportWorkspaceFileToFolder") {
+    const destinationPath = normalizeApprovalPath(input.destinationPath);
+    const action = input.mode === "move" ? "Move" : "Copy";
+    const destination = destinationPath
+      ? `${session.displayName}/${destinationPath}`
+      : session.displayName;
+
+    return `${action} workspace file ${input.fileId ?? ""} to ${destination}`;
+  }
+
+  if (toolName === "importFolderFileToWorkspace") {
+    const action = input.mode === "move" ? "Move" : "Copy";
+
+    return `${action} ${target} into the workspace`;
+  }
+
   if (toolName === "deleteEntry") {
     return `Delete ${target}`;
   }

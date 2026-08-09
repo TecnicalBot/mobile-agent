@@ -288,6 +288,14 @@ export function createExternalFolderService() {
 
       return typeof maxChars === "number" ? text.slice(0, maxChars) : text;
     },
+    async readBytesFile(session: ExternalFolderSession, path: string) {
+      const file = resolveFile(session, path);
+
+      return {
+        bytes: await file.bytes(),
+        mimeType: file.type || null,
+      };
+    },
     async createTextFile(
       session: ExternalFolderSession,
       path: string,
@@ -346,6 +354,39 @@ export function createExternalFolderService() {
       }
 
       file.write(content, { append: mode === "append" });
+      await assertFileVisible(session, path);
+
+      return {
+        path: getRelativePath(path),
+        size: file.size,
+      };
+    },
+    async writeBytesFile(
+      session: ExternalFolderSession,
+      path: string,
+      bytes: Uint8Array,
+      mimeType?: string,
+    ) {
+      const parts = splitRelativePath(path);
+      const fileName = parts[parts.length - 1];
+      const parent = ensureParentDirectoryExists(session, path);
+      let file = findChildFile(parent, fileName);
+
+      if (!file) {
+        file = isAndroidSafSession(session)
+          ? new File(
+              await createSafEntry(
+                session.uri,
+                parent.uri,
+                fileName,
+                mimeType ?? inferMimeType(fileName),
+                false,
+              ),
+            )
+          : parent.createFile(fileName, mimeType ?? inferMimeType(fileName));
+      }
+
+      file.write(bytes);
       await assertFileVisible(session, path);
 
       return {

@@ -288,6 +288,21 @@ export function buildExternalToolApprovalSummary(
     return `${action} ${target} into the workspace`;
   }
 
+  if (toolName === "downloadFile") {
+    const destinationPath = normalizeApprovalPath(input.destinationPath);
+    const destination = destinationPath
+      ? `${session.displayName}/${destinationPath}`
+      : input.target === "folder"
+        ? session.displayName
+        : "the app workspace";
+    const source =
+      typeof input.url === "string" && input.url.trim()
+        ? input.url.trim()
+        : "file from URL";
+
+    return `Download ${source} to ${destination}`;
+  }
+
   if (toolName === "deleteEntry") {
     return `Delete ${target}`;
   }

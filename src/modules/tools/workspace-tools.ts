@@ -10,13 +10,18 @@ import { createReadFileTool } from "@/modules/tools/built-in/read-file";
 import { createSearchTextTool } from "@/modules/tools/built-in/search-text";
 import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
 import { createWriteFileTool } from "@/modules/tools/built-in/write-file";
+import type { ExternalFolderSession } from "@/core/types/app-state";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 
-export function createWorkspaceTools(params: WorkspaceToolFactoryParams) {
+export function createWorkspaceTools(
+  params: WorkspaceToolFactoryParams & {
+    session?: ExternalFolderSession | null;
+  },
+) {
   return {
     tools: {
       createFile: createCreateFileTool(params),
-      downloadFile: createDownloadFileTool(params),
+      downloadFile: createDownloadFileTool({ ...params, session: params.session }),
       editFile: createEditFileTool(params),
       listFiles: createListFilesTool(params),
       readFile: createReadFileTool(params),

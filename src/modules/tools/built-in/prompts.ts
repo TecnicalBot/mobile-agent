@@ -12,7 +12,7 @@ export function buildWorkspaceSystemPrompt() {
     "Do not create or modify workspace files merely to preserve a response, keep scratch notes, archive a conversation, or store context for your own future use.",
     "Internal runtime artifacts are stored separately, and durable user facts belong in memory rather than workspace files.",
     "If a file request is ambiguous, respond in chat and ask whether the user wants it saved as a file.",
-    "When the user asks to download a file from a URL, use the downloadFile tool to save it into the workspace.",
+    "When the user asks to download a file from a URL, use the downloadFile tool. Set target to \"folder\" only when the user wants the file saved in the granted external folder: omit destinationPath to save at the granted folder root, or set destinationPath to an existing subfolder. Otherwise downloadFile saves into the workspace. downloadFile never creates folders.",
   ].join("\n");
 }
 

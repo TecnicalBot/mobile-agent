@@ -1,4 +1,4 @@
-import { Directory, File } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import {
   createSafEntry,
@@ -9,6 +9,10 @@ import type {
   ExternalFolderPlatform,
   ExternalFolderSession,
 } from "@/core/types/app-state";
+import {
+  inferFileNameFromUrl,
+  sanitizeFileName,
+} from "@/core/services/workspace-file-service";
 
 export type ExternalFolderEntry = {
   path: string;
@@ -375,39 +379,61 @@ export function createExternalFolderService() {
       bytes: Uint8Array,
       mimeType?: string,
     ) {
-      const parts = splitRelativePath(path);
-      const fileName = parts[parts.length - 1];
-      const parentPath = parts.slice(0, -1).join("/");
-      const parent = ensureParentDirectoryExists(session, path);
-      let file = findChildFile(parent, fileName);
-      let actualName = fileName;
+      return writeBytesToFile(session, path, bytes, mimeType);
+    },
+    async downloadFile(
+      session: ExternalFolderSession,
+      input: {
+        folderPath?: string;
+        headers?: Record<string, string>;
+        name?: string;
+        onProgress?: (progress: {
+          bytesWritten: number;
+          totalBytes: number;
+        }) => void;
+        url: string;
+      },
+    ) {
+      const displayName = sanitizeFileName(
+        input.name?.trim() ||
+          inferFileNameFromUrl(input.url) ||
+          "downloaded-file",
+      );
+      const relativePath = input.folderPath
+        ? `${getRelativePath(input.folderPath)}/${displayName}`
+        : displayName;
+      const tempFile = new File(
+        Paths.cache,
+        `download-${Date.now()}-${displayName}`,
+      );
 
-      if (!file) {
-        if (isAndroidSafSession(session)) {
-          const created = await createSafEntry(
-            session.uri,
-            parent.uri,
-            fileName,
-            mimeTypeForFileName(fileName, mimeType),
-            false,
-          );
-          actualName = created.name;
-          file = new File(created.uri);
-        } else {
-          file = parent.createFile(
-            fileName,
-            mimeTypeForFileName(fileName, mimeType),
-          );
+      try {
+        await File.downloadFileAsync(input.url, tempFile, {
+          headers: input.headers,
+          idempotent: true,
+          onProgress: input.onProgress,
+        });
+
+        const mimeType = tempFile.type || inferMimeType(displayName);
+        const bytes = await tempFile.bytes();
+        const written = await writeBytesToFile(
+          session,
+          relativePath,
+          bytes,
+          mimeType,
+        );
+
+        return {
+          path: written.path,
+          name: displayName,
+          mimeType,
+          size: written.size,
+        };
+      } finally {
+        if (tempFile.exists) {
+          tempFile.delete();
         }
       }
-
-      file.write(bytes);
-      await assertFileVisible(session, getEntryPath(parentPath, actualName));
-
-      return {
-        path: getEntryPath(parentPath, actualName),
-        size: file.size,
-      };
     },
     async createDirectory(session: ExternalFolderSession, path: string) {
       const parts = splitRelativePath(path);
@@ -686,4 +712,45 @@ function mimeTypeForFileName(fileName: string, fallbackMimeType?: string) {
   }
 
   return inferred;
+}
+
+async function writeBytesToFile(
+  session: ExternalFolderSession,
+  path: string,
+  bytes: Uint8Array,
+  mimeType?: string,
+) {
+  const parts = splitRelativePath(path);
+  const fileName = parts[parts.length - 1];
+  const parentPath = parts.slice(0, -1).join("/");
+  const parent = ensureParentDirectoryExists(session, path);
+  let file = findChildFile(parent, fileName);
+  let actualName = fileName;
+
+  if (!file) {
+    if (isAndroidSafSession(session)) {
+      const created = await createSafEntry(
+        session.uri,
+        parent.uri,
+        fileName,
+        mimeTypeForFileName(fileName, mimeType),
+        false,
+      );
+      actualName = created.name;
+      file = new File(created.uri);
+    } else {
+      file = parent.createFile(
+        fileName,
+        mimeTypeForFileName(fileName, mimeType),
+      );
+    }
+  }
+
+  file.write(bytes);
+  await assertFileVisible(session, getEntryPath(parentPath, actualName));
+
+  return {
+    path: getEntryPath(parentPath, actualName),
+    size: file.size,
+  };
 }

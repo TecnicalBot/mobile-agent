@@ -41,7 +41,7 @@ const TEXT_EXTENSIONS = new Set([
   ".log",
 ]);
 
-function sanitizeFileName(name: string) {
+export function sanitizeFileName(name: string) {
   const trimmed = name.trim();
 
   if (!trimmed) {
@@ -108,7 +108,7 @@ export function isTextWorkspaceFile(file: Pick<WorkspaceFile, "displayName" | "m
   return false;
 }
 
-function inferFileNameFromUrl(url: string) {
+export function inferFileNameFromUrl(url: string) {
   const withoutQuery = url.split(/[?#]/)[0] ?? url;
   const lastSegment = withoutQuery.split("/").filter(Boolean).pop() ?? "";
 

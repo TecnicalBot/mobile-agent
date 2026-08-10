@@ -31,6 +31,7 @@ import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createAskQuestionTool } from "@/modules/tools/built-in/question";
+import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import { createUpdateTodosTool } from "@/modules/tools/built-in/todos";
@@ -124,6 +125,7 @@ const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
 const FOLDER_BOUND_TOOL_NAMES = new Set([
   "createDirectory",
   "deleteEntry",
+  "downloadFile",
   "exportWorkspaceFileToFolder",
   "importFolderFileToWorkspace",
   "listDirectory",
@@ -895,6 +897,21 @@ export async function executeClaimedAgentRun(
               ]),
             );
 
+            Object.assign(
+              tools,
+              filterToolsBySettings(
+                {
+                  downloadFile: createDownloadFileTool({
+                    repository: repositories.workspaceRepository,
+                    session: externalFolderSession as ExternalFolderSession,
+                    onProgress: () => markActivity(),
+                    onRecord: handleToolExecutionRecord,
+                  }),
+                },
+                [["downloadFile", toolSettings.downloadFile]],
+              ),
+            );
+
             const workspaceDiscoveryTools = createWorkspaceTools({
               repository: repositories.workspaceRepository,
               onRecord: handleToolExecutionRecord,
@@ -909,6 +926,7 @@ export async function executeClaimedAgentRun(
           } else {
             const workspaceTools = createWorkspaceTools({
               repository: repositories.workspaceRepository,
+              session: activeFolderSession,
               onRecord: handleToolExecutionRecord,
               onProgress: () => markActivity(),
             }).tools;

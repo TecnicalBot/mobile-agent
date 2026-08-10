@@ -28,7 +28,6 @@ export type ModelTransport =
 export type ToolApprovalMode = "ask" | "auto";
 export type AgentMode = "plan" | "build";
 export type ThemeMode = "system" | "light" | "dark";
-export type SkillInjectionMode = "catalog" | "inline";
 export type McpServerTransport = "http" | "sse";
 export type McpServerAuthMode = "none" | "headers" | "oauth";
 export type McpServerStatus = "untested" | "connected" | "failed";
@@ -381,7 +380,6 @@ export type AppSettings = {
   protectedApps: string[];
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
-  skillInjectionMode: SkillInjectionMode;
   backgroundAgentEnabled: boolean;
   notificationSettings: NotificationSettings;
 };

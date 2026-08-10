@@ -80,7 +80,6 @@ import type {
     SavedPrompt,
     SendMessageInput,
     SkillConfig,
-    SkillInjectionMode,
     StoredMessage,
     WorkspaceFile,
 } from "@/core/types/app-state";
@@ -196,7 +195,6 @@ type AppStateContextValue = {
         replaceById?: string | null;
     }) => Promise<SkillConfig>;
     exportSkillMarkdown: (skillId: string) => string;
-    setSkillInjectionMode: (mode: SkillInjectionMode) => Promise<void>;
     createSavedPrompt: (input: {
         content: string;
         title: string;
@@ -1578,11 +1576,6 @@ Your output must be:
         }
 
         return serializeSkillToMarkdown(skill);
-    }
-
-    async function setSkillInjectionMode(mode: SkillInjectionMode) {
-        await repositoriesRef.current.configRepository.setSkillInjectionMode(mode);
-        await hydrate();
     }
 
     async function createSavedPrompt(input: {
@@ -3063,7 +3056,6 @@ Your output must be:
                 inAppNotification,
                 importSkillMarkdown,
                 exportSkillMarkdown,
-                setSkillInjectionMode,
                 messages: snapshot.messages,
                 editAndResendMessage,
                 savedPrompts: snapshot.savedPrompts,
@@ -3164,7 +3156,6 @@ export function useConfig() {
         createSkill: context.createSkill,
         importSkillMarkdown: context.importSkillMarkdown,
         exportSkillMarkdown: context.exportSkillMarkdown,
-        setSkillInjectionMode: context.setSkillInjectionMode,
         createWorkspaceFile: context.createWorkspaceFile,
         deleteMcpServer: context.deleteMcpServer,
         deleteProvider: context.deleteProvider,
@@ -3196,7 +3187,6 @@ export function useConfig() {
         testMcpServer: context.testMcpServer,
         toolApprovalMode: context.settings.toolApprovalMode,
         themeMode: context.settings.themeMode,
-        skillInjectionMode: context.settings.skillInjectionMode,
         toolSettings: context.settings.builtInToolSettings,
         updateDatabaseSettings: context.updateDatabaseSettings,
         updateMcpServer: context.updateMcpServer,

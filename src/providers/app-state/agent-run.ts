@@ -527,10 +527,6 @@ export async function executeClaimedAgentRun(
     assistantMessage.metadata?.appliedSkillIds ??
     userMessage?.metadata?.appliedSkillIds ??
     [];
-  const appliedSkillIdSet = new Set(appliedSkillIds);
-  const appliedSkills = snapshotRef.current.skills.filter((skill) =>
-    appliedSkillIdSet.has(skill.id),
-  );
   const useInlineFileContext =
     run.fileContextSource === "workspace" &&
     currentRunWorkspaceFiles.length > 0;
@@ -1157,14 +1153,12 @@ export async function executeClaimedAgentRun(
     if (selectedFilesContext) {
       appendContextToLatestUserMessage(runtimeMessages, selectedFilesContext);
     }
-    const skillsForPrompt =
-      snapshotRef.current.settings.skillInjectionMode === "catalog"
-        ? snapshotRef.current.skills.filter((skill) => skill.enabled)
-        : appliedSkills;
+    const skillsForPrompt = snapshotRef.current.skills.filter(
+      (skill) => skill.enabled,
+    );
     const skillsRuntimeSystem = buildSkillsSystemPrompt({
       builtInToolSettings: snapshotRef.current.settings.builtInToolSettings,
       mcpServers: runMcpServers,
-      mode: snapshotRef.current.settings.skillInjectionMode,
       skills: skillsForPrompt,
     });
     const skillManagementRuntimeSystem =

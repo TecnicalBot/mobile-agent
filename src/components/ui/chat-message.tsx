@@ -1144,11 +1144,9 @@ export const ChatMessage = memo(function ChatMessage({
                             <Check color={theme.textSecondary} size={16} />
                           </View>
                           <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
-                            <MarkdownContent
-                              content={reasoningText}
-                              onLinkPress={handleLinkPress}
-                              styles={reasoningMarkdownStyles}
-                            />
+                            <Text selectable style={reasoningMarkdownStyles.body}>
+                              {reasoningText}
+                            </Text>
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                               {reasoningInProgress ? "Working" : "Done"}
                             </Text>

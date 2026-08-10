@@ -1,8 +1,6 @@
 import type { ModelMessage } from "ai";
 
-import {
-  BUILT_IN_FILE_TOOL_CONTROLS,
-} from "@/modules/config/built-in-tools";
+import { BUILT_IN_FILE_TOOL_CONTROLS } from "@/modules/config/built-in-tools";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import type {
   AgentRun,
@@ -20,7 +18,6 @@ import type {
   ReasoningBlock,
   ResolvedModel,
   SkillConfig,
-  SkillInjectionMode,
   StoredMessage,
   ToolExecutionRecord,
   WorkspaceFile,
@@ -377,7 +374,6 @@ export function resolveAppliedSkills(input: {
 export function buildSkillsSystemPrompt(input: {
   builtInToolSettings: BuiltInToolSettings;
   mcpServers: McpServerConfig[];
-  mode: SkillInjectionMode;
   skills: SkillConfig[];
 }) {
   if (input.skills.length === 0) {
@@ -414,25 +410,6 @@ export function buildSkillsSystemPrompt(input: {
         : null,
     ].filter(Boolean);
   };
-
-  if (input.mode === "inline") {
-    const sections = input.skills.map((skill) => {
-      const toolNotes = buildToolNotes(skill);
-
-      return [
-        `Skill: ${skill.title}`,
-        skill.description?.trim()
-          ? `Description: ${skill.description.trim()}`
-          : null,
-        `Instructions:\n${skill.instructions.trim()}`,
-        toolNotes.length > 0 ? `Tool notes: ${toolNotes.join(" ")}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    });
-
-    return ["Skills:", ...sections].join("\n\n");
-  }
 
   const catalog = input.skills.map((skill) => {
     const toolNotes = buildToolNotes(skill);

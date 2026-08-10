@@ -24,7 +24,6 @@ import type {
   ReasoningEffort,
   SavedPrompt,
   SkillConfig,
-  SkillInjectionMode,
   StoredMessage,
   ToolApprovalMode,
   ThemeMode,
@@ -289,7 +288,6 @@ export interface ConfigRepository {
   setMemoryEnabled(enabled: boolean): Promise<void>;
   setThemeMode(mode: ThemeMode): Promise<void>;
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
-  setSkillInjectionMode(mode: SkillInjectionMode): Promise<void>;
   setMaxToolSteps(maxToolSteps: number): Promise<void>;
   setBackgroundAgentEnabled(enabled: boolean): Promise<void>;
   setProtectedApps(packageNames: string[]): Promise<void>;

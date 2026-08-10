@@ -6,7 +6,6 @@ import { appSettings, schema } from "@/core/db/schema";
 import type {
   AppSettings,
   DatabaseMode,
-  SkillInjectionMode,
   ThemeMode,
   ToolApprovalMode,
 } from "@/core/types/app-state";
@@ -105,12 +104,8 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       ? (storedThemeMode as ThemeMode)
       : "system",
     toolApprovalMode:
-      (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ?? "ask",
-    skillInjectionMode: (
-      ["catalog", "inline"] as const
-    ).includes(settingsMap.get("skill_injection_mode") as SkillInjectionMode)
-      ? (settingsMap.get("skill_injection_mode") as SkillInjectionMode)
-      : "catalog",
+      (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ??
+      "ask",
     backgroundAgentEnabled:
       settingsMap.get("background_agent_enabled") !== "false",
     notificationSettings: parsedNotificationSettings ?? {

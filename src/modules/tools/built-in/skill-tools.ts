@@ -2,12 +2,17 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import type { SkillRepository } from "@/core/db/repositories/types";
-import type { BuiltInToolKey, ToolExecutionRecord } from "@/core/types/app-state";
+import type {
+  BuiltInToolKey,
+  ToolExecutionRecord,
+} from "@/core/types/app-state";
 import {
+  parseSkillMarkdown,
   serializeSkillToMarkdown,
   skillSlugMatches,
   slugifySkillName,
 } from "@/modules/skills/skill-markdown";
+import { fetchSkillMarkdownFromUrl } from "@/modules/skills/skill-github";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 
 const MAX_INSTRUCTIONS_LENGTH = 40_000;
@@ -36,9 +41,11 @@ function normalizeToolKeys(values: string[] | undefined): BuiltInToolKey[] {
   );
 }
 
-function formatSkillForCatalog(
-  skill: { autoMatch: boolean; description: string | null; title: string },
-) {
+function formatSkillForCatalog(skill: {
+  autoMatch: boolean;
+  description: string | null;
+  title: string;
+}) {
   return {
     description: skill.description?.trim() || null,
     matchDescription: skill.autoMatch,
@@ -58,7 +65,9 @@ export function createSkillTools(input: {
 
     return (
       skills.find((skill) => skillSlugMatches(skill, name)) ??
-      skills.find((skill) => skill.title.toLowerCase() === name.toLowerCase()) ??
+      skills.find(
+        (skill) => skill.title.toLowerCase() === name.toLowerCase(),
+      ) ??
       null
     );
   };
@@ -110,12 +119,79 @@ export function createSkillTools(input: {
           };
         },
       }),
+      importSkillFromUrl: tool({
+        description:
+          "Import a skill from a SKILL.md file at a URL. Use when the user gives you a link to a SKILL.md file, such as a github.com blob URL or a raw markdown URL, and asks you to add it as a skill. Downloads the file and installs it; if a skill with the same name already exists it is replaced.",
+        inputSchema: z.object({
+          url: z
+            .string()
+            .trim()
+            .min(1)
+            .max(2048)
+            .describe("URL to a SKILL.md file."),
+        }),
+        execute: async ({ url }) => {
+          const { content, displayName } = await fetchSkillMarkdownFromUrl(url);
+          const parsed = parseSkillMarkdown(content);
+          const title =
+            parsed.title ||
+            displayName.replace(/\.md$/i, "") ||
+            "Imported skill";
+          const existing = await findSkillBySlug(title);
+          const input = {
+            autoMatch: parsed.autoMatch,
+            description: parsed.description?.trim() || null,
+            instructions: parsed.instructions.trim(),
+            matchKeywords: parsed.matchKeywords,
+            recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
+            recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+            sourceMarkdown: content,
+            title,
+          };
+
+          let skill: Awaited<ReturnType<SkillRepository["getById"]>>;
+
+          if (existing) {
+            await repository.update(existing.id, input);
+            skill = await repository.getById(existing.id);
+          } else {
+            skill = await repository.create(input);
+          }
+
+          onSkillsChange?.();
+
+          onRecord?.(
+            createRecord({
+              toolName: "importSkillFromUrl",
+              status: "completed",
+              inputSummary: summarizeValue({ url }),
+              outputSummary: summarizeValue({
+                name: skill?.title,
+                replaced: Boolean(existing),
+              }),
+            }),
+          );
+
+          return {
+            imported: true,
+            replaced: Boolean(existing),
+            id: skill?.id ?? null,
+            name: skill?.title ?? title,
+            description: skill?.description ?? null,
+          };
+        },
+      }),
       manageSkill: tool({
         description:
           "Create, update, delete, or list skills. Skills follow the SKILL.md format: a name, a description that controls when the skill applies, and markdown instructions. Use createSkill when the user asks to add a skill; use updateSkill to modify an existing one; use deleteSkill to remove one; use listSkills to show available skills. Auto-match is enabled by default for created skills so they trigger when the description matches.",
         inputSchema: z
           .object({
-            action: z.enum(["createSkill", "updateSkill", "deleteSkill", "listSkills"]),
+            action: z.enum([
+              "createSkill",
+              "updateSkill",
+              "deleteSkill",
+              "listSkills",
+            ]),
             name: z
               .string()
               .trim()
@@ -136,7 +212,9 @@ export function createSkillTools(input: {
               .min(1)
               .max(MAX_INSTRUCTIONS_LENGTH)
               .optional()
-              .describe("The markdown instructions the agent follows when this skill applies."),
+              .describe(
+                "The markdown instructions the agent follows when this skill applies.",
+              ),
             keywords: z
               .array(z.string().trim().min(1).max(40))
               .max(MAX_KEYWORDS)
@@ -145,10 +223,14 @@ export function createSkillTools(input: {
             autoMatch: z
               .boolean()
               .optional()
-              .describe("Whether to auto-apply this skill when the description or keywords match the user's request. Defaults to true."),
+              .describe(
+                "Whether to auto-apply this skill when the description or keywords match the user's request. Defaults to true.",
+              ),
             recommendedBuiltInToolKeys: builtInToolKeysSchema
               .optional()
-              .describe("Built-in tool keys this skill commonly needs, e.g. workspaceReadFile, workspaceWriteFile, workspaceEditFile, workspaceCreateFile, workspaceListFiles, workspaceSearchText, folderReadFile, folderWriteFile."),
+              .describe(
+                "Built-in tool keys this skill commonly needs, e.g. workspaceReadFile, workspaceWriteFile, workspaceEditFile, workspaceCreateFile, workspaceListFiles, workspaceSearchText, folderReadFile, folderWriteFile.",
+              ),
           })
           .refine(
             (value) => value.action === "listSkills" || Boolean(value.name),
@@ -156,8 +238,7 @@ export function createSkillTools(input: {
           )
           .refine(
             (value) =>
-              value.action !== "createSkill" ||
-              Boolean(value.instructions),
+              value.action !== "createSkill" || Boolean(value.instructions),
             { message: "instructions are required when creating a skill." },
           ),
         execute: async (args) => {
@@ -215,7 +296,8 @@ export function createSkillTools(input: {
             };
           }
 
-          const name = slugifySkillName(args.name as string) || (args.name as string);
+          const name =
+            slugifySkillName(args.name as string) || (args.name as string);
 
           if (args.action === "createSkill") {
             const existing = await findSkillBySlug(name);

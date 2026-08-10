@@ -47,6 +47,7 @@ import {
 } from "react-native-keyboard-controller";
 
 import { Container } from "@/components/shared/container";
+import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
 import {
   Attachment,
   AttachmentAction,
@@ -99,7 +100,6 @@ import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
-import { parseSkillMarkdown } from "@/modules/skills/skill-markdown";
 
 const REASONING_EFFORT_OPTIONS: {
   value: ReasoningEffort;
@@ -231,7 +231,6 @@ export default function Screen() {
     currentModelSupportsImageInput,
     currentModelSupportsTools,
     currentSelectedMcpServerIds,
-    importSkillMarkdown,
     mcpServers,
     selectModel,
     setCurrentSelectedMcpServerIds,
@@ -298,14 +297,11 @@ export default function Screen() {
     setEditingMessageId(null);
   }, [currentConversation?.id]);
 
-  const handleEditMessage = useCallback(
-    (content: string) => {
-      setEditDraft(content);
-      setEditNonce((current) => current + 1);
-      setEditingMessageId(latestUserMessageIdRef.current);
-    },
-    [],
-  );
+  const handleEditMessage = useCallback((content: string) => {
+    setEditDraft(content);
+    setEditNonce((current) => current + 1);
+    setEditingMessageId(latestUserMessageIdRef.current);
+  }, []);
   const handleSavePrompt = useCallback(
     (content: string) => {
       router.push({
@@ -332,9 +328,9 @@ export default function Screen() {
           candidate.sequence > message.sequence &&
           Boolean(
             candidate.metadata?.toolExecutions?.length ||
-              candidate.metadata?.memoryEvents?.length ||
-              candidate.metadata?.promptArtifacts?.length ||
-              candidate.metadata?.generatedImages?.length,
+            candidate.metadata?.memoryEvents?.length ||
+            candidate.metadata?.promptArtifacts?.length ||
+            candidate.metadata?.generatedImages?.length,
           ),
       );
       const performEdit = async () => {
@@ -346,7 +342,9 @@ export default function Screen() {
         } catch (error) {
           Alert.alert(
             "Edit failed",
-            error instanceof Error ? error.message : "Failed to resend message.",
+            error instanceof Error
+              ? error.message
+              : "Failed to resend message.",
           );
         }
       };
@@ -555,9 +553,8 @@ export default function Screen() {
               setSelectedFileIds={setCurrentSelectedFileIds}
               selectedSkillIds={currentSelectedSkillIds}
               setSelectedSkillIds={setCurrentSelectedSkillIds}
-               skills={skills}
-               importSkillMarkdown={importSkillMarkdown}
-               supportsImageGeneration={currentModelSupportsImageGeneration}
+              skills={skills}
+              supportsImageGeneration={currentModelSupportsImageGeneration}
               supportsImageInput={currentModelSupportsImageInput}
               supportsTools={currentModelSupportsTools}
               mcpServers={mcpServers}
@@ -864,7 +861,6 @@ const ChatInput = memo(function ChatInput({
   setSelectedFileIds,
   setSelectedSkillIds,
   skills,
-  importSkillMarkdown,
   supportsImageGeneration,
   supportsImageInput,
   supportsTools,
@@ -931,10 +927,6 @@ const ChatInput = memo(function ChatInput({
   workspaceFiles: WorkspaceFile[];
   agentMode: AgentMode;
   setAgentMode: (mode: AgentMode) => Promise<void>;
-  importSkillMarkdown: (input: {
-    markdown: string;
-    replaceById?: string | null;
-  }) => Promise<SkillConfig>;
 }) {
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
@@ -949,14 +941,6 @@ const ChatInput = memo(function ChatInput({
   const [agentModeDrawerOpen, setAgentModeDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
-  const [skillImportMarkdown, setSkillImportMarkdown] = useState("");
-  const [skillImportPreview, setSkillImportPreview] = useState<null | {
-    autoMatch: boolean;
-    description: string | null;
-    matchKeywords: string[];
-    title: string;
-  }>(null);
-  const [skillImportError, setSkillImportError] = useState<string | null>(null);
   const [mcpServersDrawerOpen, setMcpServersDrawerOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<
     null | "clear" | "import" | "folder" | "paste"
@@ -1069,45 +1053,6 @@ const ChatInput = memo(function ChatInput({
   const selectedSkills = enabledSkills.filter((skill) =>
     selectedSkillIds.includes(skill.id),
   );
-  const previewSkillImport = () => {
-    setSkillImportError(null);
-
-    try {
-      const parsed = parseSkillMarkdown(skillImportMarkdown);
-      setSkillImportPreview({
-        autoMatch: parsed.autoMatch,
-        description: parsed.description,
-        matchKeywords: parsed.matchKeywords,
-        title: parsed.title,
-      });
-    } catch (previewError) {
-      setSkillImportPreview(null);
-      setSkillImportError(
-        previewError instanceof Error
-          ? previewError.message
-          : "Invalid skill markdown.",
-      );
-    }
-  };
-  const saveSkillImport = async () => {
-    if (!skillImportPreview) {
-      throw new Error("Preview the skill before importing.");
-    }
-
-    const existing = skills.find(
-      (skill) => skill.title.toLowerCase() === skillImportPreview.title.toLowerCase(),
-    );
-
-    await importSkillMarkdown({
-      markdown: skillImportMarkdown,
-      replaceById: existing?.id ?? null,
-    });
-
-    setSkillImportOpen(false);
-    setSkillImportMarkdown("");
-    setSkillImportPreview(null);
-    setSkillImportError(null);
-  };
   const enabledMcpServers = mcpServers.filter((server) => server.enabled);
   const activeMcpServerIds = new Set(
     selectedMcpServerIds === null
@@ -1851,11 +1796,7 @@ const ChatInput = memo(function ChatInput({
       </View>
 
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
-        <DrawerContent
-          showCloseButton
-          showHandle
-          size={filesDrawerSize}
-        >
+        <DrawerContent showCloseButton showHandle size={filesDrawerSize}>
           <DrawerHeader>
             <DrawerTitle>Select file</DrawerTitle>
             <DrawerDescription>
@@ -2137,9 +2078,6 @@ const ChatInput = memo(function ChatInput({
             <Button
               onPress={() => {
                 setSkillsDrawerOpen(false);
-                setSkillImportMarkdown("");
-                setSkillImportPreview(null);
-                setSkillImportError(null);
                 setSkillImportOpen(true);
               }}
               variant="outline"
@@ -2159,76 +2097,10 @@ const ChatInput = memo(function ChatInput({
         </DrawerContent>
       </Drawer>
 
-      <Drawer onOpenChange={setSkillImportOpen} open={skillImportOpen}>
-        <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>Import skill</DrawerTitle>
-            <DrawerDescription>
-              Paste skill markdown (SKILL.md format).
-            </DrawerDescription>
-          </DrawerHeader>
-          <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
-            <Textarea
-              className="min-h-48 max-h-96 font-mono"
-              onChangeText={(value) => {
-                setSkillImportMarkdown(value);
-                setSkillImportPreview(null);
-                setSkillImportError(null);
-              }}
-              placeholder="---\nname: code-review\ndescription: Review changes\n...\n\nInstructions go here."
-              value={skillImportMarkdown}
-            />
-            {skillImportError ? (
-              <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-                {skillImportError}
-              </Text>
-            ) : null}
-            {skillImportPreview ? (
-              <View className="gap-sp-2 rounded-ui border border-border bg-background px-sp-3 py-sp-3 dark:border-border-dark dark:bg-background-dark">
-                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                  {skillImportPreview.title}
-                </Text>
-                {skillImportPreview.description ? (
-                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                    {skillImportPreview.description}
-                  </Text>
-                ) : null}
-                {skillImportPreview.matchKeywords.length > 0 ? (
-                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                    Keywords: {skillImportPreview.matchKeywords.join(", ")}
-                  </Text>
-                ) : null}
-                {skills.some(
-                  (skill) =>
-                    skill.title.toLowerCase() ===
-                    skillImportPreview.title.toLowerCase(),
-                ) ? (
-                  <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-                    A skill with this name already exists. Importing will
-                    replace it.
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </DrawerBody>
-          <DrawerFooter>
-            <Button
-              onPress={previewSkillImport}
-              variant="outline"
-            >
-              Preview
-            </Button>
-            <Button
-              disabled={!skillImportPreview}
-              onPress={() => {
-                saveSkillImport().catch(console.error);
-              }}
-            >
-              Import
-            </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <SkillImportDrawer
+        onOpenChange={setSkillImportOpen}
+        open={skillImportOpen}
+      />
 
       <Drawer
         onOpenChange={setMcpServersDrawerOpen}

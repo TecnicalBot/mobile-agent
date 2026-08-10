@@ -58,6 +58,7 @@ export const EMPTY_SETTINGS: AppSettings = {
   themeMode: "system",
   toolApprovalMode: "ask",
   backgroundAgentEnabled: true,
+  batteryPromptShown: false,
   notificationSettings: {
     approvalRequests: true,
     runFinished: true,

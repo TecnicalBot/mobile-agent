@@ -195,6 +195,12 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
         enabled ? "true" : "false",
       );
     },
+    async setBatteryPromptShown(enabled) {
+      await this.setSetting(
+        "battery_prompt_shown",
+        enabled ? "true" : "false",
+      );
+    },
     async setProtectedApps(packageNames) {
       const normalized = Array.from(new Set(packageNames)).filter(
         (name) => typeof name === "string" && name.length > 0,

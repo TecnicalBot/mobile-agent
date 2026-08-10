@@ -108,6 +108,8 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       "ask",
     backgroundAgentEnabled:
       settingsMap.get("background_agent_enabled") !== "false",
+    batteryPromptShown:
+      settingsMap.get("battery_prompt_shown") === "true",
     notificationSettings: parsedNotificationSettings ?? {
       approvalRequests: true,
       runFinished: true,

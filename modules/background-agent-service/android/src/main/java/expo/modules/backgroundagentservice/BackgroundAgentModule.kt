@@ -51,11 +51,16 @@ class BackgroundAgentModule : Module() {
       BackgroundAgentService.isActive
     }
 
+    AsyncFunction("isIgnoringBatteryOptimizations") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+      powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
     AsyncFunction("requestBatteryOptimizationExemption") {
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
       val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-      if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
-        try {
+      if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {        try {
           val intent = Intent(
             Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
             android.net.Uri.parse("package:${context.packageName}"),

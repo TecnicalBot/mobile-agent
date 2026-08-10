@@ -5,6 +5,7 @@ type BackgroundAgentModule = {
   start(): Promise<void>
   stop(): Promise<void>
   isHeld(): Promise<boolean>
+  isIgnoringBatteryOptimizations(): Promise<boolean>
   requestBatteryOptimizationExemption(): Promise<void>
   requestNotificationPermission(): Promise<void>
   hasNotificationPermission(): Promise<boolean>
@@ -19,7 +20,6 @@ export async function startBackgroundAgent(): Promise<void> {
   if (Platform.OS !== 'android') return
   if (!BackgroundAgent) { console.error('[BackgroundAgent] module is null!'); return }
   try {
-    await BackgroundAgent.requestBatteryOptimizationExemption()
     await BackgroundAgent.start()
   } catch (e) {
     console.error('[BackgroundAgent] start() failed:', e)
@@ -52,6 +52,18 @@ export async function requestBatteryOptimizationExemption(): Promise<void> {
   if (Platform.OS === 'android' && BackgroundAgent) {
     await BackgroundAgent.requestBatteryOptimizationExemption()
   }
+}
+
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  if (Platform.OS === 'android' && BackgroundAgent) {
+    try {
+      return (await BackgroundAgent.isIgnoringBatteryOptimizations()) as boolean
+    } catch (e) {
+      console.error('[BackgroundAgent] isIgnoringBatteryOptimizations() failed:', e)
+      return false
+    }
+  }
+  return true
 }
 
 export function requestNotificationPermission(): void {

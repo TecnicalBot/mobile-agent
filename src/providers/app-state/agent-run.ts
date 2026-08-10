@@ -44,6 +44,8 @@ import {
   createTransferTools,
 } from "@/modules/tools/built-in/external-folder/transfer";
 import {
+  isIgnoringBatteryOptimizations,
+  requestBatteryOptimizationExemption,
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
@@ -235,6 +237,37 @@ function getRetryDelayMs(
   const exponential = baseDelay * Math.pow(2, attempt);
   const jitter = Math.random() * 1000;
   return Math.min(exponential + jitter, 30000);
+}
+
+async function requestBatteryOptimizationExemptionIfNeeded(deps: AgentRunDeps) {
+  if (Platform.OS !== "android") {
+    return;
+  }
+
+  if (deps.snapshotRef.current.settings.batteryPromptShown) {
+    return;
+  }
+
+  try {
+    if (await isIgnoringBatteryOptimizations()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  deps.ui.publishSnapshot((current) => ({
+    ...current,
+    settings: {
+      ...current.settings,
+      batteryPromptShown: true,
+    },
+  }));
+  deps.repositories.configRepository
+    .setBatteryPromptShown(true)
+    .catch(() => {});
+
+  requestBatteryOptimizationExemption().catch(() => {});
 }
 
 export async function executeClaimedAgentRun(
@@ -850,6 +883,7 @@ export async function executeClaimedAgentRun(
   try {
     if (snapshotRef.current.settings.backgroundAgentEnabled) {
       startBackgroundAgent();
+      void requestBatteryOptimizationExemptionIfNeeded(deps);
     }
 
     if (isPlanMode) {

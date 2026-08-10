@@ -19,13 +19,17 @@ class SafFileOperationsModule : Module() {
         mimeType: String?,
         isDirectory: Boolean ->
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
-      SafFileOperations(context).createEntry(
+      val created = SafFileOperations(context).createEntry(
         Uri.parse(rootUri),
         Uri.parse(parentUri),
         name,
         mimeType,
         isDirectory,
-      ).toString()
+      )
+      mapOf(
+        "uri" to created.uri.toString(),
+        "name" to created.name,
+      )
     }
 
     AsyncFunction("relocateEntry") {
@@ -35,13 +39,17 @@ class SafFileOperationsModule : Module() {
         destinationParentUri: String,
         destinationName: String ->
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
-      SafFileOperations(context).relocateEntry(
+      val relocated = SafFileOperations(context).relocateEntry(
         Uri.parse(rootUri),
         Uri.parse(sourceUri),
         Uri.parse(sourceParentUri),
         Uri.parse(destinationParentUri),
         destinationName,
-      ).toString()
+      )
+      mapOf(
+        "uri" to relocated.uri.toString(),
+        "name" to relocated.name,
+      )
     }
   }
 }
@@ -55,7 +63,7 @@ private class SafFileOperations(private val context: Context) {
     name: String,
     mimeType: String?,
     isDirectory: Boolean,
-  ): Uri {
+  ): DocumentInfo {
     validateName(name)
     requireWithinRoot(rootUri, parentUri, "Destination folder")
     requireDirectory(parentUri, "Destination folder")
@@ -68,7 +76,7 @@ private class SafFileOperations(private val context: Context) {
     sourceParentUri: Uri,
     destinationParentUri: Uri,
     destinationName: String,
-  ): Uri {
+  ): DocumentInfo {
     validateName(destinationName)
     requireWithinRoot(rootUri, sourceUri, "Source")
     requireWithinRoot(rootUri, sourceParentUri, "Source folder")
@@ -88,16 +96,17 @@ private class SafFileOperations(private val context: Context) {
 
     val sameParent = sameDocument(sourceParentUri, destinationParentUri)
     val collision = listChildren(destinationParentUri).firstOrNull {
-      it.name == destinationName && !sameDocument(it.uri, source.uri)
+      it.name.equals(destinationName, ignoreCase = true) &&
+        !sameDocument(it.uri, source.uri)
     }
     if (collision != null) {
       throw IllegalStateException(
-        "A file or folder named \"$destinationName\" already exists in the destination folder.",
+        "A file or folder named \"${collision.name}\" already exists in the destination folder.",
       )
     }
 
     if (sameParent && source.name == destinationName) {
-      return source.uri
+      return source
     }
 
     if (sameParent) {
@@ -109,31 +118,22 @@ private class SafFileOperations(private val context: Context) {
     return copyThenDelete(source, destinationParentUri, destinationName)
   }
 
-  private fun tryRename(source: DocumentInfo, destinationName: String): Uri? {
+  private fun tryRename(source: DocumentInfo, destinationName: String): DocumentInfo? {
     val renamed = try {
       DocumentsContract.renameDocument(resolver, source.uri, destinationName)
     } catch (_: Exception) {
       null
     } ?: return null
 
-    val renamedInfo = queryDocument(renamed)
-    if (renamedInfo?.name == destinationName) {
-      return renamed
-    }
-
-    try {
-      DocumentsContract.renameDocument(resolver, renamed, source.name)
-    } catch (_: Exception) {}
-    throw IllegalStateException(
-      "The storage provider did not use the requested name \"$destinationName\".",
-    )
+    return waitForDocument(renamed)
+      ?: DocumentInfo(renamed, destinationName, source.mimeType)
   }
 
   private fun tryMove(
     source: DocumentInfo,
     sourceParentUri: Uri,
     destinationParentUri: Uri,
-  ): Uri? {
+  ): DocumentInfo? {
     val moved = try {
       DocumentsContract.moveDocument(
         resolver,
@@ -145,27 +145,15 @@ private class SafFileOperations(private val context: Context) {
       null
     } ?: return null
 
-    val movedInfo = queryDocument(moved)
-    if (movedInfo?.name == source.name) {
-      return moved
-    }
-
-    try {
-      DocumentsContract.moveDocument(
-        resolver,
-        moved,
-        asDocumentUri(destinationParentUri),
-        asDocumentUri(sourceParentUri),
-      )
-    } catch (_: Exception) {}
-    throw IllegalStateException("The storage provider changed the entry name while moving it.")
+    return waitForDocument(moved)
+      ?: DocumentInfo(moved, source.name, source.mimeType)
   }
 
   private fun copyThenDelete(
     source: DocumentInfo,
     destinationParentUri: Uri,
     destinationName: String,
-  ): Uri {
+  ): DocumentInfo {
     val destination = copyEntry(source, destinationParentUri, destinationName)
 
     try {
@@ -176,7 +164,7 @@ private class SafFileOperations(private val context: Context) {
       if (!documentExists(source.uri)) {
         return destination
       }
-      deleteQuietly(destination)
+      deleteQuietly(destination.uri)
       throw IllegalStateException(
         "The destination was copied, but the source could not be deleted. The copy was removed and the source was kept.",
         error,
@@ -187,7 +175,7 @@ private class SafFileOperations(private val context: Context) {
       return destination
     }
 
-    deleteQuietly(destination)
+    deleteQuietly(destination.uri)
     throw IllegalStateException(
       "The destination was copied, but the source could not be deleted. The copy was removed and the source was kept.",
     )
@@ -197,7 +185,7 @@ private class SafFileOperations(private val context: Context) {
     source: DocumentInfo,
     destinationParentUri: Uri,
     destinationName: String,
-  ): Uri {
+  ): DocumentInfo {
     val destination = createExact(
       destinationParentUri,
       destinationName,
@@ -208,11 +196,11 @@ private class SafFileOperations(private val context: Context) {
     try {
       if (source.isDirectory) {
         listChildren(source.uri).forEach { child ->
-          copyEntry(child, destination, child.name)
+          copyEntry(child, destination.uri, child.name)
         }
       } else {
         resolver.openInputStream(source.uri)?.use { sourceStream ->
-          resolver.openOutputStream(destination, "wt")?.use { destinationStream ->
+          resolver.openOutputStream(destination.uri, "wt")?.use { destinationStream ->
             sourceStream.copyTo(destinationStream)
           } ?: throw IllegalStateException(
             "The destination file could not be opened for writing.",
@@ -223,7 +211,7 @@ private class SafFileOperations(private val context: Context) {
       }
       return destination
     } catch (error: Exception) {
-      deleteQuietly(destination)
+      deleteQuietly(destination.uri)
       throw error
     }
   }
@@ -249,10 +237,13 @@ private class SafFileOperations(private val context: Context) {
     name: String,
     mimeType: String?,
     isDirectory: Boolean,
-  ): Uri {
-    if (listChildren(parentUri).any { it.name == name }) {
+  ): DocumentInfo {
+    val existing = listChildren(parentUri).firstOrNull {
+      it.name.equals(name, ignoreCase = true)
+    }
+    if (existing != null) {
       throw IllegalStateException(
-        "A file or folder named \"$name\" already exists in the destination folder.",
+        "A file or folder named \"${existing.name}\" already exists in the destination folder.",
       )
     }
 
@@ -264,15 +255,30 @@ private class SafFileOperations(private val context: Context) {
       name,
     ) ?: throw IllegalStateException("The storage provider could not create \"$name\".")
 
-    val createdInfo = queryDocument(created)
-    if (createdInfo?.name == name) {
-      return created
+    val createdInfo = waitForDocument(created)
+
+    if (createdInfo != null && createdInfo.name != name) {
+      tryRename(createdInfo, name)?.let { return it }
+      return createdInfo
     }
 
-    deleteQuietly(created)
-    throw IllegalStateException(
-      "The storage provider did not use the requested name \"$name\".",
-    )
+    return createdInfo
+      ?: DocumentInfo(
+        created,
+        name,
+        if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR
+        else mimeType ?: "application/octet-stream",
+      )
+  }
+
+  private fun waitForDocument(uri: Uri, attempts: Int = 5, delayMs: Long = 150): DocumentInfo? {
+    for (attempt in 0 until attempts) {
+      queryDocument(uri)?.let { return it }
+      if (attempt < attempts - 1) {
+        Thread.sleep(delayMs)
+      }
+    }
+    return null
   }
 
   private fun requireDirectory(uri: Uri, label: String) {

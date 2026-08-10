@@ -1,6 +1,11 @@
 import { requireOptionalNativeModule } from "expo";
 import { Platform } from "react-native";
 
+export type SafCreatedEntry = {
+  uri: string;
+  name: string;
+};
+
 type SafFileOperationsNativeModule = {
   createEntry(
     rootUri: string,
@@ -8,14 +13,14 @@ type SafFileOperationsNativeModule = {
     name: string,
     mimeType: string | null,
     isDirectory: boolean,
-  ): Promise<string>;
+  ): Promise<SafCreatedEntry>;
   relocateEntry(
     rootUri: string,
     sourceUri: string,
     sourceParentUri: string,
     destinationParentUri: string,
     destinationName: string,
-  ): Promise<string>;
+  ): Promise<SafCreatedEntry>;
 };
 
 const SafFileOperations =

@@ -303,28 +303,32 @@ export function createExternalFolderService() {
     ) {
       const parts = splitRelativePath(path);
       const fileName = parts[parts.length - 1];
+      const parentPath = parts.slice(0, -1).join("/");
       const parent = ensureParentDirectoryExists(session, path);
       let file = findChildFile(parent, fileName);
+      let actualName = fileName;
 
       if (!file) {
-        file = isAndroidSafSession(session)
-          ? new File(
-              await createSafEntry(
-                session.uri,
-                parent.uri,
-                fileName,
-                inferMimeType(fileName),
-                false,
-              ),
-            )
-          : parent.createFile(fileName, inferMimeType(fileName));
+        if (isAndroidSafSession(session)) {
+          const created = await createSafEntry(
+            session.uri,
+            parent.uri,
+            fileName,
+            inferMimeType(fileName),
+            false,
+          );
+          actualName = created.name;
+          file = new File(created.uri);
+        } else {
+          file = parent.createFile(fileName, inferMimeType(fileName));
+        }
       }
 
       file.write(content);
-      await assertFileVisible(session, path);
+      await assertFileVisible(session, getEntryPath(parentPath, actualName));
 
       return {
-        path: getRelativePath(path),
+        path: getEntryPath(parentPath, actualName),
         size: file.size,
       };
     },
@@ -336,28 +340,32 @@ export function createExternalFolderService() {
     ) {
       const parts = splitRelativePath(path);
       const fileName = parts[parts.length - 1];
+      const parentPath = parts.slice(0, -1).join("/");
       const parent = ensureParentDirectoryExists(session, path);
       let file = findChildFile(parent, fileName);
+      let actualName = fileName;
 
       if (!file) {
-        file = isAndroidSafSession(session)
-          ? new File(
-              await createSafEntry(
-                session.uri,
-                parent.uri,
-                fileName,
-                inferMimeType(fileName),
-                false,
-              ),
-            )
-          : parent.createFile(fileName, inferMimeType(fileName));
+        if (isAndroidSafSession(session)) {
+          const created = await createSafEntry(
+            session.uri,
+            parent.uri,
+            fileName,
+            inferMimeType(fileName),
+            false,
+          );
+          actualName = created.name;
+          file = new File(created.uri);
+        } else {
+          file = parent.createFile(fileName, inferMimeType(fileName));
+        }
       }
 
       file.write(content, { append: mode === "append" });
-      await assertFileVisible(session, path);
+      await assertFileVisible(session, getEntryPath(parentPath, actualName));
 
       return {
-        path: getRelativePath(path),
+        path: getEntryPath(parentPath, actualName),
         size: file.size,
       };
     },
@@ -369,60 +377,73 @@ export function createExternalFolderService() {
     ) {
       const parts = splitRelativePath(path);
       const fileName = parts[parts.length - 1];
+      const parentPath = parts.slice(0, -1).join("/");
       const parent = ensureParentDirectoryExists(session, path);
       let file = findChildFile(parent, fileName);
+      let actualName = fileName;
 
       if (!file) {
-        file = isAndroidSafSession(session)
-          ? new File(
-              await createSafEntry(
-                session.uri,
-                parent.uri,
-                fileName,
-                mimeType ?? inferMimeType(fileName),
-                false,
-              ),
-            )
-          : parent.createFile(fileName, mimeType ?? inferMimeType(fileName));
+        if (isAndroidSafSession(session)) {
+          const created = await createSafEntry(
+            session.uri,
+            parent.uri,
+            fileName,
+            mimeTypeForFileName(fileName, mimeType),
+            false,
+          );
+          actualName = created.name;
+          file = new File(created.uri);
+        } else {
+          file = parent.createFile(
+            fileName,
+            mimeTypeForFileName(fileName, mimeType),
+          );
+        }
       }
 
       file.write(bytes);
-      await assertFileVisible(session, path);
+      await assertFileVisible(session, getEntryPath(parentPath, actualName));
 
       return {
-        path: getRelativePath(path),
+        path: getEntryPath(parentPath, actualName),
         size: file.size,
       };
     },
     async createDirectory(session: ExternalFolderSession, path: string) {
       const parts = splitRelativePath(path);
       let current = getRootDirectory(session);
+      const actualSegments: string[] = [];
 
       for (const part of parts) {
         const existing = findChildDirectory(current, part);
 
         if (existing) {
           current = existing;
+          actualSegments.push(part);
           continue;
         }
 
-        current = isAndroidSafSession(session)
-          ? new Directory(
-              await createSafEntry(
-                session.uri,
-                current.uri,
-                part,
-                null,
-                true,
-              ),
-            )
-          : current.createDirectory(part);
+        if (isAndroidSafSession(session)) {
+          const created = await createSafEntry(
+            session.uri,
+            current.uri,
+            part,
+            null,
+            true,
+          );
+          actualSegments.push(created.name);
+          current = new Directory(created.uri);
+        } else {
+          current = current.createDirectory(part);
+          actualSegments.push(part);
+        }
       }
 
-      await assertDirectoryVisible(session, path);
+      const actualPath = actualSegments.join("/");
+      await assertDirectoryVisible(session, actualPath);
 
       return {
-        path: getRelativePath(path),
+        path: actualPath,
       };
     },
     async moveEntry(
@@ -485,6 +506,8 @@ export function createExternalFolderService() {
         finalPath = nextRelativePath;
       }
 
+      let actualFinalPath = finalPath;
+
       if (isAndroidSafSession(session)) {
         const destinationParent =
           existingDestination instanceof Directory
@@ -495,13 +518,16 @@ export function createExternalFolderService() {
             ? entry.name
             : destinationName;
 
-        await relocateSafEntry(
+        const relocated = await relocateSafEntry(
           session.uri,
           entry.uri,
           sourceParent.uri,
           destinationParent.uri,
           finalName,
         );
+
+        const finalParentPath = finalPath.split("/").slice(0, -1).join("/");
+        actualFinalPath = getEntryPath(finalParentPath, relocated.name);
       } else {
         const destination =
           existingDestination instanceof Directory
@@ -513,15 +539,15 @@ export function createExternalFolderService() {
       }
 
       if (entry instanceof Directory) {
-        await assertDirectoryVisible(session, finalPath);
+        await assertDirectoryVisible(session, actualFinalPath);
       } else {
-        await assertFileVisible(session, finalPath);
+        await assertFileVisible(session, actualFinalPath);
       }
       await assertEntryAbsent(session, fromRelativePath);
 
       return {
         fromPath: fromRelativePath,
-        toPath: finalPath,
+        toPath: actualFinalPath,
       };
     },
     async renameEntry(session: ExternalFolderSession, path: string, newName: string) {
@@ -562,21 +588,20 @@ export function createExternalFolderService() {
         );
       }
 
-      const nextParts = [...parts];
-      nextParts[nextParts.length - 1] = trimmedName;
-
-      const nextPath = nextParts.join("/");
+      let nextPath: string;
 
       if (isAndroidSafSession(session)) {
-        await relocateSafEntry(
+        const relocated = await relocateSafEntry(
           session.uri,
           entry.uri,
           parent.uri,
           parent.uri,
           trimmedName,
         );
+        nextPath = getEntryPath(parentPath, relocated.name);
       } else {
         entry.rename(trimmedName);
+        nextPath = getEntryPath(parentPath, trimmedName);
       }
 
       if (entry instanceof Directory) {
@@ -651,4 +676,14 @@ function inferMimeType(fileName: string) {
   }
 
   return "application/octet-stream";
+}
+
+function mimeTypeForFileName(fileName: string, fallbackMimeType?: string) {
+  const inferred = inferMimeType(fileName);
+
+  if (inferred === "application/octet-stream") {
+    return fallbackMimeType ?? inferred;
+  }
+
+  return inferred;
 }

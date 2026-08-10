@@ -2,6 +2,8 @@ import * as Crypto from "expo-crypto";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
+
 import type { WorkspaceRepository } from "@/core/db/database";
 import type { WorkspaceFile } from "@/core/types/app-state";
 
@@ -104,6 +106,49 @@ export function isTextWorkspaceFile(file: Pick<WorkspaceFile, "displayName" | "m
   }
 
   return false;
+}
+
+function inferFileNameFromUrl(url: string) {
+  const withoutQuery = url.split(/[?#]/)[0] ?? url;
+  const lastSegment = withoutQuery.split("/").filter(Boolean).pop() ?? "";
+
+  if (!lastSegment) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return lastSegment;
+  }
+}
+
+async function resolveExpectedContentLength(
+  url: string,
+  headers?: Record<string, string>,
+) {
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { ...headers, Range: "bytes=0-0" }, method: "GET" },
+      8_000,
+    );
+    const length = response.headers.get("content-range")?.match(/\/\d+$/);
+
+    if (length) {
+      return Number.parseInt(length[0]!.slice(1), 10);
+    }
+
+    const contentLength = response.headers.get("content-length");
+
+    if (contentLength) {
+      return Number.parseInt(contentLength, 10);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export type WorkspaceFileService = ReturnType<typeof createWorkspaceFileService>;
@@ -297,6 +342,62 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       }
 
       return nextFile;
+    },
+    async downloadFile(input: {
+      folderSegments?: string[];
+      headers?: Record<string, string>;
+      name?: string;
+      onProgress?: (progress: {
+        bytesWritten: number;
+        totalBytes: number;
+      }) => void;
+      url: string;
+    }) {
+      const displayName = sanitizeFileName(
+        input.name?.trim() ||
+          inferFileNameFromUrl(input.url) ||
+          "downloaded-file",
+      );
+      const id = Crypto.randomUUID();
+      const relativePath = buildManagedRelativePath({
+        folderSegments: input.folderSegments,
+        id,
+        name: displayName,
+      });
+
+      await ensureWorkspaceDirectory();
+
+      const expectedBytes = await resolveExpectedContentLength(
+        input.url,
+        input.headers,
+      );
+
+      if (
+        expectedBytes !== null &&
+        expectedBytes > Paths.availableDiskSpace
+      ) {
+        throw new Error(
+          `Not enough free space to download ${displayName}: ${expectedBytes} bytes required but only ${Paths.availableDiskSpace} bytes available.`,
+        );
+      }
+
+      const destinationFile = resolveWorkspaceFile(relativePath);
+
+      await File.downloadFileAsync(input.url, destinationFile, {
+        headers: input.headers,
+        idempotent: true,
+        onProgress: input.onProgress,
+      });
+
+      return repository.create({
+        id,
+        displayName,
+        mimeType: destinationFile.type || null,
+        originalName: displayName,
+        relativePath,
+        size: destinationFile.size ?? null,
+        sourceKind: "created",
+      });
     },
   };
 }

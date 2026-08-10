@@ -7,6 +7,7 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   workspaceCreateFile: true,
   workspaceSearchText: true,
   workspaceEditFile: true,
+  downloadFile: true,
   folderListDirectory: true,
   folderReadFile: true,
   folderWriteFile: true,
@@ -42,6 +43,10 @@ export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
   {
     label: "List files",
     keys: ["workspaceListFiles", "folderListDirectory"],
+  },
+  {
+    label: "Download file",
+    keys: ["downloadFile"],
   },
   {
     label: "Read file",

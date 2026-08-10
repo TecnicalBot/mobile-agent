@@ -102,6 +102,7 @@ const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "createDirectory",
   "createFile",
   "deleteEntry",
+  "downloadFile",
   "editFile",
   "exportWorkspaceFileToFolder",
   "importFolderFileToWorkspace",
@@ -909,12 +910,14 @@ export async function executeClaimedAgentRun(
             const workspaceTools = createWorkspaceTools({
               repository: repositories.workspaceRepository,
               onRecord: handleToolExecutionRecord,
+              onProgress: () => markActivity(),
             }).tools;
 
             Object.assign(
               tools,
               filterToolsBySettings(workspaceTools, [
                 ["createFile", toolSettings.workspaceCreateFile],
+                ["downloadFile", toolSettings.downloadFile],
                 ["editFile", toolSettings.workspaceEditFile],
                 ["listFiles", toolSettings.workspaceListFiles],
                 ["readFile", toolSettings.workspaceReadFile],
@@ -927,6 +930,7 @@ export async function executeClaimedAgentRun(
               const folderDiscoveryTools = createExternalFolderTools({
                 session: activeFolderSession,
                 onRecord: handleToolExecutionRecord,
+                onProgress: () => markActivity(),
               }).tools;
 
               Object.assign(

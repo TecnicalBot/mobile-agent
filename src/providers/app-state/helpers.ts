@@ -176,7 +176,8 @@ export function hasEnabledWorkspaceTools(settings: BuiltInToolSettings) {
     settings.workspaceCreateFile ||
     settings.workspaceListFiles ||
     settings.workspaceReadFile ||
-    settings.workspaceWriteFile
+    settings.workspaceWriteFile ||
+    settings.downloadFile
   );
 }
 

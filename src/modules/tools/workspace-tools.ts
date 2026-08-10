@@ -1,4 +1,5 @@
 import { createCreateFileTool } from "@/modules/tools/built-in/create-file";
+import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createEditFileTool } from "@/modules/tools/built-in/edit-file";
 import { createListFilesTool } from "@/modules/tools/built-in/list-files";
 import {
@@ -15,6 +16,7 @@ export function createWorkspaceTools(params: WorkspaceToolFactoryParams) {
   return {
     tools: {
       createFile: createCreateFileTool(params),
+      downloadFile: createDownloadFileTool(params),
       editFile: createEditFileTool(params),
       listFiles: createListFilesTool(params),
       readFile: createReadFileTool(params),

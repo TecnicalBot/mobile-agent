@@ -51,6 +51,7 @@ export type BuiltInToolKey =
   | "workspaceCreateFile"
   | "workspaceSearchText"
   | "workspaceEditFile"
+  | "downloadFile"
   | "folderListDirectory"
   | "folderReadFile"
   | "folderWriteFile"

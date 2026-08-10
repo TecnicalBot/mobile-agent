@@ -930,7 +930,6 @@ export async function executeClaimedAgentRun(
               const folderDiscoveryTools = createExternalFolderTools({
                 session: activeFolderSession,
                 onRecord: handleToolExecutionRecord,
-                onProgress: () => markActivity(),
               }).tools;
 
               Object.assign(

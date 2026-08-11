@@ -382,8 +382,6 @@ export type AppSettings = {
   protectedApps: string[];
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
-  backgroundAgentEnabled: boolean;
-  batteryPromptShown: boolean;
   notificationSettings: NotificationSettings;
 };
 

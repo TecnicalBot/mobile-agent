@@ -7,6 +7,7 @@ type BackgroundAgentModule = {
   isHeld(): Promise<boolean>
   isIgnoringBatteryOptimizations(): Promise<boolean>
   requestBatteryOptimizationExemption(): Promise<void>
+  openBatteryOptimizationSettings(): Promise<void>
   requestNotificationPermission(): Promise<void>
   hasNotificationPermission(): Promise<boolean>
   setNotificationState(state: 'running' | 'waiting_approval'): Promise<void>
@@ -64,6 +65,12 @@ export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
     }
   }
   return true
+}
+
+export async function openBatteryOptimizationSettings(): Promise<void> {
+  if (Platform.OS === 'android' && BackgroundAgent) {
+    await BackgroundAgent.openBatteryOptimizationSettings()
+  }
 }
 
 export function requestNotificationPermission(): void {

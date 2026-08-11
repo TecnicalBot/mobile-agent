@@ -106,10 +106,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
     toolApprovalMode:
       (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ??
       "ask",
-    backgroundAgentEnabled:
-      settingsMap.get("background_agent_enabled") !== "false",
-    batteryPromptShown:
-      settingsMap.get("battery_prompt_shown") === "true",
     notificationSettings: parsedNotificationSettings ?? {
       approvalRequests: true,
       runFinished: true,

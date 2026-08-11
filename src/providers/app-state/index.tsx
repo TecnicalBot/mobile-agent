@@ -298,7 +298,6 @@ type AppStateContextValue = {
     ) => Promise<void>;
     updateMaxToolSteps: (maxToolSteps: number) => Promise<void>;
     updateThemeMode: (mode: AppSettings["themeMode"]) => Promise<void>;
-    updateBackgroundAgentEnabled: (enabled: boolean) => Promise<void>;
     updateProvider: (
         providerId: string,
         input: {
@@ -431,9 +430,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         );
         dismissApprovalNotification(approval.runId).catch(() => { });
 
-        if (snapshotRef.current.settings.backgroundAgentEnabled) {
-            setBackgroundAgentNotificationState("running").catch(() => { });
-        }
+        setBackgroundAgentNotificationState("running").catch(() => { });
     }
 
     function resolvePendingQuestionnaire(
@@ -449,9 +446,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             current.filter((item) => item.id !== questionnaire.id),
         );
 
-        if (snapshotRef.current.settings.backgroundAgentEnabled) {
-            setBackgroundAgentNotificationState("running").catch(() => { });
-        }
+        setBackgroundAgentNotificationState("running").catch(() => { });
     }
 
     async function requestRunQuestionnaire(
@@ -470,9 +465,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
         setPendingQuestionnaires((current) => [...current, questionnaire]);
 
-        if (snapshotRef.current.settings.backgroundAgentEnabled) {
-            setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
-        }
+        setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
 
         return await new Promise<PendingQuestionnaireAnswer[] | null>((resolve) => {
             runRegistryRef.current.registerPendingQuestionnaire(
@@ -549,9 +542,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             }).catch(() => { });
         }
 
-        if (snapshotRef.current.settings.backgroundAgentEnabled) {
-            setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
-        }
+        setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
 
         return await new Promise<
             import("@/modules/runtime/run-manager").ToolApprovalDecision
@@ -1672,11 +1663,6 @@ Your output must be:
 
     async function updateMemoryEnabled(enabled: boolean) {
         await repositoriesRef.current.configRepository.setMemoryEnabled(enabled);
-        await hydrate();
-    }
-
-    async function updateBackgroundAgentEnabled(enabled: boolean) {
-        await repositoriesRef.current.configRepository.setBackgroundAgentEnabled(enabled);
         await hydrate();
     }
 
@@ -3101,7 +3087,6 @@ Your output must be:
                 updateSkill,
                 updateToolApprovalMode,
                 updateThemeMode,
-                updateBackgroundAgentEnabled,
                 updateMaxToolSteps,
                 updateProvider,
                 workspaceFiles: snapshot.workspaceFiles,
@@ -3198,8 +3183,6 @@ export function useConfig() {
         updateSkill: context.updateSkill,
         updateToolApprovalMode: context.updateToolApprovalMode,
         updateThemeMode: context.updateThemeMode,
-        updateBackgroundAgentEnabled: context.updateBackgroundAgentEnabled,
-        backgroundAgentEnabled: context.settings.backgroundAgentEnabled,
         notificationSettings: context.settings.notificationSettings,
         updateNotificationSettings: context.updateNotificationSettings,
         updateMaxToolSteps: context.updateMaxToolSteps,

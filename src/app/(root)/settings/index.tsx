@@ -27,10 +27,10 @@ import { useTheme } from "@/hooks/use-theme";
 import { countEnabledBuiltInTools } from "@/modules/config/built-in-tools";
 import { useUpdate } from "@/providers/check-for-updates";
 import {
-  hasNotificationPermission,
   isBackgroundAgentHeld,
+  isIgnoringBatteryOptimizations,
+  openBatteryOptimizationSettings,
   requestBatteryOptimizationExemption,
-  requestNotificationPermission,
 } from "background-agent-service";
 
 type DrawerKey =
@@ -47,7 +47,6 @@ export default function SettingsScreen() {
   const { error, hydrating, ready } = useAppState();
   const {
     activeModels,
-    backgroundAgentEnabled,
     currentModel,
     databaseMode,
     databaseUrl,
@@ -60,7 +59,6 @@ export default function SettingsScreen() {
     skills,
     themeMode,
     toolSettings,
-    updateBackgroundAgentEnabled,
     updateDatabaseSettings,
     updateNotificationSettings,
     updateThemeMode,
@@ -71,7 +69,7 @@ export default function SettingsScreen() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState<DrawerKey>(null);
   const [agentActive, setAgentActive] = useState(false);
-  const [notificationGranted, setNotificationGranted] = useState<
+  const [batteryOptimizationGranted, setBatteryOptimizationGranted] = useState<
     boolean | null
   >(null);
 
@@ -83,14 +81,10 @@ export default function SettingsScreen() {
     if (Platform.OS !== "android") return;
     const poll = setInterval(async () => {
       setAgentActive(await isBackgroundAgentHeld());
+      setBatteryOptimizationGranted(await isIgnoringBatteryOptimizations());
     }, 2000);
     return () => clearInterval(poll);
   }, []);
-
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    hasNotificationPermission().then(setNotificationGranted);
-  }, [openDrawer]);
 
   const providerCount = providers.length;
   const devicePermissions = useDeviceAutomationPermissions();
@@ -192,11 +186,13 @@ export default function SettingsScreen() {
             <SettingsLinkRow
               label="Background agent"
               value={
-                backgroundAgentEnabled
-                  ? agentActive
-                    ? "Active"
-                    : "Enabled"
-                  : "Disabled"
+                batteryOptimizationGranted === null
+                  ? "…"
+                  : batteryOptimizationGranted
+                    ? agentActive
+                      ? "Active"
+                      : "Ready"
+                    : "Permission needed"
               }
             />
           </DrawerTrigger>
@@ -210,31 +206,28 @@ export default function SettingsScreen() {
                 a foreground service + wake lock (Android).
               </Text>
 
-              <View className="flex-row items-center justify-between">
-                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                  Enabled
-                </Text>
-                <Checkbox
-                  checked={backgroundAgentEnabled}
-                  onCheckedChange={async (checked) => {
-                    await updateBackgroundAgentEnabled(checked);
-                    if (checked) {
-                      await requestBatteryOptimizationExemption();
-                    }
-                  }}
-                />
-              </View>
-
-              {Platform.OS === "android" && notificationGranted === false ? (
-                <Button
-                  onPress={async () => {
-                    await requestNotificationPermission();
-                    setNotificationGranted(await hasNotificationPermission());
-                  }}
-                  variant="outline"
-                >
-                  Enable notifications
-                </Button>
+              {Platform.OS === "android" ? (
+                <View className="flex-row items-center justify-between">
+                  <View className="min-w-0 flex-1">
+                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                      Battery optimization
+                    </Text>
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      Stops Android from killing the agent while it runs in the
+                      background.
+                    </Text>
+                  </View>
+                  <Checkbox
+                    checked={batteryOptimizationGranted ?? false}
+                    onCheckedChange={() => {
+                      if (batteryOptimizationGranted) {
+                        openBatteryOptimizationSettings().catch(() => {});
+                      } else {
+                        requestBatteryOptimizationExemption().catch(() => {});
+                      }
+                    }}
+                  />
+                </View>
               ) : null}
             </DrawerBody>
           </DrawerContent>

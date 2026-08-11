@@ -57,8 +57,6 @@ export const EMPTY_SETTINGS: AppSettings = {
   protectedApps: [],
   themeMode: "system",
   toolApprovalMode: "ask",
-  backgroundAgentEnabled: true,
-  batteryPromptShown: false,
   notificationSettings: {
     approvalRequests: true,
     runFinished: true,

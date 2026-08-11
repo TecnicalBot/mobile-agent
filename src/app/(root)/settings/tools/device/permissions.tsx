@@ -14,7 +14,6 @@ import {
   isAccessibilityPermissionGranted,
   openAccessibilitySettings,
 } from "device-automation";
-import { requestBatteryOptimizationExemption } from "background-agent-service";
 
 type AccessibilityStatus =
   | "working"
@@ -27,10 +26,6 @@ export default function SettingsDevicePermissionsScreen() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [accessibilityConnected, setAccessibilityConnected] = useState(false);
   const [accessibilityGranted, setAccessibilityGranted] = useState(false);
-
-  useEffect(() => {
-    requestBatteryOptimizationExemption().catch(() => {});
-  }, []);
 
   useEffect(() => {
     let active = true;

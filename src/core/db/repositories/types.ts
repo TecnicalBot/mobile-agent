@@ -289,8 +289,6 @@ export interface ConfigRepository {
   setThemeMode(mode: ThemeMode): Promise<void>;
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
   setMaxToolSteps(maxToolSteps: number): Promise<void>;
-  setBackgroundAgentEnabled(enabled: boolean): Promise<void>;
-  setBatteryPromptShown(enabled: boolean): Promise<void>;
   setProtectedApps(packageNames: string[]): Promise<void>;
   setNotificationSettings(input: Partial<NotificationSettings>): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;

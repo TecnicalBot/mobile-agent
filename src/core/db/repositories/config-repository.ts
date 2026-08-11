@@ -189,18 +189,6 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
       const normalized = Math.max(1, Math.min(100, Math.round(maxToolSteps)));
       await this.setSetting("max_tool_steps", String(normalized));
     },
-    async setBackgroundAgentEnabled(enabled) {
-      await this.setSetting(
-        "background_agent_enabled",
-        enabled ? "true" : "false",
-      );
-    },
-    async setBatteryPromptShown(enabled) {
-      await this.setSetting(
-        "battery_prompt_shown",
-        enabled ? "true" : "false",
-      );
-    },
     async setProtectedApps(packageNames) {
       const normalized = Array.from(new Set(packageNames)).filter(
         (name) => typeof name === "string" && name.length > 0,

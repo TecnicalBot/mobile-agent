@@ -1,60 +1,55 @@
 import { tool } from "ai";
 import { z } from "zod";
 
+import { createExternalFolderService } from "@/core/services/external-folder/external-folder-service";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
-import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
-import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import { applyTextEdits } from "@/modules/tools/built-in/edits";
+import type { ExternalFolderToolFactoryParams } from "@/modules/tools/built-in/external-folder/types";
 
-export function createEditFileTool({
+export function createExternalEditTool({
   onRecord,
-  repository,
-}: WorkspaceToolFactoryParams) {
-  const workspaceService = createWorkspaceFileService(repository);
+  session,
+}: ExternalFolderToolFactoryParams) {
+  const service = createExternalFolderService();
 
   return tool({
     description:
-      "Apply targeted text edits to a workspace file. Each edit must be unique in the file; read the file first and include enough surrounding text. Rewrites only the changed regions.",
+      "Apply targeted text edits to a file inside the granted external folder. Each edit must be unique in the file; read the file first and include enough surrounding text. Set replaceAll to true to replace every occurrence of oldText.",
     inputSchema: z.object({
       edits: z
         .array(
           z.object({
             newText: z.string(),
             oldText: z.string(),
+            replaceAll: z.boolean().optional(),
           }),
         )
         .min(1),
-      fileId: z.string().min(1),
+      path: z.string().trim().min(1),
     }),
-    execute: async ({ edits, fileId }) => {
+    execute: async ({ edits, path }) => {
       const inputSummary = summarizeValue({
         edits: edits.map((edit) => ({
           newTextLength: edit.newText.length,
           oldTextLength: edit.oldText.length,
+          replaceAll: edit.replaceAll ?? false,
         })),
-        fileId,
+        path,
       });
 
       try {
-        const file = await repository.getById(fileId);
-
-        if (!file) {
-          throw new Error(`No workspace file found for ${fileId}.`);
-        }
-
-        const current = await workspaceService.readTextFile(file);
+        const current = await service.readTextFile(session, path);
         const result = applyTextEdits(current, edits);
-        await workspaceService.writeTextFile(file, result.content);
+        await service.writeTextFile(session, path, result.content);
 
         const output = {
-          displayName: file.displayName,
           editsApplied: result.appliedCount,
-          fileId,
+          path,
         };
 
         onRecord?.(
           createRecord({
-            toolName: "editFile",
+            toolName: "edit",
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
@@ -65,7 +60,7 @@ export function createEditFileTool({
       } catch (error) {
         onRecord?.(
           createRecord({
-            toolName: "editFile",
+            toolName: "edit",
             status: "failed",
             inputSummary,
             error: error instanceof Error ? error.message : String(error),

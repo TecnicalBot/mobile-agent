@@ -19,38 +19,39 @@ const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_DESCRIPTION_LENGTH = 1024;
 
 const TOOL_ALIAS_TO_BUILT_IN_KEY: Record<string, BuiltInToolKey> = {
-  askquestion: "askQuestion",
-  askuserquestion: "askQuestion",
+  askquestion: "question",
+  askuserquestion: "question",
   create: "workspaceCreateFile",
   createfile: "workspaceCreateFile",
-  edit: "workspaceEditFile",
-  glob: "workspaceSearchText",
-  grep: "workspaceSearchText",
+  edit: "workspaceEdit",
+  glob: "workspaceGlob",
+  grep: "workspaceGrep",
   list: "workspaceListFiles",
   listfiles: "workspaceListFiles",
-  loadskill: "loadSkill",
-  read: "workspaceReadFile",
-  search: "workspaceSearchText",
-  searchtext: "workspaceSearchText",
-  skill: "loadSkill",
-  todos: "updateTodos",
-  todowrite: "updateTodos",
-  updatetodos: "updateTodos",
-  write: "workspaceWriteFile",
+  loadskill: "skill",
+  read: "workspaceRead",
+  search: "workspaceGrep",
+  searchtext: "workspaceGrep",
+  skill: "skill",
+  todos: "todos",
+  todowrite: "todos",
+  updatetodos: "todos",
+  write: "workspaceWrite",
 };
 
 const BUILT_IN_TOOL_KEY_TO_SKILL_NAME: Partial<
   Record<BuiltInToolKey, string>
 > = {
-  askQuestion: "AskUserQuestion",
-  loadSkill: "Skill",
-  updateTodos: "TodoWrite",
+  question: "AskUserQuestion",
+  skill: "Skill",
+  todos: "TodoWrite",
   workspaceCreateFile: "Create",
-  workspaceEditFile: "Edit",
+  workspaceEdit: "Edit",
+  workspaceGlob: "Glob",
+  workspaceGrep: "Grep",
   workspaceListFiles: "List",
-  workspaceReadFile: "Read",
-  workspaceSearchText: "Search",
-  workspaceWriteFile: "Write",
+  workspaceRead: "Read",
+  workspaceWrite: "Write",
 };
 
 export function slugifySkillName(value: string) {

@@ -29,7 +29,7 @@ const questionnaireItemSchema = z.object({
   required: z.boolean().optional(),
 });
 
-export function createAskQuestionTool(input: {
+export function createQuestionTool(input: {
   onRecord?: (record: ToolExecutionRecord) => void;
   requestQuestionnaire: (
     request: PendingQuestionnaireRequest,
@@ -37,7 +37,7 @@ export function createAskQuestionTool(input: {
 }) {
   return {
     tools: {
-      askQuestion: tool({
+      question: tool({
         description:
           "Ask the user a short set of questions to clarify the task before continuing. Use only when the request is genuinely ambiguous or lacks essential information; prefer discovering the answer with the available tools first. The run pauses while the user answers. Keep questions specific and offer choices when useful.",
         inputSchema: z.object({
@@ -76,7 +76,7 @@ export function createAskQuestionTool(input: {
 
             input.onRecord?.(
               createRecord({
-                toolName: "askQuestion",
+                toolName: "question",
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue(output),
@@ -87,7 +87,7 @@ export function createAskQuestionTool(input: {
           } catch (error) {
             input.onRecord?.(
               createRecord({
-                toolName: "askQuestion",
+                toolName: "question",
                 status: "failed",
                 inputSummary,
                 error: error instanceof Error ? error.message : String(error),

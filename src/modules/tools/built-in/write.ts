@@ -5,7 +5,7 @@ import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 
-export function createWriteFileTool({
+export function createWriteTool({
   onRecord,
   repository,
 }: WorkspaceToolFactoryParams) {
@@ -43,7 +43,7 @@ export function createWriteFileTool({
 
         onRecord?.(
           createRecord({
-            toolName: "writeFile",
+            toolName: "write",
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
@@ -54,7 +54,7 @@ export function createWriteFileTool({
       } catch (error) {
         onRecord?.(
           createRecord({
-            toolName: "writeFile",
+            toolName: "write",
             status: "failed",
             inputSummary,
             error: error instanceof Error ? error.message : String(error),

@@ -30,11 +30,11 @@ import {
 import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
-import { createAskQuestionTool } from "@/modules/tools/built-in/question";
+import { createQuestionTool } from "@/modules/tools/built-in/question";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
-import { createUpdateTodosTool } from "@/modules/tools/built-in/todos";
+import { createTodosTool } from "@/modules/tools/built-in/todos";
 import {
   buildExternalFolderSystemPrompt,
   createExternalFolderTools,
@@ -95,7 +95,7 @@ import {
   buildSkillsSystemPrompt,
   buildUsageSnapshot,
   describePromptArtifactLocation,
-  filterToolsBySettings,
+  pickEnabledTools,
   upsertAgentRun,
   upsertMessages,
 } from "./helpers";
@@ -106,22 +106,23 @@ const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "createFile",
   "deleteEntry",
   "downloadFile",
-  "editFile",
+  "edit",
   "exportWorkspaceFileToFolder",
   "importFolderFileToWorkspace",
   "manageSkill",
   "moveEntry",
   "renameEntry",
-  "writeFile",
+  "write",
 ]);
 
 const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
   "createFile",
-  "editFile",
+  "edit",
+  "glob",
+  "grep",
   "listFiles",
-  "readFile",
-  "searchText",
-  "writeFile",
+  "read",
+  "write",
 ]);
 
 const FOLDER_BOUND_TOOL_NAMES = new Set([
@@ -913,23 +914,24 @@ export async function executeClaimedAgentRun(
 
             Object.assign(
               tools,
-              filterToolsBySettings(folderTools, [
+              pickEnabledTools(folderTools, [
                 ["createDirectory", toolSettings.folderCreateDirectory],
                 ["createFile", toolSettings.folderCreateFile],
                 ["deleteEntry", toolSettings.folderDeleteEntry],
-                ["editFile", toolSettings.folderEditFile],
+                ["edit", toolSettings.folderEdit],
+                ["glob", toolSettings.folderGlob],
+                ["grep", toolSettings.folderGrep],
                 ["listDirectory", toolSettings.folderListDirectory],
                 ["moveEntry", toolSettings.folderMoveEntry],
-                ["readFile", toolSettings.folderReadFile],
+                ["read", toolSettings.folderRead],
                 ["renameEntry", toolSettings.folderRenameEntry],
-                ["searchText", toolSettings.folderSearchText],
-                ["writeFile", toolSettings.folderWriteFile],
+                ["write", toolSettings.folderWrite],
               ]),
             );
 
             Object.assign(
               tools,
-              filterToolsBySettings(
+              pickEnabledTools(
                 {
                   downloadFile: createDownloadFileTool({
                     repository: repositories.workspaceRepository,
@@ -949,7 +951,7 @@ export async function executeClaimedAgentRun(
 
             Object.assign(
               tools,
-              filterToolsBySettings(workspaceDiscoveryTools, [
+              pickEnabledTools(workspaceDiscoveryTools, [
                 ["listFiles", toolSettings.workspaceListFiles],
               ]),
             );
@@ -963,14 +965,15 @@ export async function executeClaimedAgentRun(
 
             Object.assign(
               tools,
-              filterToolsBySettings(workspaceTools, [
+              pickEnabledTools(workspaceTools, [
                 ["createFile", toolSettings.workspaceCreateFile],
                 ["downloadFile", toolSettings.downloadFile],
-                ["editFile", toolSettings.workspaceEditFile],
+                ["edit", toolSettings.workspaceEdit],
+                ["glob", toolSettings.workspaceGlob],
+                ["grep", toolSettings.workspaceGrep],
                 ["listFiles", toolSettings.workspaceListFiles],
-                ["readFile", toolSettings.workspaceReadFile],
-                ["searchText", toolSettings.workspaceSearchText],
-                ["writeFile", toolSettings.workspaceWriteFile],
+                ["read", toolSettings.workspaceRead],
+                ["write", toolSettings.workspaceWrite],
               ]),
             );
 
@@ -982,7 +985,7 @@ export async function executeClaimedAgentRun(
 
               Object.assign(
                 tools,
-                filterToolsBySettings(folderDiscoveryTools, [
+                pickEnabledTools(folderDiscoveryTools, [
                   ["listDirectory", toolSettings.folderListDirectory],
                 ]),
               );
@@ -991,7 +994,7 @@ export async function executeClaimedAgentRun(
 
           if (activeFolderSession) {
             const transferEnabled =
-              toolSettings.folderReadFile && toolSettings.folderWriteFile;
+              toolSettings.folderRead && toolSettings.folderWrite;
 
             if (transferEnabled) {
               Object.assign(
@@ -1034,8 +1037,8 @@ export async function executeClaimedAgentRun(
         : null;
     const todosRuntime =
       runtimeSupportsTools &&
-      snapshotRef.current.settings.builtInToolSettings.updateTodos
-        ? createUpdateTodosTool({
+      snapshotRef.current.settings.builtInToolSettings.todos
+        ? createTodosTool({
             getCurrentTodos: () => todoList,
             onRecord: handleToolExecutionRecord,
             onTodosChange: (next) => {
@@ -1048,8 +1051,8 @@ export async function executeClaimedAgentRun(
         : null;
     const questionRuntime =
       runtimeSupportsTools &&
-      snapshotRef.current.settings.builtInToolSettings.askQuestion
-        ? createAskQuestionTool({
+      snapshotRef.current.settings.builtInToolSettings.question
+        ? createQuestionTool({
             onRecord: handleToolExecutionRecord,
             requestQuestionnaire: (request) => requestRunQuestionnaire(request),
           })
@@ -1108,7 +1111,7 @@ export async function executeClaimedAgentRun(
         : [...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES]),
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
-      ...(skillRuntime ? ["loadSkill"] : []),
+      ...(skillRuntime ? ["skill"] : []),
     ]);
     const approvedRuntimeTools = unapprovedRuntimeTools
       ? wrapToolsWithApproval(unapprovedRuntimeTools, {
@@ -1164,7 +1167,7 @@ export async function executeClaimedAgentRun(
     const workspaceRuntimeSystem =
       run.fileContextSource !== "external-folder" &&
       builtInRuntimeTools &&
-      ("createFile" in builtInRuntimeTools || "writeFile" in builtInRuntimeTools)
+      ("createFile" in builtInRuntimeTools || "write" in builtInRuntimeTools)
         ? buildWorkspaceSystemPrompt()
         : undefined;
     const transferRuntimeSystem =

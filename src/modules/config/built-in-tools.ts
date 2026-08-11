@@ -2,25 +2,27 @@ import type { BuiltInToolKey, BuiltInToolSettings } from "@/core/types/app-state
 
 export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   workspaceListFiles: true,
-  workspaceReadFile: true,
-  workspaceWriteFile: true,
+  workspaceRead: true,
+  workspaceWrite: true,
   workspaceCreateFile: true,
-  workspaceSearchText: true,
-  workspaceEditFile: true,
+  workspaceGrep: true,
+  workspaceGlob: true,
+  workspaceEdit: true,
   downloadFile: true,
   folderListDirectory: true,
-  folderReadFile: true,
-  folderWriteFile: true,
+  folderRead: true,
+  folderWrite: true,
   folderCreateFile: true,
   folderCreateDirectory: true,
   folderRenameEntry: true,
   folderMoveEntry: true,
   folderDeleteEntry: true,
-  folderSearchText: true,
-  folderEditFile: true,
-  updateTodos: true,
-  askQuestion: true,
-  loadSkill: true,
+  folderGrep: true,
+  folderGlob: true,
+  folderEdit: true,
+  todos: true,
+  question: true,
+  skill: true,
   deviceReadScreen: false,
   deviceTap: false,
   deviceType: false,
@@ -36,6 +38,20 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   deviceScreenshot: false,
 };
 
+const LEGACY_TOOL_KEY_MAP: Partial<Record<string, BuiltInToolKey>> = {
+  askQuestion: "question",
+  folderEditFile: "folderEdit",
+  folderReadFile: "folderRead",
+  folderSearchText: "folderGrep",
+  folderWriteFile: "folderWrite",
+  loadSkill: "skill",
+  updateTodos: "todos",
+  workspaceEditFile: "workspaceEdit",
+  workspaceReadFile: "workspaceRead",
+  workspaceSearchText: "workspaceGrep",
+  workspaceWriteFile: "workspaceWrite",
+};
+
 export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
   keys: BuiltInToolKey[];
   label: string;
@@ -45,20 +61,24 @@ export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
     keys: ["workspaceListFiles", "folderListDirectory"],
   },
   {
+    label: "Glob / find files",
+    keys: ["workspaceGlob", "folderGlob"],
+  },
+  {
     label: "Download file",
     keys: ["downloadFile"],
   },
   {
     label: "Read file",
-    keys: ["workspaceReadFile", "folderReadFile"],
+    keys: ["workspaceRead", "folderRead"],
   },
   {
     label: "Write file",
-    keys: ["workspaceWriteFile", "folderWriteFile"],
+    keys: ["workspaceWrite", "folderWrite"],
   },
   {
     label: "Edit file",
-    keys: ["workspaceEditFile", "folderEditFile"],
+    keys: ["workspaceEdit", "folderEdit"],
   },
   {
     label: "Create file",
@@ -66,7 +86,7 @@ export const BUILT_IN_FILE_TOOL_CONTROLS: Array<{
   },
   {
     label: "Search files",
-    keys: ["workspaceSearchText", "folderSearchText"],
+    keys: ["workspaceGrep", "folderGrep"],
   },
   {
     label: "Create folder",
@@ -149,9 +169,9 @@ export const DEVICE_TOOL_KEYS: BuiltInToolKey[] = DEVICE_TOOL_CONTROLS.flatMap(
 );
 
 export const ALWAYS_ENABLED_BUILT_IN_TOOLS: BuiltInToolKey[] = [
-  "updateTodos",
-  "askQuestion",
-  "loadSkill",
+  "todos",
+  "question",
+  "skill",
 ];
 
 export function isDeviceAutomationEnabled(settings: BuiltInToolSettings) {
@@ -189,7 +209,25 @@ export function normalizeBuiltInToolSettings(
     normalized[key] = true;
   }
 
-  return normalized;
+  return remapLegacyToolKeys(normalized);
+}
+
+function remapLegacyToolKeys(
+  settings: BuiltInToolSettings,
+): BuiltInToolSettings {
+  const result: BuiltInToolSettings = { ...settings };
+
+  for (const [legacyKey, currentKey] of Object.entries(LEGACY_TOOL_KEY_MAP)) {
+    if (!currentKey) {
+      continue;
+    }
+
+    if (legacyKey in result && !(currentKey in result)) {
+      result[currentKey] = result[legacyKey as keyof BuiltInToolSettings];
+    }
+  }
+
+  return result;
 }
 
 export function isBuiltInFileToolEnabled(

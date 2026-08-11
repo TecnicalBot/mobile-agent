@@ -5,28 +5,32 @@ import { createExternalFolderService } from "@/core/services/external-folder/ext
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import type { ExternalFolderToolFactoryParams } from "@/modules/tools/built-in/external-folder/types";
 
-export function createExternalReadFileTool({
+export function createExternalWriteTool({
   onRecord,
   session,
 }: ExternalFolderToolFactoryParams) {
   const service = createExternalFolderService();
 
   return tool({
-    description: "Read text content from a file inside the granted external folder.",
+    description: "Write text content into a file inside the granted external folder.",
     inputSchema: z.object({
-      maxChars: z.number().int().positive().max(20000).optional(),
+      content: z.string(),
+      mode: z.enum(["append", "overwrite"]).default("overwrite"),
       path: z.string().trim().min(1),
     }),
-    execute: async ({ maxChars, path }) => {
-      const inputSummary = summarizeValue({ maxChars: maxChars ?? null, path });
+    execute: async ({ content, mode, path }) => {
+      const inputSummary = summarizeValue({
+        path,
+        mode,
+        contentPreview: content.slice(0, 200),
+      });
 
       try {
-        const text = await service.readTextFile(session, path, maxChars);
-        const output = { path, text };
+        const output = await service.writeTextFile(session, path, content, mode);
 
         onRecord?.(
           createRecord({
-            toolName: "readFile",
+            toolName: "write",
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
@@ -37,7 +41,7 @@ export function createExternalReadFileTool({
       } catch (error) {
         onRecord?.(
           createRecord({
-            toolName: "readFile",
+            toolName: "write",
             status: "failed",
             inputSummary,
             error: error instanceof Error ? error.message : String(error),

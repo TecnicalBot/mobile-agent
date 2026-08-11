@@ -157,7 +157,7 @@ export function resolveFileContextSource(input: {
   return "workspace" satisfies FileContextSource;
 }
 
-export function filterToolsBySettings<T extends Record<string, unknown>>(
+export function pickEnabledTools<T extends Record<string, unknown>>(
   tools: T,
   entries: [keyof T, boolean][],
 ) {
@@ -171,9 +171,10 @@ export function filterToolsBySettings<T extends Record<string, unknown>>(
 export function hasEnabledWorkspaceTools(settings: BuiltInToolSettings) {
   return (
     settings.workspaceCreateFile ||
+    settings.workspaceGlob ||
     settings.workspaceListFiles ||
-    settings.workspaceReadFile ||
-    settings.workspaceWriteFile ||
+    settings.workspaceRead ||
+    settings.workspaceWrite ||
     settings.downloadFile
   );
 }
@@ -183,11 +184,12 @@ export function hasEnabledFolderTools(settings: BuiltInToolSettings) {
     settings.folderCreateDirectory ||
     settings.folderCreateFile ||
     settings.folderDeleteEntry ||
+    settings.folderGlob ||
     settings.folderListDirectory ||
     settings.folderMoveEntry ||
-    settings.folderReadFile ||
+    settings.folderRead ||
     settings.folderRenameEntry ||
-    settings.folderWriteFile
+    settings.folderWrite
   );
 }
 
@@ -223,15 +225,15 @@ export function buildExternalToolApprovalSummary(
     return `List files in ${target}`;
   }
 
-  if (toolName === "readFile") {
+  if (toolName === "read") {
     return `Read ${target}`;
   }
 
-  if (toolName === "writeFile") {
+  if (toolName === "write") {
     return `Write to ${target}`;
   }
 
-  if (toolName === "editFile") {
+  if (toolName === "edit") {
     const editCount =
       typeof input.edits !== "undefined" && Array.isArray(input.edits)
         ? input.edits.length
@@ -240,8 +242,12 @@ export function buildExternalToolApprovalSummary(
     return `Edit ${target}${editCount ? ` (${editCount} change${editCount === 1 ? "" : "s"})` : ""}`;
   }
 
-  if (toolName === "searchText") {
+  if (toolName === "grep") {
     return `Search file contents in ${target}`;
+  }
+
+  if (toolName === "glob") {
+    return `Find files in ${target}`;
   }
 
   if (toolName === "createFile") {
@@ -432,7 +438,7 @@ export function buildSkillsSystemPrompt(input: {
     "<available_skills>",
     ...catalog,
     "</available_skills>",
-    "When the current task matches one of these skills, call the loadSkill tool with the exact skill name to load its full instructions before continuing. You may load more than one skill when needed.",
+    "When the current task matches one of these skills, call the skill tool with the exact skill name to load its full instructions before continuing. You may load more than one skill when needed.",
   ].join("\n");
 }
 
@@ -557,7 +563,7 @@ export function buildAssistantTextFromToolExecutions(
     } catch {}
   }
 
-  if (latest.toolName === "readFile" && latest.outputSummary) {
+  if (latest.toolName === "read" && latest.outputSummary) {
     try {
       const parsed = JSON.parse(latest.outputSummary) as {
         contentPreview?: string;

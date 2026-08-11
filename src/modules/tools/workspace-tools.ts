@@ -1,15 +1,16 @@
 import { createCreateFileTool } from "@/modules/tools/built-in/create-file";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
-import { createEditFileTool } from "@/modules/tools/built-in/edit-file";
+import { createEditTool } from "@/modules/tools/built-in/edit";
+import { createGlobTool } from "@/modules/tools/built-in/glob";
+import { createGrepTool } from "@/modules/tools/built-in/grep";
 import { createListFilesTool } from "@/modules/tools/built-in/list-files";
 import {
   buildSelectedFilesInlineContext,
   buildWorkspaceSystemPrompt,
 } from "@/modules/tools/built-in/prompts";
-import { createReadFileTool } from "@/modules/tools/built-in/read-file";
-import { createSearchTextTool } from "@/modules/tools/built-in/search-text";
+import { createReadTool } from "@/modules/tools/built-in/read";
 import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
-import { createWriteFileTool } from "@/modules/tools/built-in/write-file";
+import { createWriteTool } from "@/modules/tools/built-in/write";
 import type { ExternalFolderSession } from "@/core/types/app-state";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 
@@ -22,11 +23,12 @@ export function createWorkspaceTools(
     tools: {
       createFile: createCreateFileTool(params),
       downloadFile: createDownloadFileTool({ ...params, session: params.session }),
-      editFile: createEditFileTool(params),
+      edit: createEditTool(params),
+      glob: createGlobTool(params),
+      grep: createGrepTool(params),
       listFiles: createListFilesTool(params),
-      readFile: createReadFileTool(params),
-      searchText: createSearchTextTool(params),
-      writeFile: createWriteFileTool(params),
+      read: createReadTool(params),
+      write: createWriteTool(params),
     },
     workspaceService: createWorkspaceFileService(params.repository),
   };

@@ -74,7 +74,7 @@ export function createSkillTools(input: {
 
   return {
     tools: {
-      loadSkill: tool({
+      skill: tool({
         description:
           "Load the full instructions of a skill by its name. Use when the current task matches a skill from the available skills list or the user mentions one. Returns the complete skill instructions and its recommended tools.",
         inputSchema: z.object({
@@ -97,7 +97,7 @@ export function createSkillTools(input: {
 
           onRecord?.(
             createRecord({
-              toolName: "loadSkill",
+              toolName: "skill",
               status: "completed",
               inputSummary: summarizeValue({ name: skill.title }),
               outputSummary: summarizeValue({
@@ -229,7 +229,7 @@ export function createSkillTools(input: {
             recommendedBuiltInToolKeys: builtInToolKeysSchema
               .optional()
               .describe(
-                "Built-in tool keys this skill commonly needs, e.g. workspaceReadFile, workspaceWriteFile, workspaceEditFile, workspaceCreateFile, workspaceListFiles, workspaceSearchText, folderReadFile, folderWriteFile.",
+                "Built-in tool keys this skill commonly needs, e.g. workspaceRead, workspaceWrite, workspaceEdit, workspaceCreateFile, workspaceListFiles, workspaceGrep, folderRead, folderWrite.",
               ),
           })
           .refine(

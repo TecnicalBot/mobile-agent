@@ -52,14 +52,14 @@ function mergeTodoList(
   return result;
 }
 
-export function createUpdateTodosTool(input: {
+export function createTodosTool(input: {
   getCurrentTodos: () => TodoListItem[];
   onRecord?: (record: ToolExecutionRecord) => void;
   onTodosChange?: (todos: TodoListItem[]) => void;
 }) {
   return {
     tools: {
-      updateTodos: tool({
+      todos: tool({
         description:
           "Replace the visible task list with the complete revised list of tasks for the current request. Use for multi-step work so the user can follow progress. Statuses: pending, in_progress, completed. Items are matched by title; re-send every task you want to keep with its current status.",
         inputSchema: z.object({
@@ -82,7 +82,7 @@ export function createUpdateTodosTool(input: {
 
             input.onRecord?.(
               createRecord({
-                toolName: "updateTodos",
+                toolName: "todos",
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({
@@ -105,7 +105,7 @@ export function createUpdateTodosTool(input: {
           } catch (error) {
             input.onRecord?.(
               createRecord({
-                toolName: "updateTodos",
+                toolName: "todos",
                 status: "failed",
                 inputSummary,
                 error: error instanceof Error ? error.message : String(error),

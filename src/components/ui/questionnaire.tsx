@@ -229,7 +229,7 @@ export function Questionnaire({
                 }
                 placeholder={
                   item.freeformPlaceholder ??
-                  (item.choices ? "Other" : "Type your answer…")
+                  (item.choices ? "Another answer" : "Type your answer…")
                 }
                 value={freeform[item.id] ?? ""}
               />
@@ -286,7 +286,7 @@ function ChoiceRow({ checked, label, multiple, onPress }: ChoiceRowProps) {
         "min-h-11 flex-row items-start gap-2.5 rounded-lg border px-3 py-2.5",
         "dark:bg-input-dark/20 active:bg-muted/50 dark:active:bg-muted-dark/50",
         checked
-          ? "border-foreground/40 bg-muted dark:border-foreground-dark/40 dark:bg-muted-dark"
+          ? "border-foreground/40 dark:border-foreground-dark/40"
           : "border-border bg-transparent dark:border-border-dark",
       )}
       onPress={onPress}
@@ -334,7 +334,7 @@ function FreeformInput({
 
   return (
     <TextInput
-      className="min-h-11 w-full rounded-lg border border-border bg-transparent px-2.5 font-sans text-base text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"
+      className="min-h-11 w-full rounded-lg border border-border bg-transparent px-3 py-2.5 font-sans text-sm leading-snug font-medium text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"
       cursorColor={theme.text}
       maxLength={maxLength}
       onChangeText={onChangeText}

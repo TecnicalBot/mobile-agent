@@ -348,6 +348,10 @@ async function runWithConcurrency<T, R>(
 }
 
 export async function createMcpRuntimeTools(params: {
+  keepTool?: (input: {
+    annotations?: Record<string, unknown> | null;
+    name: string;
+  }) => boolean;
   onRecord?: (record: ToolExecutionRecord) => void;
   servers: McpServerConfig[];
   signal?: AbortSignal;
@@ -409,9 +413,25 @@ export async function createMcpRuntimeTools(params: {
       const mcpTools = client.toolsFromDefinitions(
         sanitizedDefinitions as never,
       );
+      const toolAnnotations = new Map(
+        rawDefinitions.tools.map((tool) => [
+          tool.name,
+          tool.annotations as Record<string, unknown> | null | undefined,
+        ]),
+      );
       const prefix = createToolPrefix(server);
 
       for (const [toolName, toolDefinition] of Object.entries(mcpTools)) {
+        if (
+          params.keepTool &&
+          !params.keepTool({
+            annotations: toolAnnotations.get(toolName),
+            name: toolName,
+          })
+        ) {
+          continue;
+        }
+
         const prefixedName = `${prefix}_${slugifyToolPart(toolName)}`;
         const displayName = `${server.label} / ${toolName}`;
         const execute = toolDefinition.execute;

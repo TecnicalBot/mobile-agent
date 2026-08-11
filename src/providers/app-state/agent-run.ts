@@ -6,6 +6,7 @@ import { resolveConfiguredModel } from "@/modules/config/registry";
 import { prepareMessagesForLLM } from "@/modules/context";
 import type { Repositories } from "@/core/db/repositories/types";
 import { createMcpRuntimeTools } from "@/modules/mcp/runtime-tools";
+import { isMcpToolReadOnly } from "@/modules/mcp/read-only";
 import {
   buildMemorySystemPrompt,
   createMemoryTools,
@@ -155,6 +156,7 @@ function buildPlanModeSystemPrompt() {
     "You are in Plan mode. You may research, inspect, and analyze, but you must NOT make any changes.",
     "Never create, write, edit, delete, move, or rename files. Never tap, type, or otherwise operate the device. Never modify memory or MCP-connected systems.",
     "Your mutating tools are disabled, so attempting a change is impossible. Instead, investigate the relevant code and present a clear, step-by-step plan.",
+    "Read-only MCP tools, such as web search, remain available for research. Never call an MCP tool that would modify or send data.",
     "Structure your plan with the specific files and changes involved, why each step is needed, and any risks or trade-offs you noticed.",
     "End by telling the user to switch to Build mode when they are ready for you to make the changes.",
   ].join("\n");
@@ -981,11 +983,14 @@ export async function executeClaimedAgentRun(
         })()
       : undefined;
     mcpRuntime =
-      runtimeSupportsTools && !isPlanMode && runMcpServers.length > 0
+      runtimeSupportsTools && runMcpServers.length > 0
          ? await createMcpRuntimeTools({
              servers: runMcpServers,
              onRecord: handleToolExecutionRecord,
              signal: abortController.signal,
+             keepTool: isPlanMode
+               ? (tool) => isMcpToolReadOnly(tool)
+               : undefined,
            })
         : null;
     const memoryRuntime =
@@ -1079,6 +1084,9 @@ export async function executeClaimedAgentRun(
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
       ...(skillRuntime ? ["skill"] : []),
+      ...(isPlanMode && mcpRuntime?.tools
+        ? Object.keys(mcpRuntime.tools)
+        : []),
     ]);
     const approvedRuntimeTools = unapprovedRuntimeTools
       ? wrapToolsWithApproval(unapprovedRuntimeTools, {

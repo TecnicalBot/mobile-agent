@@ -15,10 +15,7 @@ import {
   getOnDeviceModelDefinitions,
 } from "@/modules/on-device/catalog";
 import { fetchOllamaModels } from "@/modules/providers/ollama-models";
-import {
-  getSupportedProviderDefinition,
-  resolveConfiguredModel,
-} from "@/modules/config/registry";
+import { resolveConfiguredModel } from "@/modules/config/registry";
 import { secureSecretStore } from "@/core/services/secrets";
 import {
   hasEnabledFolderTools,
@@ -106,16 +103,11 @@ export async function resolveConfig(
   const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
   const needsLiveModelCatalog = input.providers.some(
     (provider) =>
-      activeProviderIds.includes(provider.id) &&
-      provider.family !== "ollama" &&
-      provider.family !== "on-device" &&
-      getSupportedProviderDefinition(provider.id) !== null,
+      provider.family !== "ollama" && provider.family !== "on-device",
   );
   const needsModelsDevCatalog = input.providers.some(
     (provider) =>
-      activeProviderIds.includes(provider.id) &&
-      (provider.family === "openai-compatible" || provider.family === "xai") &&
-      getSupportedProviderDefinition(provider.id) !== null,
+      provider.family === "openai-compatible" || provider.family === "xai",
   );
 
   await Promise.all([

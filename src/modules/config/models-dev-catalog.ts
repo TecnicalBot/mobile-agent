@@ -12,6 +12,9 @@ type ModelsDevModel = {
   tool_call?: boolean;
   attachment?: boolean;
   reasoning?: boolean;
+  limit?: {
+    context?: number;
+  };
   modalities?: {
     input?: string[];
     output?: string[];
@@ -19,6 +22,7 @@ type ModelsDevModel = {
 };
 
 type ModelsDevProvider = {
+  api?: string;
   models?: Record<string, ModelsDevModel>;
 };
 
@@ -30,6 +34,97 @@ let cachedCatalog: {
 const PROVIDER_ID_ALIASES: Record<string, string> = {
   fireworks: "fireworks-ai",
 };
+
+// OpenCode Zen serves different model families over different protocols. The
+// app only talks the OpenAI-compatible /chat/completions protocol, so only the
+// models served over that endpoint are listed. GPT, Claude, Gemini, Grok and
+// Qwen are served over /responses, /messages or the Google API instead.
+const OPENCODE_CHAT_ONLY_FAMILIES = /^(?:claude|gemini|gpt-5|grok|qwen3)/i;
+
+function normalizeBaseUrl(url: string) {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+}
+
+function baseUrlsMatch(catalogApi: string, providerBaseUrl: string) {
+  const a = normalizeBaseUrl(catalogApi);
+  const b = normalizeBaseUrl(providerBaseUrl);
+
+  if (a === b) {
+    return true;
+  }
+
+  const aPathIndex = a.indexOf("/");
+  const bPathIndex = b.indexOf("/");
+  const aHost = aPathIndex === -1 ? a : a.slice(0, aPathIndex);
+  const bHost = bPathIndex === -1 ? b : b.slice(0, bPathIndex);
+
+  if (aHost !== bHost) {
+    return false;
+  }
+
+  const aRest = aPathIndex === -1 ? "" : a.slice(aPathIndex);
+  const bRest = bPathIndex === -1 ? "" : b.slice(bPathIndex);
+
+  return aRest.startsWith(bRest) || bRest.startsWith(aRest);
+}
+
+function pathSegmentCount(url: string) {
+  const path = normalizeBaseUrl(url).split("/").filter(Boolean);
+
+  return path.length;
+}
+
+export function resolveModelsDevProviderKey(
+  catalog: Record<string, ModelsDevProvider>,
+  provider: ProviderConfig,
+): string | null {
+  if (getSupportedProviderDefinition(provider.id)) {
+    return PROVIDER_ID_ALIASES[provider.id] ?? provider.id;
+  }
+
+  if (
+    (provider.family !== "openai-compatible" && provider.family !== "xai") ||
+    !provider.baseUrl
+  ) {
+    return null;
+  }
+
+  const baseUrl = provider.baseUrl;
+  const candidates: [string, string][] = [];
+
+  for (const [key, definition] of Object.entries(catalog)) {
+    if (
+      typeof definition?.api === "string" &&
+      baseUrlsMatch(definition.api, baseUrl)
+    ) {
+      candidates.push([key, definition.api]);
+    }
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const exact = candidates.find(
+    ([, api]) => normalizeBaseUrl(api) === normalizeBaseUrl(baseUrl),
+  );
+  if (exact) {
+    return exact[0];
+  }
+
+  candidates.sort(([, apiA], [, apiB]) => {
+    const segmentsA = pathSegmentCount(apiA);
+    const segmentsB = pathSegmentCount(apiB);
+
+    return segmentsA - segmentsB;
+  });
+
+  return candidates[0][0];
+}
 
 export async function fetchModelsDevCatalogCached() {
   if (cachedCatalog && cachedCatalog.expiresAt > Date.now()) {
@@ -64,20 +159,25 @@ export function getModelsDevDefinitionsForProvider(
   catalog: Record<string, ModelsDevProvider>,
   provider: ProviderConfig,
 ): CuratedModelDefinition[] {
-  if (
-    (provider.family !== "openai-compatible" && provider.family !== "xai") ||
-    !getSupportedProviderDefinition(provider.id)
-  ) {
+  if (provider.family !== "openai-compatible" && provider.family !== "xai") {
     return [];
   }
 
-  const catalogId = PROVIDER_ID_ALIASES[provider.id] ?? provider.id;
+  const catalogId = resolveModelsDevProviderKey(catalog, provider);
+  if (!catalogId) {
+    return [];
+  }
+
   const models = catalog[catalogId]?.models ?? {};
 
   return Object.entries(models).flatMap(([key, model]) => {
     if (model.status === "deprecated") return [];
 
     const id = model.id?.trim() || key;
+    if (catalogId === "opencode" && OPENCODE_CHAT_ONLY_FAMILIES.test(id)) {
+      return [];
+    }
+
     const inputModalities = model.modalities?.input ?? [];
     const outputModalities = model.modalities?.output ?? [];
     const imageGeneration = outputModalities.includes("image");
@@ -91,6 +191,7 @@ export function getModelsDevDefinitionsForProvider(
           reasoning: model.reasoning === true ? true : undefined,
           tools: model.tool_call === true,
         },
+        contextWindow: model.limit?.context ?? null,
         id,
         kind: /(?:mini|nano|small|flash-lite)/i.test(id) ? "small" : "chat",
         label: model.name?.trim() || id,

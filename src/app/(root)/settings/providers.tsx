@@ -2,7 +2,7 @@ import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, Text, View } from "react-native";
 import type { DownloadableModel } from "expo-ai-kit";
 
 import { Container } from "@/components/shared/container";
@@ -54,7 +54,7 @@ type ProviderListItem = {
 export default function SettingsProvidersScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { error: hydrationError, ready } = useAppState();
+  const { error: hydrationError, modelDiscoveryInProgress, ready } = useAppState();
   const {
     activeProviderIds,
     availableModels,
@@ -977,6 +977,7 @@ export default function SettingsProvidersScreen() {
                                 (selectedProviderNeedsBaseUrl
                                   ? null
                                   : selectedProvider.baseUrl),
+                              enabled: true,
                               label: selectedItem.label,
                             });
 
@@ -1264,6 +1265,13 @@ export default function SettingsProvidersScreen() {
                         </View>
                       ) : null,
                     )
+                  ) : !selectedProviderIsCustom && modelDiscoveryInProgress ? (
+                    <View className="flex-row items-center gap-sp-2 py-sp-1">
+                      <ActivityIndicator color={theme.text} size="small" />
+                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                        Loading models…
+                      </Text>
+                    </View>
                   ) : (
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                       {selectedProvider.family === "ollama" &&

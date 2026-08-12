@@ -387,6 +387,7 @@ export type AppSettings = {
 
 export type CuratedModelDefinition = {
   capabilities?: Partial<ModelCapabilities>;
+  contextWindow?: number | null;
   id: string;
   kind: ModelKind;
   label: string;
@@ -414,6 +415,7 @@ export type ResolvedModel = {
   supportsReasoning: boolean;
   transport: ModelTransport;
   options: Record<string, unknown> | null;
+  contextWindow: number | null;
 };
 
 export type ResolvedConfig = {

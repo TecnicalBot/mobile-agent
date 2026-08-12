@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 19;
+const DATABASE_VERSION = 20;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -610,6 +610,16 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     }
 
     currentVersion = 19;
+  }
+
+  if (currentVersion === 19) {
+    await db.execAsync(`
+      UPDATE provider_configs
+      SET label = 'OpenCode Zen'
+      WHERE id = 'opencode' AND label IN ('OpenCode', 'opencode');
+    `);
+
+    currentVersion = 20;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

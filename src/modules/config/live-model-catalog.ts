@@ -155,6 +155,49 @@ function getOwnerForProvider(provider: ProviderConfig) {
   return provider.id;
 }
 
+const CUSTOM_PROVIDER_HOST_OWNERS: Record<string, string> = {
+  "api.openai.com": "openai",
+  "api.anthropic.com": "anthropic",
+  "generativelanguage.googleapis.com": "google",
+  "openrouter.ai": "openrouter",
+  "api.x.ai": "xai",
+  "api.deepseek.com": "deepseek",
+  "api.moonshot.cn": "moonshotai",
+  "api.moonshot.ai": "moonshotai",
+  "api.minimax.io": "minimax",
+  "api.minimaxi.com": "minimax",
+  "open.bigmodel.cn": "zai",
+  "api.z.ai": "zai",
+  "api.mistral.ai": "mistral",
+  "api.nvidia.com": "nvidia",
+};
+
+function getBaseUrlHost(url: string) {
+  const cleaned = url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "");
+
+  return cleaned.split("/")[0]?.replace(/^www\./, "") ?? null;
+}
+
+export function resolveLiveCatalogOwner(provider: ProviderConfig): string | null {
+  if (getSupportedProviderDefinition(provider.id)) {
+    return getOwnerForProvider(provider);
+  }
+
+  if (
+    (provider.family !== "openai-compatible" && provider.family !== "xai") ||
+    !provider.baseUrl
+  ) {
+    return null;
+  }
+
+  const host = getBaseUrlHost(provider.baseUrl);
+
+  return host ? (CUSTOM_PROVIDER_HOST_OWNERS[host] ?? null) : null;
+}
+
 export async function fetchLiveModelCatalog(
   signal?: AbortSignal,
 ): Promise<LiveCatalogModel[]> {
@@ -221,10 +264,6 @@ export function getCatalogModelDefinitionsForProvider(
   models: LiveCatalogModel[],
   provider: ProviderConfig,
 ): CuratedModelDefinition[] {
-  if (!getSupportedProviderDefinition(provider.id)) {
-    return [];
-  }
-
   return getLiveModelsForProvider(models, provider).flatMap((model) => {
     const imageGeneration = model.tags.includes("image-generation");
     const id = getProviderModelId(model, provider);
@@ -241,6 +280,7 @@ export function getCatalogModelDefinitionsForProvider(
               : undefined,
           tools: model.tags.includes("tool-use"),
         },
+        contextWindow: model.contextWindow,
         id,
         kind: /(?:mini|nano|haiku|flash-lite|small)/i.test(id)
           ? "small"
@@ -262,14 +302,13 @@ export function getLiveModelsForProvider(
     return languageModels;
   }
 
-  if (!getSupportedProviderDefinition(provider.id)) {
+  const owner = resolveLiveCatalogOwner(provider);
+  if (!owner) {
     return [];
   }
 
-  const acceptedOwners = [getOwnerForProvider(provider).toLowerCase()];
-
-  return languageModels.filter((model) =>
-    acceptedOwners.includes(model.ownedBy.toLowerCase()),
+  return languageModels.filter(
+    (model) => model.ownedBy.toLowerCase() === owner.toLowerCase(),
   );
 }
 

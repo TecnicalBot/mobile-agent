@@ -1245,6 +1245,13 @@ export async function executeClaimedAgentRun(
 
     if (
       contextWindowFromCatalog === null &&
+      resolvedModel.contextWindow !== null
+    ) {
+      contextWindowFromCatalog = resolvedModel.contextWindow;
+    }
+
+    if (
+      contextWindowFromCatalog === null &&
       resolvedModel.providerFamily === "ollama"
     ) {
       const ollamaOptions = resolvedModel.options?.ollama;

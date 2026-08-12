@@ -142,12 +142,14 @@ export function useChatInfo() {
       latestUsage !== null ? findLiveModel(liveModels, latestUsage) : null;
     const ollamaContextWindow =
       currentModel !== null ? getOllamaContextWindow(currentModel) : null;
+    const fallbackContextWindow =
+      ollamaContextWindow ?? currentModel?.contextWindow ?? null;
 
     const conversationTotals =
       assistantUsages.length > 0
         ? (() => {
             const enriched = assistantUsages.map((usage) =>
-              enrichUsage(usage, findLiveModel(liveModels, usage), ollamaContextWindow),
+              enrichUsage(usage, findLiveModel(liveModels, usage), fallbackContextWindow),
             );
             const modelLabels = new Set(enriched.map((usage) => usage.modelLabel));
             const providerLabels = new Set(
@@ -198,7 +200,10 @@ export function useChatInfo() {
       currentModel: currentModel
         ? {
             contextWindow:
-              currentLiveModel?.contextWindow ?? ollamaContextWindow ?? null,
+              currentLiveModel?.contextWindow ??
+              currentModel.contextWindow ??
+              ollamaContextWindow ??
+              null,
             modelId: currentModel.modelId,
             modelLabel: currentModel.label,
             providerId: currentModel.providerId,
@@ -207,7 +212,7 @@ export function useChatInfo() {
         : null,
       latestTurn:
         latestUsage !== null
-          ? enrichUsage(latestUsage, latestLiveModel, ollamaContextWindow)
+          ? enrichUsage(latestUsage, latestLiveModel, fallbackContextWindow)
           : null,
     };
   }, [currentModel, liveModels, messages]);

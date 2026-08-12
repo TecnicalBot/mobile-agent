@@ -213,6 +213,7 @@ type AppStateContextValue = {
     disconnectOpenAIOAuth: () => Promise<void>;
     error: string | null;
     hydrating: boolean;
+    modelDiscoveryInProgress: boolean;
     importFiles: (assets: DocumentPickerAsset[]) => Promise<WorkspaceFile[]>;
     inAppNotification: {
         body: string;
@@ -377,6 +378,8 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_SNAPSHOT);
     const [ready, setReady] = useState(false);
     const [hydrating, setHydrating] = useState(true);
+    const [modelDiscoveryInProgress, setModelDiscoveryInProgress] =
+        useState(false);
     const [error, setError] = useState<string | null>(null);
     const [pendingToolApprovals, setPendingToolApprovals] = useState<
         PendingToolApproval[]
@@ -909,6 +912,7 @@ Your output must be:
             });
             setReady(true);
 
+            setModelDiscoveryInProgress(true);
             void resolveConfig(
                 {
                     providers,
@@ -949,6 +953,9 @@ Your output must be:
                 })
                 .catch((discoveryError) => {
                     console.warn("Failed to refresh model discovery.", discoveryError);
+                })
+                .finally(() => {
+                    setModelDiscoveryInProgress(false);
                 });
         } catch (hydrateError) {
             setError(
@@ -3041,6 +3048,7 @@ Your output must be:
                 importFiles,
                 inAppNotification,
                 importSkillMarkdown,
+                modelDiscoveryInProgress,
                 exportSkillMarkdown,
                 messages: snapshot.messages,
                 editAndResendMessage,
@@ -3115,6 +3123,7 @@ export function useAppState() {
         dismissInAppNotification: context.dismissInAppNotification,
         ready: context.ready,
         hydrating: context.hydrating,
+        modelDiscoveryInProgress: context.modelDiscoveryInProgress,
         inAppNotification: context.inAppNotification,
         sending: context.sending,
         error: context.error,

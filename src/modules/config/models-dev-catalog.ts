@@ -6,6 +6,12 @@ const MODELS_DEV_URL = "https://models.dev/api.json";
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
 type ModelsDevModel = {
+  cost?: {
+    cache_read?: number;
+    cache_write?: number;
+    input?: number;
+    output?: number;
+  };
   id?: string;
   name?: string;
   status?: string;
@@ -193,6 +199,8 @@ export function getModelsDevDefinitionsForProvider(
         },
         contextWindow: model.limit?.context ?? null,
         id,
+        isFree:
+          model.cost?.input === 0 && model.cost?.output === 0 ? true : undefined,
         kind: /(?:mini|nano|small|flash-lite)/i.test(id) ? "small" : "chat",
         label: model.name?.trim() || id,
         outputType: imageGeneration ? "image" : "text",

@@ -389,6 +389,7 @@ export type CuratedModelDefinition = {
   capabilities?: Partial<ModelCapabilities>;
   contextWindow?: number | null;
   id: string;
+  isFree?: boolean;
   kind: ModelKind;
   label: string;
   outputType?: "image" | "text";
@@ -407,6 +408,7 @@ export type ResolvedModel = {
   label: string;
   outputType: "image" | "text";
   isDefault: boolean;
+  isFree: boolean;
   source: "suggested" | "custom";
   active: boolean;
   supportsTools: boolean;

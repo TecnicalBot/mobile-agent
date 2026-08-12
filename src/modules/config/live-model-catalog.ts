@@ -282,6 +282,9 @@ export function getCatalogModelDefinitionsForProvider(
         },
         contextWindow: model.contextWindow,
         id,
+        isFree:
+          (model.inputPricePerToken ?? 0) === 0 &&
+          (model.outputPricePerToken ?? 0) === 0,
         kind: /(?:mini|nano|haiku|flash-lite|small)/i.test(id)
           ? "small"
           : "chat",

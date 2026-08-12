@@ -1366,6 +1366,10 @@ function buildCapabilityBadges(
 
   const capabilities = model.capabilities ?? {};
 
+  if ("isFree" in model && model.isFree) {
+    badges.push("Free");
+  }
+
   if (("supportsTools" in model && model.supportsTools) || capabilities.tools) {
     badges.push("Tools");
   }

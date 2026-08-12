@@ -102,6 +102,7 @@ export function resolveConfiguredModel(input: {
       suggestion.outputType ??
       (/\b(image|imagen)\b/i.test(suggestion.id) ? "image" : "text"),
     isDefault: input.isDefault,
+    isFree: catalogSuggestion?.isFree ?? false,
     source: catalogSuggestion ? "suggested" : "custom",
     active: input.active,
     capabilities: profile.capabilities,

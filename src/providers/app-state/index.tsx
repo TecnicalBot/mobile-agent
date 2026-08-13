@@ -30,7 +30,6 @@ import {
     prepareRunNotificationsAsync,
 } from "@/modules/notifications/run-notifications";
 import { setBackgroundAgentNotificationState } from "background-agent-service";
-import { setProtectedApps } from "device-automation";
 import {
     clearOpenAiTokens,
     getOpenAiAccessToken,
@@ -293,7 +292,6 @@ type AppStateContextValue = {
         input: Partial<BuiltInToolSettings>,
     ) => Promise<void>;
     updateMemoryEnabled: (enabled: boolean) => Promise<void>;
-    updateProtectedApps: (packageNames: string[]) => Promise<void>;
     updateToolApprovalMode: (
         mode: AppSettings["toolApprovalMode"],
     ) => Promise<void>;
@@ -877,15 +875,6 @@ Your output must be:
                 resolvedConfig,
                 settings,
             } satisfies AppStateSnapshot;
-
-            if (Platform.OS === "android") {
-                setProtectedApps(settings.protectedApps).catch((error) => {
-                    console.warn(
-                        "Failed to sync protected apps to the device automation service.",
-                        error,
-                    );
-                });
-            }
 
             setSnapshot((current) => {
                 const hasLocallyOwnedRuns = current.agentRuns.some((run) =>
@@ -1632,21 +1621,6 @@ Your output must be:
         );
         await hydrate();
     }
-
-    const updateProtectedApps = useCallback(async (packageNames: string[]) => {
-        await repositoriesRef.current.configRepository.setProtectedApps(
-            packageNames,
-        );
-        if (Platform.OS === "android") {
-            setProtectedApps(packageNames).catch((error) => {
-                console.warn(
-                    "Failed to sync protected apps to the device automation service.",
-                    error,
-                );
-            });
-        }
-        await hydrate();
-    }, [hydrate]);
 
     const updateToolApprovalMode = useCallback(
         async (mode: AppSettings["toolApprovalMode"]) => {
@@ -3090,7 +3064,6 @@ Your output must be:
                 updateDatabaseSettings,
                 updateBuiltInToolSettings,
                 updateMemoryEnabled,
-                updateProtectedApps,
                 updateSavedPrompt,
                 updateSkill,
                 updateToolApprovalMode,
@@ -3186,8 +3159,6 @@ export function useConfig() {
         updateMcpServer: context.updateMcpServer,
         updateBuiltInToolSettings: context.updateBuiltInToolSettings,
         updateMemoryEnabled: context.updateMemoryEnabled,
-        updateProtectedApps: context.updateProtectedApps,
-        protectedApps: context.settings.protectedApps,
         updateSavedPrompt: context.updateSavedPrompt,
         updateSkill: context.updateSkill,
         updateToolApprovalMode: context.updateToolApprovalMode,

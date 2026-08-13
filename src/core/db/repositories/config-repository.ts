@@ -189,15 +189,6 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
       const normalized = Math.max(1, Math.min(100, Math.round(maxToolSteps)));
       await this.setSetting("max_tool_steps", String(normalized));
     },
-    async setProtectedApps(packageNames) {
-      const normalized = Array.from(new Set(packageNames)).filter(
-        (name) => typeof name === "string" && name.length > 0,
-      );
-      await this.setSetting(
-        "device_protected_apps_json",
-        JSON.stringify(normalized),
-      );
-    },
     async setNotificationSettings(input) {
       const settings = await this.getSettings();
       const nextSettings = {

@@ -49,15 +49,8 @@ import {
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
-import { stopScreenCapture } from "device-automation";
 import { Platform } from "react-native";
-import {
-  buildDeviceSystemPrompt,
-  createDeviceTools,
-} from "@/modules/tools/device-tools";
-import { isDeviceAutomationEnabled } from "@/modules/config/built-in-tools";
-import { dismissApprovalNotification } from "@/modules/notifications/run-notifications";
-import { persistGeneratedImages } from "@/modules/tools/generated-images";
+import { dismissApprovalNotification } from "@/modules/notifications/run-notifications";import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
   buildSelectedFilesInlineContext,
   buildWorkspaceSystemPrompt,
@@ -774,7 +767,6 @@ export async function executeClaimedAgentRun(
 
   let mcpRuntime: Awaited<ReturnType<typeof createMcpRuntimeTools>> | null =
     null;
-  let deviceToolsActive = false;
 
   const recordPromptArtifact = (artifact: PromptArtifact) => {
     promptArtifacts.push(artifact);
@@ -1052,25 +1044,10 @@ export async function executeClaimedAgentRun(
         .catch(() => {});
     }
 
-    const deviceRuntimeTools: ToolSet | undefined =
-      runtimeSupportsTools &&
-      !isPlanMode &&
-      Platform.OS === "android" &&
-      isDeviceAutomationEnabled(snapshotRef.current.settings.builtInToolSettings)
-        ? createDeviceTools({
-            onRecord: handleToolExecutionRecord,
-            protectedApps: snapshotRef.current.settings.protectedApps,
-          })
-        : undefined;
-    if (deviceRuntimeTools) {
-      deviceToolsActive = true;
-    }
-
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || deviceRuntimeTools || todosRuntime || questionRuntime || skillRuntime
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime
         ? ({
             ...(builtInRuntimeTools ?? {}),
-            ...(deviceRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
             ...(todosRuntime?.tools ?? {}),
             ...(questionRuntime?.tools ?? {}),
@@ -1151,10 +1128,6 @@ export async function executeClaimedAgentRun(
         "importFolderFileToWorkspace" in builtInRuntimeTools)
         ? buildTransferSystemPrompt(activeFolderSession as ExternalFolderSession)
         : undefined;
-    const deviceRuntimeSystem =
-      Platform.OS === "android" && deviceRuntimeTools
-        ? buildDeviceSystemPrompt(snapshotRef.current.settings.protectedApps)
-        : undefined;
     const selectedFilesContext = useInlineFileContext
       ? await buildSelectedFilesInlineContext({
           repository: repositories.workspaceRepository,
@@ -1204,7 +1177,6 @@ export async function executeClaimedAgentRun(
         builtInRuntimeSystem,
         workspaceRuntimeSystem,
         transferRuntimeSystem,
-        deviceRuntimeSystem,
         mcpRuntime?.systemPrompt,
         memoryRuntimeSystem,
         skillsRuntimeSystem,
@@ -1773,10 +1745,6 @@ export async function executeClaimedAgentRun(
     dismissApprovalNotification(run.id).catch(() => {});
 
     stopBackgroundAgent();
-
-    if (deviceToolsActive) {
-      stopScreenCapture().catch(() => {});
-    }
 
     await mcpRuntime?.close();
 

@@ -65,20 +65,7 @@ export type BuiltInToolKey =
   | "folderEdit"
   | "todos"
   | "question"
-  | "skill"
-  | "deviceReadScreen"
-  | "deviceTap"
-  | "deviceType"
-  | "deviceSwipe"
-  | "deviceLongPress"
-  | "deviceDrag"
-  | "deviceScroll"
-  | "deviceNavigate"
-  | "deviceOpenApp"
-  | "deviceDeepLink"
-  | "deviceListApps"
-  | "deviceClipboard"
-  | "deviceScreenshot";
+  | "skill";
 export type BuiltInToolSettings = Record<BuiltInToolKey, boolean>;
 export type SkillConfig = {
   id: string;
@@ -379,7 +366,6 @@ export type AppSettings = {
   databaseUrl: string | null;
   memoryEnabled: boolean;
   maxToolSteps: number;
-  protectedApps: string[];
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
   notificationSettings: NotificationSettings;

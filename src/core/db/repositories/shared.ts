@@ -46,29 +46,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
     }
   })();
 
-  const parsedProtectedApps = (() => {
-    const raw = settingsMap.get("device_protected_apps_json");
-
-    if (!raw) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-
-      return parsed.filter(
-        (entry): entry is string =>
-          typeof entry === "string" && entry.length > 0,
-      );
-    } catch {
-      return [];
-    }
-  })();
-
   return {
     activeConversationId: settingsMap.get("active_conversation_id") ?? null,
     activeModelRef:
@@ -97,7 +74,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       Number.isInteger(parsedMaxToolSteps) && parsedMaxToolSteps >= 1
         ? Math.min(parsedMaxToolSteps, 100)
         : 50,
-    protectedApps: parsedProtectedApps,
     themeMode: (["system", "light", "dark"] as const).includes(
       storedThemeMode as ThemeMode,
     )

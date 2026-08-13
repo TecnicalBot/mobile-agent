@@ -22,9 +22,8 @@ import type { DatabaseMode, ModelRef } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
-import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
-import { countEnabledBuiltInTools } from "@/modules/config/built-in-tools";
+import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
 import { useUpdate } from "@/providers/check-for-updates";
 import {
   isBackgroundAgentHeld,
@@ -87,11 +86,7 @@ export default function SettingsScreen() {
   }, []);
 
   const providerCount = providers.length;
-  const devicePermissions = useDeviceAutomationPermissions();
-  const enabledToolCount = countEnabledBuiltInTools(
-    toolSettings,
-    devicePermissions,
-  );
+  const enabledToolCount = countEnabledBuiltInFileTools(toolSettings);
   const enabledMcpServerCount = mcpServers.filter(
     (server) => server.enabled,
   ).length;

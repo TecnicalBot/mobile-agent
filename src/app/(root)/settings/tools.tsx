@@ -3,12 +3,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ListChecks,
-  Smartphone,
-  Wrench,
 } from "lucide-react-native";
 import { useState, type ReactNode } from "react";
 import { Pressable, Platform, Text, View } from "react-native";
 
+import { ToolToggleList } from "@/components/settings/tool-toggle-list";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,22 +20,15 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
-import { useDeviceAutomationPermissions } from "@/hooks/use-device-automation-permissions";
 import { useTheme } from "@/hooks/use-theme";
-import {
-  countEnabledBuiltInFileTools,
-  countEnabledDeviceTools,
-} from "@/modules/config/built-in-tools";
+import { BUILT_IN_FILE_TOOL_CONTROLS } from "@/modules/config/built-in-tools";
 
 export default function SettingsToolsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const devicePermissions = useDeviceAutomationPermissions();
   const {
     maxToolSteps,
-    toolSettings,
     updateMaxToolSteps,
   } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -83,23 +75,13 @@ export default function SettingsToolsScreen() {
           }}
           value={`${maxToolSteps}`}
         />
-        <Separator />
-        <ToolGroupRow
-          icon={<Wrench color={theme.text} size={19} />}
-          label="Core tools"
-          onPress={() => router.push("/settings/tools/core" as never)}
-          value={`${countEnabledBuiltInFileTools(toolSettings)} active`}
-        />
-        {Platform.OS === "android" ? <Separator /> : null}
-        {Platform.OS === "android" ? (
-          <ToolGroupRow
-            icon={<Smartphone color={theme.text} size={19} />}
-            label="Device controls"
-            onPress={() => router.push("/settings/tools/device" as never)}
-            value={`${countEnabledDeviceTools(toolSettings, devicePermissions)} active`}
-          />
-        ) : null}
       </Card>
+
+      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        Give the agent access to files in its workspace and selected folders.
+      </Text>
+
+      <ToolToggleList controls={BUILT_IN_FILE_TOOL_CONTROLS} />
 
       <Drawer onOpenChange={setStepsDrawerOpen} open={stepsDrawerOpen}>
         <DrawerContent showCloseButton>

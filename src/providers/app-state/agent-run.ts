@@ -3,7 +3,10 @@ import type { RefObject } from "react";
 
 import { fetchLiveModelCatalogCached } from "@/modules/config/live-model-catalog";
 import { resolveConfiguredModel } from "@/modules/config/registry";
-import { prepareMessagesForLLM } from "@/modules/context";
+import {
+  prepareMessagesForLLMWithSummary,
+  type GenerateSummary,
+} from "@/modules/context";
 import type { Repositories } from "@/core/db/repositories/types";
 import { createMcpRuntimeTools } from "@/modules/mcp/runtime-tools";
 import { isMcpToolReadOnly } from "@/modules/mcp/read-only";
@@ -1265,12 +1268,28 @@ export async function executeClaimedAgentRun(
       contextWindowFromCatalog = onDevicePolicy.contextWindow;
     }
 
-    const contextResult = prepareMessagesForLLM({
+    const generateSummary: GenerateSummary | undefined =
+      resolvedModel.providerFamily === "on-device"
+        ? undefined
+        : async (prompt) => {
+            const result = await modelRuntime.generateTextStream({
+              abortSignal: abortController.signal,
+              maxToolSteps: 1,
+              messages: [{ role: "user", content: prompt }],
+              model: resolvedModel,
+              provider,
+              secretStore: secureSecretStore,
+            });
+            return result.text;
+          };
+
+    const contextResult = await prepareMessagesForLLMWithSummary({
       contextWindow: contextWindowFromCatalog,
       messages: runtimeMessages,
       model: resolvedModel,
       systemPrompt: runtimeSystem,
       tools: runtimeTools,
+      generateSummary,
     });
     if (
       resolvedModel.providerFamily === "on-device" &&
@@ -1284,10 +1303,19 @@ export async function executeClaimedAgentRun(
 
     runtimeMessages = contextResult.messages;
 
-    if (contextResult.didPrune || contextResult.didTruncate) {
+    if (
+      contextResult.didPrune ||
+      contextResult.didTruncate ||
+      contextResult.didSummarize
+    ) {
+      const actions = [
+        contextResult.didPrune ? "pruned tool outputs" : null,
+        contextResult.didSummarize ? "summarized older messages" : null,
+        contextResult.didTruncate ? "truncated old messages" : null,
+      ].filter((action): action is string => action !== null);
       pushTimelineEvent(
         createExecutionTimelineEvent({
-          detail: `Context managed: ${contextResult.didPrune ? "pruned tool outputs" : ""}${contextResult.didPrune && contextResult.didTruncate ? " + " : ""}${contextResult.didTruncate ? "truncated old messages" : ""} (${contextResult.budget.usable} token budget)`,
+          detail: `Context managed: ${actions.join(" + ")} (${contextResult.budget.usable} token budget)`,
           kind: "run",
           status: "info",
           title: "Context managed",

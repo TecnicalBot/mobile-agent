@@ -79,7 +79,8 @@
     "eslint-config-expo": "~57.0.0",
     "prettier-plugin-tailwindcss": "^0.5.14",
     "tailwindcss": "^3.4.19",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.10"
   },
   "repository": {
     "type": "git",
@@ -92,6 +93,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "expo lint",
     "postinstall": "node ./scripts/patch-ai-sdk-react-native.js"
   },

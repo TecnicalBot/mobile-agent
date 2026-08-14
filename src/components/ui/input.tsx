@@ -7,7 +7,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/core/utils';
 
 const inputVariants = cva(
-  'rounded-ui border bg-input px-sp-4 py-sp-3 font-sans text-base text-foreground dark:bg-input-dark dark:text-foreground-dark',
+  'min-h-12 rounded-ui border bg-input px-sp-4 py-sp-2 font-sans text-base text-foreground dark:bg-input-dark dark:text-foreground-dark',
   {
     variants: {
       disabled: {

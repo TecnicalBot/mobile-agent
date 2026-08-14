@@ -44,6 +44,7 @@ export function createAgentRunRepository(db: AppDatabase): AgentRunRepository {
         maxRetries: input.maxRetries ?? 3,
         lastRetryAt: input.lastRetryAt ?? null,
         agentMode: input.agentMode ?? "build",
+        autoApprove: input.autoApprove ?? false,
       });
 
       const row = (
@@ -124,6 +125,7 @@ export function createAgentRunRepository(db: AppDatabase): AgentRunRepository {
               ? input.lastRetryAt
               : current.lastRetryAt,
           agentMode: input.agentMode ?? current.agentMode,
+          autoApprove: input.autoApprove ?? current.autoApprove,
         })
         .where(eq(agentRuns.id, id));
     },

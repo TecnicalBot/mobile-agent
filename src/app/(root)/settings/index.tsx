@@ -51,6 +51,8 @@ export default function SettingsScreen() {
     databaseUrl,
     memoryEnabled,
     refresh,
+    schedules,
+    schedulingEnabled,
     selectModel,
     mcpServers,
     notificationSettings,
@@ -169,6 +171,18 @@ export default function SettingsScreen() {
             router.push("/settings/memory" as never);
           }}
           value={memoryEnabled ? "Local" : "Disabled"}
+        />
+        <Separator />
+        <SettingsLinkRow
+          label="Jobs"
+          onPress={() => {
+            router.push("/settings/jobs" as never);
+          }}
+          value={
+            schedulingEnabled
+              ? `${schedules.filter((schedule) => schedule.enabled).length} active`
+              : "Off"
+          }
         />
         <Separator />
         <Drawer

@@ -23,6 +23,7 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   todos: true,
   question: true,
   skill: true,
+  schedules: true,
 };
 
 const LEGACY_TOOL_KEY_MAP: Partial<Record<string, BuiltInToolKey>> = {
@@ -97,6 +98,7 @@ export const ALWAYS_ENABLED_BUILT_IN_TOOLS: BuiltInToolKey[] = [
   "todos",
   "question",
   "skill",
+  "schedules",
 ];
 
 export function normalizeBuiltInToolSettings(

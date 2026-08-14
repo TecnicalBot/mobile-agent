@@ -23,6 +23,9 @@ import type {
   ProviderConfig,
   ReasoningEffort,
   SavedPrompt,
+  Schedule,
+  ScheduleRun,
+  ScheduleRunStatus,
   SkillConfig,
   StoredMessage,
   ToolApprovalMode,
@@ -88,6 +91,7 @@ export interface AgentRunRepository {
   create(input: {
     agentMode?: AgentMode;
     assistantMessageId: string;
+    autoApprove?: boolean;
     completedAt?: string | null;
     conversationId: string;
     externalFolderSession?: ExternalFolderSession | null;
@@ -113,24 +117,24 @@ export interface AgentRunRepository {
   update(
     id: string,
     input: {
-      agentMode?: AgentMode;
-      completedAt?: string | null;
-      externalFolderSession?: ExternalFolderSession | null;
-      fileContextSource?: FileContextSource | null;
-      input?: string;
-      lastError?: string | null;
-      modelId?: string;
-      providerId?: string;
-      resumeCount?: number;
-      retryCount?: number;
-      maxRetries?: number;
-      lastRetryAt?: string | null;
-      selectedFileIds?: string[];
-      startedAt?: string;
-      status?: AgentRunStatus;
-      updatedAt?: string;
-    },
-  ): Promise<void>;
+  agentMode?: AgentMode;
+  completedAt?: string | null;
+  externalFolderSession?: ExternalFolderSession | null;
+  fileContextSource?: FileContextSource | null;
+  input?: string;
+  lastError?: string | null;
+  modelId?: string;
+  providerId?: string;
+  resumeCount?: number;
+  retryCount?: number;
+  maxRetries?: number;
+  lastRetryAt?: string | null;
+  selectedFileIds?: string[];
+  startedAt?: string;
+  status?: AgentRunStatus;
+  updatedAt?: string;
+  autoApprove?: boolean;
+  }): Promise<void>;
 }
 
 export interface WorkspaceRepository {
@@ -257,6 +261,68 @@ export interface SavedPromptRepository {
   ): Promise<void>;
 }
 
+export interface ScheduleRepository {
+  create(input: {
+    autoApprove?: boolean;
+    conversationId?: string | null;
+    enabled?: boolean;
+    expression: string;
+    externalFolderSession?: ExternalFolderSession | null;
+    id?: string;
+    lastRunAt?: string | null;
+    modelId: string;
+    nextRunAt?: string | null;
+    prompt: string;
+    providerId: string;
+    timezone: string;
+    title: string;
+  }): Promise<Schedule>;
+  delete(id: string): Promise<void>;
+  getById(id: string): Promise<Schedule | null>;
+  list(): Promise<Schedule[]>;
+  listEnabled(): Promise<Schedule[]>;
+  update(
+    id: string,
+    input: {
+      autoApprove?: boolean;
+      conversationId?: string | null;
+      enabled?: boolean;
+      expression?: string;
+      externalFolderSession?: ExternalFolderSession | null;
+      lastRunAt?: string | null;
+      modelId?: string;
+      nextRunAt?: string | null;
+      prompt?: string;
+      providerId?: string;
+      timezone?: string;
+      title?: string;
+    },
+  ): Promise<void>;
+}
+
+export interface ScheduleRunRepository {
+  create(input: {
+    completedAt?: string | null;
+    error?: string | null;
+    id?: string;
+    runId?: string | null;
+    scheduleId: string;
+    startedAt?: string;
+    status: ScheduleRunStatus;
+  }): Promise<ScheduleRun>;
+  getById(id: string): Promise<ScheduleRun | null>;
+  listBySchedule(scheduleId: string, limit?: number): Promise<ScheduleRun[]>;
+  update(
+    id: string,
+    input: {
+      completedAt?: string | null;
+      error?: string | null;
+      runId?: string | null;
+      status?: ScheduleRunStatus;
+    },
+  ): Promise<void>;
+}
+
 export interface ConfigRepository {
   createProvider(input: {
     authType: ProviderConfig["authType"];
@@ -286,6 +352,7 @@ export interface ConfigRepository {
   }): Promise<void>;
   setBuiltInToolSettings(input: Partial<BuiltInToolSettings>): Promise<void>;
   setMemoryEnabled(enabled: boolean): Promise<void>;
+  setSchedulingEnabled(enabled: boolean): Promise<void>;
   setThemeMode(mode: ThemeMode): Promise<void>;
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
   setMaxToolSteps(maxToolSteps: number): Promise<void>;
@@ -315,6 +382,8 @@ export type Repositories = {
   mcpServerRepository: McpServerRepository;
   messageRepository: MessageRepository;
   savedPromptRepository: SavedPromptRepository;
+  scheduleRepository: ScheduleRepository;
+  scheduleRunRepository: ScheduleRunRepository;
   skillRepository: SkillRepository;
   workspaceRepository: WorkspaceRepository;
 };

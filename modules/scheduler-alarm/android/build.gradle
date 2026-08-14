@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.scheduleralarm'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.scheduleralarm"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // react-android classes (ReactApplication, HeadlessJsTaskContext, ...) are
+  // provided by the host app at runtime.
+  compileOnly 'com.facebook.react:react-android'
+}

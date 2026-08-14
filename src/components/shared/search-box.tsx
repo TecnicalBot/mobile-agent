@@ -23,7 +23,7 @@ export const SearchBox = forwardRef<TextInput, SearchBoxProps>(
     return (
       <View
         className={cn(
-          "flex-row items-center gap-2 rounded-ui border bg-input px-sp-4 dark:bg-input-dark",
+          "min-h-12 flex-row items-center gap-2 rounded-ui border bg-input px-sp-4 dark:bg-input-dark",
           focused
             ? "border-ring dark:border-ring-dark"
             : "border-border dark:border-border-dark",
@@ -32,7 +32,7 @@ export const SearchBox = forwardRef<TextInput, SearchBoxProps>(
       >
         <TextInput
           ref={ref}
-          className="min-h-11 flex-1 py-sp-2 font-sans text-base text-foreground dark:text-foreground-dark"
+          className="flex-1 py-sp-2 font-sans text-base text-foreground dark:text-foreground-dark"
           cursorColor={theme.text}
           onBlur={(event) => {
             setFocused(false);

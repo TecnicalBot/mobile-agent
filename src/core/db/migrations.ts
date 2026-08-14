@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 20;
+const DATABASE_VERSION = 22;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -28,6 +28,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     max_retries INTEGER NOT NULL DEFAULT 3,
     last_retry_at TEXT,
     agent_mode TEXT NOT NULL DEFAULT 'build',
+    auto_approve INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
   );
 
@@ -36,6 +37,44 @@ const CORE_SCHEMA_REPAIR_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_agent_runs_status_updated_at
   ON agent_runs(status, updated_at);
+
+  CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY NOT NULL,
+    title TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    expression TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    auto_approve INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    conversation_id TEXT,
+    external_folder_session_json TEXT,
+    last_run_at TEXT,
+    next_run_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS schedule_runs (
+    id TEXT PRIMARY KEY NOT NULL,
+    schedule_id TEXT NOT NULL,
+    run_id TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_schedules_enabled_next_run_at
+  ON schedules(enabled, next_run_at);
+
+  CREATE INDEX IF NOT EXISTS idx_schedules_updated_at
+  ON schedules(updated_at);
+
+  CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started_at
+  ON schedule_runs(schedule_id, started_at);
 `;
 
 export async function migrateAppDatabase(db: SQLiteDatabase) {
@@ -233,6 +272,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         max_retries INTEGER NOT NULL DEFAULT 3,
         last_retry_at TEXT,
         agent_mode TEXT NOT NULL DEFAULT 'build',
+        auto_approve INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (conversation_id) REFERENCES conversations(id)
       );
 
@@ -259,6 +299,44 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
 
       CREATE INDEX IF NOT EXISTS idx_agent_runs_status_updated_at
       ON agent_runs(status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        expression TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        auto_approve INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        conversation_id TEXT,
+        external_folder_session_json TEXT,
+        last_run_at TEXT,
+        next_run_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS schedule_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        schedule_id TEXT NOT NULL,
+        run_id TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_schedules_enabled_next_run_at
+      ON schedules(enabled, next_run_at);
+
+      CREATE INDEX IF NOT EXISTS idx_schedules_updated_at
+      ON schedules(updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started_at
+      ON schedule_runs(schedule_id, started_at);
     `);
 
     currentVersion = DATABASE_VERSION;
@@ -620,6 +698,80 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 20;
+  }
+
+  if (currentVersion === 20) {
+    const runColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(agent_runs)",
+    );
+
+    if (!runColumns.some((column) => column.name === "auto_approve")) {
+      await db.execAsync(`
+        ALTER TABLE agent_runs
+        ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0;
+      `);
+    }
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        expression TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        auto_approve INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        conversation_id TEXT,
+        external_folder_session_json TEXT,
+        last_run_at TEXT,
+        next_run_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS schedule_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        schedule_id TEXT NOT NULL,
+        run_id TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_schedules_enabled_next_run_at
+      ON schedules(enabled, next_run_at);
+
+      CREATE INDEX IF NOT EXISTS idx_schedules_updated_at
+      ON schedules(updated_at);
+
+      CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started_at
+      ON schedule_runs(schedule_id, started_at);
+    `);
+
+    currentVersion = 21;
+  }
+
+  if (currentVersion === 21) {
+    const scheduleColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(schedules)",
+    );
+
+    if (
+      !scheduleColumns.some(
+        (column) => column.name === "external_folder_session_json",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE schedules
+        ADD COLUMN external_folder_session_json TEXT;
+      `);
+    }
+
+    currentVersion = 22;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

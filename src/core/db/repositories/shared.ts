@@ -74,6 +74,7 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       Number.isInteger(parsedMaxToolSteps) && parsedMaxToolSteps >= 1
         ? Math.min(parsedMaxToolSteps, 100)
         : 50,
+    schedulingEnabled: settingsMap.get("scheduling_enabled") !== "false",
     themeMode: (["system", "light", "dark"] as const).includes(
       storedThemeMode as ThemeMode,
     )

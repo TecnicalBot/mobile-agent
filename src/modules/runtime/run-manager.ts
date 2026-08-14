@@ -104,6 +104,9 @@ export function createRunControllerRegistry() {
     owns(runId: string) {
       return claimedRuns.has(runId);
     },
+    hasActiveRuns() {
+      return claimedRuns.size > 0;
+    },
     getAbortController(runId: string) {
       return abortControllers.get(runId) ?? null;
     },

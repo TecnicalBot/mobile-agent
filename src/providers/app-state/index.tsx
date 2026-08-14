@@ -1,5 +1,6 @@
 import type { DocumentPickerAsset } from "expo-document-picker";
 import * as Crypto from "expo-crypto";
+import * as Notifications from "expo-notifications";
 import { useSQLiteContext } from "expo-sqlite";
 import { colorScheme } from "nativewind";
 import {
@@ -17,7 +18,10 @@ import {
     useColorScheme as useSystemColorScheme,
 } from "react-native";
 
-import { createRepositories } from "@/core/db/database";
+import {
+    createRepositories,
+    type Repositories,
+} from "@/core/db/database";
 import { createExternalFolderService } from "@/core/services/external-folder/external-folder-service";
 import { connectMcpOAuth } from "@/modules/mcp/oauth";
 import { testMcpServerConnection } from "@/modules/mcp/runtime-tools";
@@ -29,7 +33,10 @@ import {
     notifyRunFinishedAsync,
     prepareRunNotificationsAsync,
 } from "@/modules/notifications/run-notifications";
-import { setBackgroundAgentNotificationState } from "background-agent-service";
+import {
+    setBackgroundAgentNotificationState,
+    stopBackgroundAgent,
+} from "background-agent-service";
 import {
     clearOpenAiTokens,
     getOpenAiAccessToken,
@@ -77,12 +84,21 @@ import type {
     ResolvedConfig,
     ResolvedModel,
     SavedPrompt,
+    Schedule,
     SendMessageInput,
     SkillConfig,
     StoredMessage,
     WorkspaceFile,
 } from "@/core/types/app-state";
 import { createModelRef } from "@/core/types/app-state";
+import {
+    computeNextRun,
+    createSchedulerEngine,
+    createScheduledRun,
+    getLocalTimeZone,
+    syncScheduleAlarms,
+    syncScheduleCalendarNotifications,
+} from "@/modules/scheduler";
 
 import { executeClaimedAgentRun, type AgentRunDeps } from "./agent-run";
 import { createRunUiPublisher } from "./run-ui-publisher";
@@ -198,6 +214,24 @@ type AppStateContextValue = {
         content: string;
         title: string;
     }) => Promise<SavedPrompt>;
+    createSchedule: (input: {
+        autoApprove?: boolean;
+        expression: string;
+        externalFolderSession?: ExternalFolderSession | null;
+        modelId: string;
+        prompt: string;
+        providerId: string;
+        timezone?: string;
+        title: string;
+    }) => Promise<Schedule>;
+    deleteSchedule: (id: string) => Promise<void>;
+    refreshScheduler: () => void;
+    schedules: Schedule[];
+    updateSchedule: (
+        id: string,
+        input: Parameters<Repositories["scheduleRepository"]["update"]>[1],
+    ) => Promise<void>;
+    updateSchedulingEnabled: (enabled: boolean) => Promise<void>;
     writeMemory: (content: string) => Promise<MemoryEntry>;
     currentConversation: Conversation | null;
     currentExternalFolderSession: ExternalFolderSession | null;
@@ -404,6 +438,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const coldStartRef = useRef(true);
     const executeAgentRunRef = useRef<(runId: string) => Promise<void>>(
         async () => {},
+    );
+    const schedulerEngineRef = useRef<ReturnType<typeof createSchedulerEngine> | null>(
+        null,
     );
 
     snapshotRef.current = snapshot;
@@ -856,6 +893,7 @@ Your output must be:
             const memory = await repositories.memoryStore.read();
             const mcpServers = await repositories.mcpServerRepository.list();
             const savedPrompts = await repositories.savedPromptRepository.list();
+            const schedules = await repositories.scheduleRepository.list();
             const skills = await repositories.skillRepository.list();
             const workspaceFiles = await repositories.workspaceRepository.list();
             const nextSnapshot = {
@@ -870,6 +908,7 @@ Your output must be:
                 mcpServers,
                 messages,
                 savedPrompts,
+                schedules,
                 skills,
                 workspaceFiles,
                 resolvedConfig,
@@ -994,8 +1033,223 @@ Your output must be:
             })),
         ).catch(() => { });
         dismissRunNotificationsAsync().catch(() => { });
+
+        if (!runRegistryRef.current.hasActiveRuns()) {
+            stopBackgroundAgent();
+        }
+
         resumePendingRuns().catch(() => { });
     }, [hydrating, ready, resumePendingRuns]);
+
+    const dispatchScheduledRun = useCallback(async (schedule: Schedule) => {
+        const { agentRun, assistantMessage, conversation, userMessage } =
+            await createScheduledRun(repositoriesRef.current, schedule);
+
+        setSnapshot((current) => {
+            const isActiveConversation =
+                current.currentConversation?.id === conversation.id;
+
+            return {
+                ...current,
+                agentRuns: upsertAgentRun(current.agentRuns, agentRun),
+                conversations: upsertConversation(
+                    current.conversations,
+                    conversation,
+                ),
+                messages: isActiveConversation
+                    ? upsertMessages(current.messages, [
+                        userMessage,
+                        assistantMessage,
+                    ])
+                    : current.messages,
+                schedules: current.schedules.map((item) =>
+                    item.id === schedule.id && !item.conversationId
+                        ? { ...item, conversationId: conversation.id }
+                        : item,
+                ),
+            };
+        });
+
+        void executeAgentRunRef.current(agentRun.id).catch((runError) => {
+            setError(
+                runError instanceof Error
+                    ? runError.message
+                    : "Failed to start scheduled run.",
+            );
+        });
+    }, []);
+
+    const refreshScheduler = useCallback(() => {
+        schedulerEngineRef.current?.refresh();
+    }, []);
+
+    useEffect(() => {
+        if (!ready) {
+            return;
+        }
+
+        schedulerEngineRef.current ??= createSchedulerEngine(
+            repositoriesRef.current,
+            {
+                dispatchRun: (schedule) => dispatchScheduledRun(schedule),
+                onError: (error) => {
+                    console.warn(
+                        "[scheduler]",
+                        error instanceof Error ? error.message : error,
+                    );
+                },
+                onSchedulesChanged: () => {
+                    void syncScheduleAlarms(repositoriesRef.current).catch(
+                        () => {},
+                    );
+                    void syncScheduleCalendarNotifications(
+                        repositoriesRef.current,
+                    ).catch(() => {});
+                },
+            },
+        );
+
+        schedulerEngineRef.current.start();
+
+        return () => {
+            schedulerEngineRef.current?.stop();
+        };
+    }, [dispatchScheduledRun, ready]);
+
+    useEffect(() => {
+        if (!ready) {
+            return;
+        }
+
+        const responseSubscription =
+            Notifications.addNotificationResponseReceivedListener(
+                (response) => {
+                    const data = response.notification.request.content
+                        .data as { type?: string } | null;
+
+                    if (data?.type === "schedule-due") {
+                        refreshScheduler();
+                    }
+                },
+            );
+
+        return () => {
+            responseSubscription.remove();
+        };
+    }, [ready, refreshScheduler]);
+
+    const createSchedule = useCallback(
+        async (input: {
+            autoApprove?: boolean;
+            expression: string;
+            externalFolderSession?: ExternalFolderSession | null;
+            modelId: string;
+            prompt: string;
+            providerId: string;
+            timezone?: string;
+            title: string;
+        }) => {
+            const timezone = input.timezone ?? getLocalTimeZone();
+            const nextRunAt = computeNextRun(input.expression, timezone)?.toISOString() ?? null;
+            const schedule = await repositoriesRef.current.scheduleRepository.create({
+                autoApprove: input.autoApprove ?? true,
+                expression: input.expression,
+                externalFolderSession: input.externalFolderSession ?? null,
+                modelId: input.modelId,
+                nextRunAt,
+                prompt: input.prompt,
+                providerId: input.providerId,
+                timezone,
+                title: input.title,
+            });
+
+            setSnapshot((current) => ({
+                ...current,
+                schedules: [schedule, ...current.schedules],
+            }));
+            refreshScheduler();
+            return schedule;
+        },
+        [refreshScheduler],
+    );
+
+    const updateSchedule = useCallback(
+        async (id: string, input: Parameters<Repositories["scheduleRepository"]["update"]>[1]) => {
+            const current = await repositoriesRef.current.scheduleRepository.getById(id);
+
+            if (!current) {
+                return;
+            }
+
+            const expressionChanged =
+                input.expression !== undefined &&
+                input.expression !== current.expression;
+            const timezoneChanged =
+                input.timezone !== undefined && input.timezone !== current.timezone;
+            const nextRunAt =
+                input.nextRunAt !== undefined
+                    ? input.nextRunAt
+                    : expressionChanged || timezoneChanged
+                        ? (computeNextRun(
+                              input.expression ?? current.expression,
+                              input.timezone ?? current.timezone,
+                          )?.toISOString() ?? null)
+                        : undefined;
+
+            await repositoriesRef.current.scheduleRepository.update(id, {
+                ...input,
+                ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+            });
+
+            const next = await repositoriesRef.current.scheduleRepository.getById(id);
+
+            if (next) {
+                setSnapshot((state) => ({
+                    ...state,
+                    schedules: state.schedules.map((schedule) =>
+                        schedule.id === id ? next : schedule,
+                    ),
+                }));
+            }
+            refreshScheduler();
+        },
+        [refreshScheduler],
+    );
+
+    const deleteSchedule = useCallback(
+        async (id: string) => {
+            await repositoriesRef.current.scheduleRepository.delete(id);
+
+            setSnapshot((current) => ({
+                ...current,
+                schedules: current.schedules.filter((schedule) => schedule.id !== id),
+            }));
+            refreshScheduler();
+        },
+        [refreshScheduler],
+    );
+
+    const updateSchedulingEnabled = useCallback(
+        async (enabled: boolean) => {
+            await repositoriesRef.current.configRepository.setSchedulingEnabled(enabled);
+
+            setSnapshot((current) => ({
+                ...current,
+                settings: { ...current.settings, schedulingEnabled: enabled },
+            }));
+
+            if (enabled) {
+                refreshScheduler();
+            } else {
+                if (!runRegistryRef.current.hasActiveRuns()) {
+                    stopBackgroundAgent();
+                }
+            }
+
+            void syncScheduleAlarms(repositoriesRef.current).catch(() => { });
+        },
+        [refreshScheduler],
+    );
 
     useEffect(() => {
         const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -2288,6 +2542,9 @@ Your output must be:
                         executeAgentRun(retryRunId).catch(() => {});
                     }, delayMs);
                 },
+                shouldKeepBackgroundAgentAlive: () =>
+                    runRegistryRef.current.hasActiveRuns(),
+                refreshScheduler,
             };
 
             await executeClaimedAgentRun(runId, deps);
@@ -2752,6 +3009,7 @@ Your output must be:
         const optimisticAgentRun: AgentRun = {
             agentMode: conversation.agentMode,
             assistantMessageId,
+            autoApprove: false,
             completedAt: null,
             conversationId: conversation.id,
             externalFolderSession,
@@ -2977,10 +3235,9 @@ Your output must be:
                 writeMemory,
                 createProvider,
                 createConversation,
-                deleteProvider,
-                deleteConversation,
                 createModelPreset,
                 createSavedPrompt,
+                createSchedule,
                 createSkill,
                 createWorkspaceFile,
                 currentConversation: snapshot.currentConversation,
@@ -2989,6 +3246,9 @@ Your output must be:
                 currentSelectedFileIds: snapshot.currentSelectedFileIds,
                 currentSelectedMcpServerIds: snapshot.currentSelectedMcpServerIds,
                 currentSelectedSkillIds: snapshot.currentSelectedSkillIds,
+                deleteProvider,
+                deleteConversation,
+                deleteSchedule,
                 dismissInAppNotification,
                 pendingToolApproval,
                 denyPendingToolApproval: () => {
@@ -3032,6 +3292,7 @@ Your output must be:
                 pickConversationFolder,
                 ready,
                 refresh,
+                refreshScheduler,
                 refreshWorkspaceFiles,
                 renameConversation,
                 resumePendingRuns,
@@ -3040,6 +3301,7 @@ Your output must be:
                 runStatusByConversation,
                 saveProviderApiKey,
                 saveMcpServerHeaderValues,
+                schedules: snapshot.schedules,
                 selectConversation,
                 setConversationPinned,
                 selectModel,
@@ -3065,6 +3327,8 @@ Your output must be:
                 updateBuiltInToolSettings,
                 updateMemoryEnabled,
                 updateSavedPrompt,
+                updateSchedule,
+                updateSchedulingEnabled,
                 updateSkill,
                 updateToolApprovalMode,
                 updateThemeMode,
@@ -3147,6 +3411,12 @@ export function useConfig() {
         saveMcpServerHeaderValues: context.saveMcpServerHeaderValues,
         saveProviderApiKey: context.saveProviderApiKey,
         savedPrompts: context.savedPrompts,
+        schedules: context.schedules,
+        createSchedule: context.createSchedule,
+        updateSchedule: context.updateSchedule,
+        deleteSchedule: context.deleteSchedule,
+        schedulingEnabled: context.settings.schedulingEnabled,
+        updateSchedulingEnabled: context.updateSchedulingEnabled,
         setDefaultModelPreset: context.setDefaultModelPreset,
         skills: context.skills,
         refresh: context.refresh,

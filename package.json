@@ -1,7 +1,7 @@
 {
   "name": "Mobile Agent",
   "description": "An AI agent that runs on your phone.",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "version": "2.1.0",
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.7",
@@ -17,6 +17,7 @@
     "ai": "^7.0.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "croner": "^10.0.1",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.2",
     "expo-ai-kit": "0.11.1",

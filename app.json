@@ -20,6 +20,7 @@
       }
     },
     "android": {
+      "versionCode": 2,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES",
         "android.permission.WAKE_LOCK",
@@ -27,7 +28,10 @@
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
         "android.permission.ACCESS_WIFI_STATE",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -56,6 +60,7 @@
       ],
       "./plugins/with-litert-lm",
       "./plugins/with-background-agent",
+      "./plugins/with-scheduler-alarm",
       [
         "expo-splash-screen",
         {

@@ -36,6 +36,7 @@ import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createQuestionTool } from "@/modules/tools/built-in/question";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
+import { createScheduleTools } from "@/modules/tools/built-in/schedules";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import { createTodosTool } from "@/modules/tools/built-in/todos";
@@ -48,7 +49,6 @@ import {
   createTransferTools,
 } from "@/modules/tools/built-in/external-folder/transfer";
 import {
-  isIgnoringBatteryOptimizations,
   startBackgroundAgent,
   stopBackgroundAgent,
 } from "background-agent-service";
@@ -191,6 +191,10 @@ export type AgentRunDeps = {
   onSkillsChange: () => void;
   ui: RunUiPublisher;
   retryRun: (runId: string, delayMs: number) => void;
+  /** Whether the background service should be kept alive after this run. */
+  shouldKeepBackgroundAgentAlive: () => boolean;
+  /** Ask the scheduler engine to re-scan schedules (after tool-driven CRUD). */
+  refreshScheduler: () => void;
 };
 
 function summarizeToolInput(toolInput: unknown) {
@@ -253,6 +257,8 @@ export async function executeClaimedAgentRun(
     notifyRunStateChange,
     ui,
     retryRun,
+    shouldKeepBackgroundAgentAlive,
+    refreshScheduler,
   } = deps;
 
   const run =
@@ -847,7 +853,7 @@ export async function executeClaimedAgentRun(
   };
 
   try {
-    if (Platform.OS === "android" && (await isIgnoringBatteryOptimizations())) {
+    if (Platform.OS === "android") {
       startBackgroundAgent();
     }
 
@@ -1034,6 +1040,17 @@ export async function executeClaimedAgentRun(
           repository: repositories.skillRepository,
         })
       : null;
+    const scheduleRuntime =
+      runtimeSupportsTools && !isPlanMode
+        ? createScheduleTools({
+            onRecord: handleToolExecutionRecord,
+            refreshScheduler: () => {
+              refreshScheduler();
+              markActivity();
+            },
+            repositories,
+          })
+        : null;
 
     for (const serverResult of mcpRuntime?.serverResults ?? []) {
       repositories.mcpServerRepository
@@ -1048,13 +1065,14 @@ export async function executeClaimedAgentRun(
     }
 
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
             ...(todosRuntime?.tools ?? {}),
             ...(questionRuntime?.tools ?? {}),
             ...(skillRuntime?.tools ?? {}),
+            ...(scheduleRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
     const autoApprovedToolNames = new Set([
@@ -1064,6 +1082,7 @@ export async function executeClaimedAgentRun(
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
       ...(skillRuntime ? ["skill"] : []),
+      ...(scheduleRuntime ? Object.keys(scheduleRuntime.tools) : []),
       ...(isPlanMode && mcpRuntime?.tools
         ? Object.keys(mcpRuntime.tools)
         : []),
@@ -1098,7 +1117,9 @@ export async function executeClaimedAgentRun(
 
             return summarizeToolInput(toolInput);
           },
-          mode: snapshotRef.current.settings.toolApprovalMode,
+          mode: run.autoApprove
+            ? ("auto" as const)
+            : snapshotRef.current.settings.toolApprovalMode,
           onRecord: handleToolExecutionRecord,
           shouldRequireApproval: (toolName) =>
             !autoApprovedToolNames.has(toolName),
@@ -1772,7 +1793,11 @@ export async function executeClaimedAgentRun(
   } finally {
     dismissApprovalNotification(run.id).catch(() => {});
 
-    stopBackgroundAgent();
+    if (shouldKeepBackgroundAgentAlive()) {
+      startBackgroundAgent();
+    } else {
+      stopBackgroundAgent();
+    }
 
     await mcpRuntime?.close();
 

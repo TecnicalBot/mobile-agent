@@ -54,6 +54,7 @@ export const EMPTY_SETTINGS: AppSettings = {
   databaseUrl: null,
   memoryEnabled: true,
   maxToolSteps: 50,
+  schedulingEnabled: true,
   themeMode: "system",
   toolApprovalMode: "ask",
   notificationSettings: {
@@ -89,6 +90,7 @@ export const EMPTY_SNAPSHOT: AppStateSnapshot = {
   mcpServers: [],
   messages: [],
   savedPrompts: [],
+  schedules: [],
   skills: [],
   workspaceFiles: [],
   resolvedConfig: EMPTY_RESOLVED_CONFIG,

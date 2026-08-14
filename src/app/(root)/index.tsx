@@ -80,6 +80,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
+import { isFolderPickerCancellation } from "@/core/services/external-folder/external-folder-service";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
   AgentMode,
@@ -1228,6 +1229,12 @@ const ChatInput = memo(function ChatInput({
       requestAnimationFrame(() => {
         scrollToEnd();
       });
+    } catch (error) {
+      if (!isFolderPickerCancellation(error)) {
+        setFolderNotice(
+          error instanceof Error ? error.message : "Could not select folder.",
+        );
+      }
     } finally {
       setBusyAction(null);
     }
@@ -1425,7 +1432,15 @@ const ChatInput = memo(function ChatInput({
               .then((session) => {
                 setFolderNotice(`Using ${session.displayName} for this chat.`);
               })
-              .catch(console.error)
+              .catch((error) => {
+                if (!isFolderPickerCancellation(error)) {
+                  setFolderNotice(
+                    error instanceof Error
+                      ? error.message
+                      : "Could not select folder.",
+                  );
+                }
+              })
               .finally(() => {
                 setBusyAction(null);
               });

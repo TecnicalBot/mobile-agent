@@ -15,6 +15,7 @@ import type {
   ProviderFamily,
   ReasoningEffort,
   BuiltInToolKey,
+  ScheduleRunStatus,
   WorkspaceFileSourceKind,
 } from "@/core/types/app-state";
 
@@ -105,6 +106,9 @@ export const agentRuns = sqliteTable(
     maxRetries: integer("max_retries").notNull().default(3),
     lastRetryAt: text("last_retry_at"),
     agentMode: text("agent_mode").$type<AgentMode>().notNull().default("build"),
+    autoApprove: integer("auto_approve", { mode: "boolean" })
+      .notNull()
+      .default(false),
   },
   (table) => [
     index("idx_agent_runs_conversation_updated_at").on(
@@ -240,6 +244,59 @@ export const savedPrompts = sqliteTable(
   (table) => [index("idx_saved_prompts_updated_at").on(table.updatedAt)],
 );
 
+export const schedules = sqliteTable(
+  "schedules",
+  {
+    id: text("id").primaryKey().notNull(),
+    title: text("title").notNull(),
+    prompt: text("prompt").notNull(),
+    expression: text("expression").notNull(),
+    timezone: text("timezone").notNull(),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    autoApprove: integer("auto_approve", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    conversationId: text("conversation_id"),
+    externalFolderSession: text("external_folder_session_json", {
+      mode: "json",
+    }).$type<ExternalFolderSession | null>(),
+    lastRunAt: text("last_run_at"),
+    nextRunAt: text("next_run_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_schedules_enabled_next_run_at").on(
+      table.enabled,
+      table.nextRunAt,
+    ),
+    index("idx_schedules_updated_at").on(table.updatedAt),
+  ],
+);
+
+export const scheduleRuns = sqliteTable(
+  "schedule_runs",
+  {
+    id: text("id").primaryKey().notNull(),
+    scheduleId: text("schedule_id")
+      .notNull()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    runId: text("run_id"),
+    status: text("status").$type<ScheduleRunStatus>().notNull(),
+    error: text("error"),
+    startedAt: text("started_at").notNull(),
+    completedAt: text("completed_at"),
+  },
+  (table) => [
+    index("idx_schedule_runs_schedule_started_at").on(
+      table.scheduleId,
+      table.startedAt,
+    ),
+  ],
+);
+
 export const memories = sqliteTable(
   "memories",
   {
@@ -270,6 +327,8 @@ export const schema = {
   modelPresets,
   providerConfigs,
   savedPrompts,
+  scheduleRuns,
+  schedules,
   skills,
   workspaceFiles,
 };

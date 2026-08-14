@@ -229,7 +229,7 @@ export const SelectTrigger = forwardRef<
       accessibilityRole="button"
       accessibilityState={{ disabled, expanded: open }}
       className={cn(
-        "min-h-12 flex-row items-center justify-between gap-sp-3 rounded-ui border bg-input px-sp-4 py-sp-3",
+        "min-h-12 flex-row items-center justify-between gap-sp-3 rounded-ui border bg-input px-sp-4 py-sp-2 dark:bg-input-dark",
         invalid
           ? "border-destructive dark:border-destructive-dark"
           : "border-border dark:border-border-dark",

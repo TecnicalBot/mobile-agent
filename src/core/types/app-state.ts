@@ -65,7 +65,8 @@ export type BuiltInToolKey =
   | "folderEdit"
   | "todos"
   | "question"
-  | "skill";
+  | "skill"
+  | "schedules";
 export type BuiltInToolSettings = Record<BuiltInToolKey, boolean>;
 export type SkillConfig = {
   id: string;
@@ -218,6 +219,48 @@ export type NotificationSettings = {
   runFinished: boolean;
 };
 
+export type ScheduleFrequency =
+  | "hourly"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "custom";
+
+export type Schedule = {
+  id: string;
+  title: string;
+  prompt: string;
+  expression: string;
+  timezone: string;
+  providerId: string;
+  modelId: string;
+  autoApprove: boolean;
+  enabled: boolean;
+  conversationId: string | null;
+  externalFolderSession: ExternalFolderSession | null;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ScheduleRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export type ScheduleRun = {
+  id: string;
+  scheduleId: string;
+  runId: string | null;
+  status: ScheduleRunStatus;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+};
+
 export type MessageMetadata = {
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];
@@ -255,6 +298,7 @@ export type AgentRun = {
   maxRetries: number;
   lastRetryAt: string | null;
   agentMode: AgentMode;
+  autoApprove: boolean;
 };
 
 export type ExternalFolderSession = {
@@ -366,6 +410,7 @@ export type AppSettings = {
   databaseUrl: string | null;
   memoryEnabled: boolean;
   maxToolSteps: number;
+  schedulingEnabled: boolean;
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;
   notificationSettings: NotificationSettings;
@@ -436,6 +481,7 @@ export type AppStateSnapshot = {
   mcpServers: McpServerConfig[];
   messages: StoredMessage[];
   savedPrompts: SavedPrompt[];
+  schedules: Schedule[];
   skills: SkillConfig[];
   workspaceFiles: WorkspaceFile[];
   resolvedConfig: ResolvedConfig;

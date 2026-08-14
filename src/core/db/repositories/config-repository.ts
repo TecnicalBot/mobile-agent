@@ -179,6 +179,9 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
     async setMemoryEnabled(enabled) {
       await this.setSetting("memory_enabled", enabled ? "true" : "false");
     },
+    async setSchedulingEnabled(enabled) {
+      await this.setSetting("scheduling_enabled", enabled ? "true" : "false");
+    },
     async setThemeMode(mode) {
       await this.setSetting("theme_mode", mode);
     },

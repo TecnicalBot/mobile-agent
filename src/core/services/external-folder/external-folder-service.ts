@@ -247,6 +247,13 @@ function tryResolveEntry(
   }
 }
 
+export function isFolderPickerCancellation(error: unknown) {
+  return (
+    error instanceof Error &&
+    /picker was cancelled by the user/i.test(error.message)
+  );
+}
+
 export function createExternalFolderService() {
   return {
     async pickDirectory(

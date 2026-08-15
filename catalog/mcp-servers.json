@@ -172,6 +172,14 @@
       "authMode": "oauth"
     },
     {
+      "id": "paypal",
+      "label": "PayPal",
+      "description": "Manage payments, invoices, and billing in PayPal.",
+      "url": "https://mcp.paypal.com/mcp",
+      "transport": "http",
+      "authMode": "oauth"
+    },
+    {
       "id": "postman",
       "label": "Postman",
       "description": "Manage API workspaces, collections, specifications, mocks, and monitors.",
@@ -195,6 +203,14 @@
       "transport": "http",
       "authMode": "headers",
       "headerTemplate": "X-Goog-Api-Key: <your Google Maps API key>"
+    },
+    {
+      "id": "google-developer-knowledge",
+      "label": "Google Developer Knowledge",
+      "description": "Search official Google developer documentation and code samples.",
+      "url": "https://developerknowledge.googleapis.com/mcp",
+      "transport": "http",
+      "authMode": "none"
     },
     {
       "id": "google-maps-docs",
@@ -278,8 +294,7 @@
       "description": "Search the web and retrieve content with Exa's neural search.",
       "url": "https://mcp.exa.ai/mcp",
       "transport": "http",
-      "authMode": "headers",
-      "headerTemplate": "Authorization: Bearer <your Exa API key>"
+      "authMode": "none"
     },
     {
       "id": "firecrawl",

@@ -42,6 +42,7 @@ export function SkillImportDrawer({
   const { importSkillMarkdown, skills } = useConfig();
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  const [previewBody, setPreviewBody] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [url, setUrl] = useState("");
@@ -52,19 +53,22 @@ export function SkillImportDrawer({
   );
 
   const previewContent = useMemo(() => {
-    if (!content) {
+    if (!previewBody) {
       return null;
     }
 
-    return content.length > MARKDOWN_MAX_PREVIEW_LENGTH
-      ? content.slice(0, MARKDOWN_MAX_PREVIEW_LENGTH)
-      : content;
-  }, [content]);
+    return previewBody.length > MARKDOWN_MAX_PREVIEW_LENGTH
+      ? previewBody.slice(0, MARKDOWN_MAX_PREVIEW_LENGTH)
+      : previewBody;
+  }, [previewBody]);
 
   const applyMarkdown = (markdown: string) => {
     const parsed = parseSkillMarkdown(markdown);
 
     setContent(markdown);
+    setPreviewBody(
+      [parsed.description ?? "", "", parsed.instructions.trim()].join("\n"),
+    );
     setTitle(parsed.title);
     setError(null);
   };
@@ -91,6 +95,7 @@ export function SkillImportDrawer({
     } catch (pickError) {
       setTitle(null);
       setContent(null);
+      setPreviewBody(null);
       setError(
         pickError instanceof Error
           ? pickError.message
@@ -115,6 +120,7 @@ export function SkillImportDrawer({
     } catch (fetchError) {
       setTitle(null);
       setContent(null);
+      setPreviewBody(null);
       setError(
         fetchError instanceof Error
           ? fetchError.message
@@ -145,6 +151,7 @@ export function SkillImportDrawer({
 
       setUrl("");
       setContent(null);
+      setPreviewBody(null);
       setTitle(null);
       onOpenChange(false);
     } catch (importError) {
@@ -229,7 +236,7 @@ export function SkillImportDrawer({
               >
                 {previewContent}
               </Markdown>
-              {content && content.length > MARKDOWN_MAX_PREVIEW_LENGTH ? (
+              {previewBody && previewBody.length > MARKDOWN_MAX_PREVIEW_LENGTH ? (
                 <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
                   Preview truncated — the full skill will be imported.
                 </Text>

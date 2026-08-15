@@ -17,6 +17,14 @@ import {
   Clock3,
   Copy,
   Download,
+  File as FileIcon,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideo,
   Loader,
   Pencil,
   Share2,
@@ -668,6 +676,94 @@ function getTableColumnCount(node: ASTNode): number {
   return 0;
 }
 
+const ARCHIVE_MIME_TYPES = new Set([
+  "application/zip",
+  "application/gzip",
+  "application/x-tar",
+  "application/x-rar-compressed",
+  "application/x-7z-compressed",
+]);
+const CODE_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/javascript",
+  "application/typescript",
+  "application/x-typescript",
+  "application/x-javascript",
+  "application/x-sh",
+  "application/x-yaml",
+]);
+const CODE_EXTENSIONS = [
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".json",
+  ".xml",
+  ".html",
+  ".css",
+  ".yml",
+  ".yaml",
+  ".sh",
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".swift",
+  ".kt",
+  ".php",
+  ".rb",
+];
+const SPREADSHEET_EXTENSIONS = [".csv", ".xls", ".xlsx", ".ods"];
+
+function getFileTypeIcon(file: WorkspaceFile) {
+  const mimeType = file.mimeType?.toLowerCase() ?? "";
+  const fileName = file.displayName.toLowerCase();
+
+  if (mimeType.startsWith("image/")) {
+    return FileImage;
+  }
+
+  if (mimeType.startsWith("audio/")) {
+    return FileAudio;
+  }
+
+  if (mimeType.startsWith("video/")) {
+    return FileVideo;
+  }
+
+  if (ARCHIVE_MIME_TYPES.has(mimeType)) {
+    return FileArchive;
+  }
+
+  if (mimeType === "application/pdf") {
+    return FileText;
+  }
+
+  if (CODE_MIME_TYPES.has(mimeType)) {
+    return FileCode;
+  }
+
+  if (CODE_EXTENSIONS.some((extension) => fileName.endsWith(extension))) {
+    return FileCode;
+  }
+
+  if (SPREADSHEET_EXTENSIONS.some((extension) => fileName.endsWith(extension))) {
+    return FileSpreadsheet;
+  }
+
+  if (mimeType.startsWith("text/")) {
+    return FileText;
+  }
+
+  return FileIcon;
+}
+
 function SpinningLoader({ color, size }: { color: string; size: number }) {
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);
@@ -715,10 +811,6 @@ export const ChatMessage = memo(function ChatMessage({
     message.id,
   ]);
   const [openingFileId, setOpeningFileId] = useRecyclingState<string | null>(
-    null,
-    [message.id],
-  );
-  const [sharingFileId, setSharingFileId] = useRecyclingState<string | null>(
     null,
     [message.id],
   );
@@ -915,51 +1007,6 @@ export const ChatMessage = memo(function ChatMessage({
     }
   };
 
-  const handleShareFile = async (workspaceFile: WorkspaceFile) => {
-    setSharingFileId(workspaceFile.id);
-
-    try {
-      const available = await Sharing.isAvailableAsync();
-
-      if (!available) {
-        Alert.alert(
-          "Share unavailable",
-          "Sharing is not available on this device.",
-        );
-        return;
-      }
-
-      const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
-
-      if (!localFile.exists) {
-        throw new Error("This file is no longer available in the workspace.");
-      }
-
-      const mimeType = isTextWorkspaceFile(workspaceFile)
-        ? "text/plain"
-        : workspaceFile.mimeType || localFile.type || "*/*";
-
-      await Sharing.shareAsync(localFile.uri, {
-        dialogTitle: `Share ${workspaceFile.displayName}`,
-        mimeType,
-        ...(isTextWorkspaceFile(workspaceFile)
-          ? { UTI: "public.plain-text" as const }
-          : {}),
-      });
-    } catch (error) {
-      if (isUserCanceledShare(error)) {
-        return;
-      }
-
-      Alert.alert(
-        "Share failed",
-        error instanceof Error ? error.message : "Failed to share the file.",
-      );
-    } finally {
-      setSharingFileId(null);
-    }
-  };
-
   const getImageMimeType = (uri: string) => {
     const cleanUri = uri.split("?")[0].toLowerCase();
 
@@ -1032,7 +1079,7 @@ export const ChatMessage = memo(function ChatMessage({
         {hasUserAttachments ? (
           <View
             className={cn(
-              "overflow-hidden border border-border bg-card dark:border-border-dark dark:bg-card-dark",
+              "w-64 max-w-full overflow-hidden border border-border bg-card dark:border-border-dark dark:bg-card-dark",
               fileHeaderConnected
                 ? "max-w-full rounded-ui rounded-br-none"
                 : "max-w-full rounded-ui",
@@ -1040,60 +1087,45 @@ export const ChatMessage = memo(function ChatMessage({
           >
             {attachedFiles.map((file, index) => {
               const opening = openingFileId === file.id;
-              const sharing = sharingFileId === file.id;
+              const FileTypeIcon = getFileTypeIcon(file);
 
               return (
-                <View
+                <Pressable
+                  accessibilityHint="Opens the attached file"
+                  accessibilityLabel={file.displayName}
+                  accessibilityRole="button"
+                  disabled={opening}
                   key={file.id}
                   className={cn(
-                    "w-full flex-row items-center gap-sp-1 px-sp-2 py-sp-2",
+                    "w-full flex-row items-center gap-sp-2 px-sp-2 py-sp-2",
                     index > 0 &&
                       "border-t border-border dark:border-border-dark",
                   )}
+                  onPress={() => {
+                    handleOpenFile(file).catch(console.error);
+                  }}
+                  style={({ pressed }) =>
+                    pressed ? { opacity: 0.72 } : null
+                  }
                 >
-                  <Pressable
-                    accessibilityHint="Opens the attached file"
-                    accessibilityLabel={file.displayName}
-                    accessibilityRole="button"
-                    className="min-w-0 flex-1 flex-row items-center gap-sp-2"
-                    disabled={opening}
-                    onPress={() => {
-                      handleOpenFile(file).catch(console.error);
-                    }}
-                    style={({ pressed }) =>
-                      pressed ? { opacity: 0.72 } : null
-                    }
+                  <View className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary dark:bg-secondary-dark">
+                    <FileTypeIcon color={theme.textSecondary} size={16} />
+                  </View>
+                  <Text
+                    className="min-w-0 flex-1 font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
+                    numberOfLines={1}
                   >
-                    <Text
-                      className="min-w-0 shrink font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
-                      numberOfLines={1}
-                    >
-                      {file.displayName}
-                    </Text>
-                    {opening ? (
-                      <ActivityIndicator
-                        color={theme.textSecondary}
-                        size="small"
-                      />
-                    ) : (
-                      <ChevronRight color={theme.textSecondary} size={16} />
-                    )}
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel={`Share ${file.displayName}`}
-                    accessibilityRole="button"
-                    disabled={sharing}
-                    hitSlop={8}
-                    onPress={() => {
-                      handleShareFile(file).catch(console.error);
-                    }}
-                    style={({ pressed }) => ({
-                      opacity: sharing ? 0.45 : pressed ? 0.7 : 1,
-                    })}
-                  >
-                    <Share2 color={theme.textSecondary} size={16} />
-                  </Pressable>
-                </View>
+                    {file.displayName}
+                  </Text>
+                  {opening ? (
+                    <ActivityIndicator
+                      color={theme.textSecondary}
+                      size="small"
+                    />
+                  ) : (
+                    <ChevronRight color={theme.textSecondary} size={16} />
+                  )}
+                </Pressable>
               );
             })}
           </View>

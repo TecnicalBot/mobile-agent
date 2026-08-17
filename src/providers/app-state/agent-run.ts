@@ -1076,9 +1076,7 @@ export async function executeClaimedAgentRun(
           } satisfies ToolSet)
         : undefined;
     const autoApprovedToolNames = new Set([
-      ...(run.fileContextSource === "external-folder"
-        ? ["listFiles"]
-        : [...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES]),
+      ...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES,
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
       ...(skillRuntime ? ["skill"] : []),
@@ -1119,7 +1117,7 @@ export async function executeClaimedAgentRun(
           },
           mode: run.autoApprove
             ? ("auto" as const)
-            : snapshotRef.current.settings.toolApprovalMode,
+            : (snapshotRef.current.conversationApprovalModes?.[conversation.id] ?? "ask"),
           onRecord: handleToolExecutionRecord,
           shouldRequireApproval: (toolName) =>
             !autoApprovedToolNames.has(toolName),

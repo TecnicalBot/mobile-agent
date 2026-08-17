@@ -189,7 +189,7 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
       await this.setSetting("tool_approval_mode", mode);
     },
     async setMaxToolSteps(maxToolSteps) {
-      const normalized = Math.max(1, Math.min(100, Math.round(maxToolSteps)));
+      const normalized = Math.max(1, Math.min(9999, Math.round(maxToolSteps)));
       await this.setSetting("max_tool_steps", String(normalized));
     },
     async setNotificationSettings(input) {

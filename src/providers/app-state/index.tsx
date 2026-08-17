@@ -77,6 +77,7 @@ import type {
     ModelRef,
     PendingQuestionnaire,
     PendingQuestionnaireAnswer,
+    ToolApprovalMode,
     PendingToolApproval,
     PendingToolApprovalRequest,
     ProviderConfig,
@@ -329,6 +330,10 @@ type AppStateContextValue = {
     updateToolApprovalMode: (
         mode: AppSettings["toolApprovalMode"],
     ) => Promise<void>;
+    setConversationApprovalMode: (
+        conversationId: string,
+        mode: ToolApprovalMode,
+    ) => void;
     updateMaxToolSteps: (maxToolSteps: number) => Promise<void>;
     updateThemeMode: (mode: AppSettings["themeMode"]) => Promise<void>;
     updateProvider: (
@@ -1884,6 +1889,19 @@ Your output must be:
         [hydrate],
     );
 
+    const setConversationApprovalMode = useCallback(
+        (conversationId: string, mode: ToolApprovalMode) => {
+            setSnapshot((current) => ({
+                ...current,
+                conversationApprovalModes: {
+                    ...current.conversationApprovalModes,
+                    [conversationId]: mode,
+                },
+            }));
+        },
+        [],
+    );
+
     async function updateMaxToolSteps(maxToolSteps: number) {
         await repositoriesRef.current.configRepository.setMaxToolSteps(
             maxToolSteps,
@@ -3331,6 +3349,7 @@ Your output must be:
                 updateSchedulingEnabled,
                 updateSkill,
                 updateToolApprovalMode,
+                setConversationApprovalMode,
                 updateThemeMode,
                 updateMaxToolSteps,
                 updateProvider,
@@ -3432,6 +3451,7 @@ export function useConfig() {
         updateSavedPrompt: context.updateSavedPrompt,
         updateSkill: context.updateSkill,
         updateToolApprovalMode: context.updateToolApprovalMode,
+        setConversationApprovalMode: context.setConversationApprovalMode,
         updateThemeMode: context.updateThemeMode,
         notificationSettings: context.settings.notificationSettings,
         updateNotificationSettings: context.updateNotificationSettings,

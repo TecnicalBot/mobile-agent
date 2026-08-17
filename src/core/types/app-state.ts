@@ -473,6 +473,7 @@ export type ResolvedConfig = {
 export type AppStateSnapshot = {
   agentRuns: AgentRun[];
   conversations: Conversation[];
+  conversationApprovalModes?: Record<string, ToolApprovalMode>;
   currentConversation: Conversation | null;
   currentSelectedFileIds: string[];
   currentSelectedMcpServerIds: string[] | null;

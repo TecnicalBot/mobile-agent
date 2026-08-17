@@ -90,7 +90,7 @@ export default function SettingsToolsScreen() {
           </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-3">
             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              Stop an agent loop after this many model steps (1–100).
+              Stop an agent loop after this many model steps (1–9999).
             </Text>
             <Input
               keyboardType="number-pad"
@@ -108,7 +108,7 @@ export default function SettingsToolsScreen() {
                   return;
                 }
                 runAction("max-tool-steps", async () => {
-                  const normalized = Math.max(1, Math.min(100, Math.round(value)));
+                  const normalized = Math.max(1, Math.min(9999, Math.round(value)));
                   await updateMaxToolSteps(normalized);
                   setStepDraft(String(normalized));
                   setStepsDrawerOpen(false);

@@ -55,7 +55,7 @@ export const EMPTY_SETTINGS: AppSettings = {
     databaseMode: "local",
     databaseUrl: null,
     memoryEnabled: true,
-    maxToolSteps: 50,
+    maxToolSteps: 9999,
     schedulingEnabled: true,
     themeMode: "system",
     toolApprovalMode: "ask",
@@ -84,6 +84,7 @@ export const EMPTY_RESOLVED_CONFIG: ResolvedConfig = {
 export const EMPTY_SNAPSHOT: AppStateSnapshot = {
     agentRuns: [],
     conversations: [],
+    conversationApprovalModes: {},
     currentConversation: null,
     currentSelectedFileIds: [],
     currentSelectedMcpServerIds: null,

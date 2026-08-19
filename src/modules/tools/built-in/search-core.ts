@@ -42,12 +42,14 @@ export function matchTextLines(input: {
 }
 
 export function globToRegExp(pattern: string): RegExp {
-  const source = pattern
+  const trimmed = pattern.trim();
+  const source = trimmed
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "__DOUBLE_STAR__")
+    .replace(/\*\*\//g, "(?:.*\\/)?")
+    .replace(/\/\*\*/g, "(?:\\/.*)?")
+    .replace(/\*\*/g, ".*")
     .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]")
-    .replace(/__DOUBLE_STAR__/g, ".*");
+    .replace(/\?/g, "[^/]");
 
   return new RegExp(`^${source}$`, "i");
 }
@@ -58,8 +60,22 @@ export function matchesGlob(relativePath: string, patterns?: string[]) {
   }
 
   const normalized = relativePath.replace(/^\/+/, "");
+  const baseName = normalized.split("/").pop() ?? normalized;
 
-  return patterns.some((pattern) => globToRegExp(pattern).test(normalized));
+  return patterns.some((pattern) => {
+    const trimmed = pattern.trim();
+    const regex = globToRegExp(trimmed);
+
+    if (regex.test(normalized)) {
+      return true;
+    }
+
+    if (!trimmed.includes("/") && regex.test(baseName)) {
+      return true;
+    }
+
+    return false;
+  });
 }
 
 export function scanFilesForQuery(input: {

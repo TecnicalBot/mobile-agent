@@ -118,7 +118,12 @@ export function createDownloadFileTool({
         const downloadedFile = await workspaceService.downloadFile({
           url,
           name: fileName,
-          folderSegments: folderPath ? folderPath.split("/") : undefined,
+          folderSegments: folderPath
+            ? folderPath
+                .split("/")
+                .map((segment) => segment.trim())
+                .filter(Boolean)
+            : undefined,
           headers,
           onProgress,
         });

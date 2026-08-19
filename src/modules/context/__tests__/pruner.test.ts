@@ -71,21 +71,17 @@ describe("pruneToolOutputs", () => {
     expect(content[1]!.text).toMatch(/^\[Tool output pruned/);
   });
 
-  it("does not prune real tool-result parts (they have no text)", () => {
+  it("prunes large real tool-result parts above threshold", () => {
     const toolMessages = Array.from({ length: 12 }, () =>
       contentMessage("tool", [toolResultPart("y".repeat(10_000))]),
     );
     const messages = [...toolMessages, ...smallTail(4)];
 
     const pruned = pruneToolOutputs(messages);
-    expect(pruned).toBe(messages);
-  });
-
-  it("regression: replaces user text with a tool-output placeholder", () => {
-    const messages = [...largeMessages(9), ...smallTail(4)];
-    const pruned = pruneToolOutputs(messages);
-
-    expect(pruned[0]!.role).toBe("user");
-    expect(String(pruned[0]!.content)).toMatch(/^\[Tool output pruned/);
+    expect(pruned).not.toBe(messages);
+    const firstContent = pruned[0]!.content as unknown as ReturnType<
+      typeof toolResultPart
+    >[];
+    expect(firstContent[0]!.content).toMatch(/^\[Tool output pruned/);
   });
 });

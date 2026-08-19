@@ -45,12 +45,16 @@ export function globToRegExp(pattern: string): RegExp {
   const trimmed = pattern.trim();
   const source = trimmed
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*\/\*/g, "(?:.*\\/)?[^/]*")
-    .replace(/\*\*\//g, "(?:.*\\/)?")
-    .replace(/\/\*\*/g, "(?:\\/.*)?")
-    .replace(/\*\*/g, ".*")
+    .replace(/\*\*\/\*/g, "__GLOB_DOUBLE_STAR_SLASH_STAR__")
+    .replace(/\*\*\//g, "__GLOB_DOUBLE_STAR_SLASH__")
+    .replace(/\/\*\*/g, "__GLOB_SLASH_DOUBLE_STAR__")
+    .replace(/\*\*/g, "__GLOB_DOUBLE_STAR__")
     .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]");
+    .replace(/\?/g, "[^/]")
+    .replace(/__GLOB_DOUBLE_STAR_SLASH_STAR__/g, "(?:.*\\/)?[^/]*")
+    .replace(/__GLOB_DOUBLE_STAR_SLASH__/g, "(?:.*\\/)?")
+    .replace(/__GLOB_SLASH_DOUBLE_STAR__/g, "(?:\\/.*)?")
+    .replace(/__GLOB_DOUBLE_STAR__/g, ".*");
 
   return new RegExp(`^${source}$`, "i");
 }

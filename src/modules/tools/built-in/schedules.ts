@@ -6,7 +6,11 @@ import { parseModelRef } from "@/core/types/app-state";
 import type { ToolExecutionRecord } from "@/core/types/app-state";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import { buildScheduleExpression } from "@/modules/scheduler/build-expression";
-import { describeExpression, getLocalTimeZone } from "@/modules/scheduler/cron";
+import {
+  computeNextRun,
+  describeExpression,
+  getLocalTimeZone,
+} from "@/modules/scheduler/cron";
 
 const SCHEDULE_FREQUENCIES = [
   "hourly",
@@ -129,6 +133,7 @@ export function createScheduleTools(input: {
             autoApprove: args.autoApprove ?? true,
             expression,
             modelId,
+            nextRunAt: computeNextRun(expression, timezone)?.toISOString() ?? null,
             prompt: args.prompt,
             providerId,
             timezone,
@@ -209,11 +214,15 @@ export function createScheduleTools(input: {
           const expression = rescheduling
             ? toCronInput(changes as Parameters<typeof toCronInput>[0])
             : undefined;
+          const nextRunAt = rescheduling && expression
+            ? computeNextRun(expression, current.timezone)?.toISOString() ?? null
+            : undefined;
 
           await repositories.scheduleRepository.update(id, {
             autoApprove: args.autoApprove,
             enabled: args.enabled,
             expression,
+            nextRunAt,
             prompt: args.prompt,
             title: args.title,
           });

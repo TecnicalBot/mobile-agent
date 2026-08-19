@@ -45,6 +45,7 @@ export function globToRegExp(pattern: string): RegExp {
   const trimmed = pattern.trim();
   const source = trimmed
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\/\*/g, "(?:.*\\/)?[^/]*")
     .replace(/\*\*\//g, "(?:.*\\/)?")
     .replace(/\/\*\*/g, "(?:\\/.*)?")
     .replace(/\*\*/g, ".*")

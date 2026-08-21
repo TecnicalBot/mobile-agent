@@ -48,6 +48,10 @@ const PROVIDER_ID_ALIASES: Record<string, string> = {
 // Qwen are served over /responses, /messages or the Google API instead.
 const OPENCODE_CHAT_ONLY_FAMILIES = /^(?:claude|gemini|gpt-5|grok|qwen3)/i;
 
+// Embedding and moderation models are not usable through the chat
+// completions protocol the app speaks.
+const NON_CHAT_MODEL_ID = /embedding|moderation/i;
+
 function normalizeBaseUrl(url: string) {
   return url
     .trim()
@@ -260,10 +264,20 @@ export function getModelsDevDefinitionsForProvider(
     if (catalogId === "opencode" && OPENCODE_CHAT_ONLY_FAMILIES.test(id)) {
       return [];
     }
+    if (NON_CHAT_MODEL_ID.test(id)) {
+      return [];
+    }
 
     const inputModalities = model.modalities?.input ?? [];
     const outputModalities = model.modalities?.output ?? [];
     const imageGeneration = outputModalities.includes("image");
+    if (
+      outputModalities.length > 0 &&
+      !imageGeneration &&
+      !outputModalities.includes("text")
+    ) {
+      return [];
+    }
 
     return [
       {

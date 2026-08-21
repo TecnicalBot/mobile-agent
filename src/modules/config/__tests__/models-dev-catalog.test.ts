@@ -51,6 +51,38 @@ const catalog: Record<string, ModelsDevProvider> = {
       },
     },
   },
+  vercel: {
+    models: {
+      "openai/gpt-5": {
+        cost: { input: 1.25, output: 10 },
+        limit: { context: 400000 },
+        name: "GPT-5",
+        tool_call: true,
+      },
+      "meta/llama-4-scout": {
+        cost: { input: 0, output: 0 },
+        limit: { context: 131072 },
+        name: "Llama 4 Scout",
+        tool_call: true,
+      },
+      "openai/gpt-image-1": {
+        modalities: { input: ["text", "image"], output: ["image"] },
+        name: "GPT Image 1",
+      },
+      "fish-audio/s1": {
+        modalities: { input: ["text"], output: ["audio"] },
+        name: "Fish Audio S1",
+      },
+      "klingai/kling-v2.6-t2v": {
+        modalities: { input: ["text"], output: ["video"] },
+        name: "Kling Video",
+      },
+      "google/text-embedding-005": {
+        modalities: { input: ["text"], output: ["text"] },
+        name: "Text Embedding 005",
+      },
+    },
+  },
 };
 
 function makeProvider(
@@ -86,6 +118,23 @@ describe("resolveModelsDevProviderKey", () => {
         makeProvider({ id: "fireworks", family: "openai-compatible", baseUrl: "https://api.fireworks.ai/inference/v1" }),
       ),
     ).toBe("fireworks-ai");
+  });
+
+  it("resolves the Vercel AI Gateway provider to its catalog entry", () => {
+    expect(
+      resolveModelsDevProviderKey(catalog, makeProvider({ id: "vercel", family: "openai-compatible" })),
+    ).toBe("vercel");
+  });
+});
+
+describe("vercel provider registration", () => {
+  it("registers Vercel AI Gateway as a supported provider", async () => {
+    const { getSupportedProviderDefinition } = await import("@/modules/providers");
+    const definition = getSupportedProviderDefinition("vercel");
+    expect(definition?.config.label).toBe("Vercel AI Gateway");
+    expect(definition?.config.baseUrl).toBe("https://ai-gateway.vercel.sh/v1");
+    expect(definition?.config.family).toBe("openai-compatible");
+    expect(definition?.config.authType).toBe("apiKey");
   });
 });
 
@@ -184,5 +233,36 @@ describe("getModelsDevDefinitionsForProvider", () => {
     expect(
       getModelsDevDefinitionsForProvider(catalog, makeProvider({ id: "on-device", family: "on-device" })),
     ).toEqual([]);
+  });
+
+  it("lists Vercel AI Gateway chat models with free badges and image models", () => {
+    const definitions = getModelsDevDefinitionsForProvider(
+      catalog,
+      makeProvider({ id: "vercel", family: "openai-compatible" }),
+    );
+    const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+
+    expect([...byId.keys()].sort()).toEqual([
+      "meta/llama-4-scout",
+      "openai/gpt-5",
+      "openai/gpt-image-1",
+    ]);
+    expect(byId.get("meta/llama-4-scout")?.isFree).toBe(true);
+    expect(byId.get("openai/gpt-image-1")?.outputType).toBe("image");
+    expect(byId.get("openai/gpt-image-1")?.capabilities?.imageGeneration).toBe(true);
+  });
+
+  it("filters audio/video-only and embedding/moderation models from every provider", () => {
+    for (const provider of [
+      makeProvider({ id: "vercel", family: "openai-compatible" }),
+      makeProvider({ id: "openrouter", family: "openrouter" }),
+    ]) {
+      const ids = getModelsDevDefinitionsForProvider(catalog, provider).map(
+        (definition) => definition.id,
+      );
+      expect(ids).not.toContain("fish-audio/s1");
+      expect(ids).not.toContain("klingai/kling-v2.6-t2v");
+      expect(ids).not.toContain("google/text-embedding-005");
+    }
   });
 });

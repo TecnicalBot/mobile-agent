@@ -9,6 +9,7 @@ const OPENAI_COMPATIBLE_PROFILES = [
   ["groq", "Groq", "https://api.groq.com/openai/v1"],
   ["opencode", "OpenCode Zen", "https://opencode.ai/zen/v1"],
   ["togetherai", "Together AI", "https://api.together.xyz/v1"],
+  ["vercel", "Vercel AI Gateway", "https://ai-gateway.vercel.sh/v1"],
 ] as const;
 
 export const OPENAI_COMPATIBLE_PROFILE_PROVIDERS =

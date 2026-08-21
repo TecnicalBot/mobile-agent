@@ -72,7 +72,7 @@ export async function advanceSchedule(
   const next = computeNextRun(
     schedule.expression,
     schedule.timezone,
-    new Date(schedule.nextRunAt),
+    new Date(Math.max(scheduledTime, now)),
   );
 
   await repositories.scheduleRepository.update(schedule.id, {

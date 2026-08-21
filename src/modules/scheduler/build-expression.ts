@@ -49,8 +49,8 @@ export function normalizeWeekday(day: string): string | null {
 
   const numeric = Number(key);
 
-  if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 6) {
-    return String(numeric);
+  if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 7) {
+    return String(numeric % 7);
   }
 
   return null;

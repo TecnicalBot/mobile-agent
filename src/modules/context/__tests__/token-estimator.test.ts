@@ -59,6 +59,20 @@ describe("estimateMessageTokens", () => {
     const message = contentMessage("tool", [toolResultPart("x".repeat(400))]);
     expect(estimateMessageTokens(message)).toBe(4 + 100);
   });
+
+  it("counts tool-call parts with args", () => {
+    const message = contentMessage("assistant", [
+      { type: "tool-call", toolName: "read", args: { fileId: "123", path: "test.ts" } },
+    ]);
+    expect(estimateMessageTokens(message)).toBeGreaterThan(4);
+  });
+
+  it("counts tool-result parts with result object", () => {
+    const message = contentMessage("tool", [
+      { type: "tool-result", toolCallId: "call_1", result: { status: "success", data: "x".repeat(400) } },
+    ]);
+    expect(estimateMessageTokens(message)).toBeGreaterThan(100);
+  });
 });
 
 describe("estimateMessagesTokens", () => {

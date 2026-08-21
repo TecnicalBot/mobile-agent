@@ -10,7 +10,14 @@ function estimateTextTokens(text: string): number {
 }
 
 function estimateContentArrayTokens(
-  parts: { type: string; text?: string; content?: string | { type: string; text?: string }[] }[],
+  parts: {
+    type: string;
+    text?: string;
+    content?: string | { type: string; text?: string }[];
+    toolName?: string;
+    args?: unknown;
+    result?: unknown;
+  }[],
 ): number {
   let tokens = 0;
   for (const part of parts) {
@@ -20,13 +27,29 @@ function estimateContentArrayTokens(
       tokens += Math.ceil(part.text.length / REASONING_CHARS_PER_TOKEN);
     } else if (part.type === "file" || part.type === "image") {
       tokens += IMAGE_TOKEN_ESTIMATE;
-    } else if (part.type === "tool-result" && typeof part.content === "string") {
-      tokens += estimateTextTokens(part.content);
-    } else if (part.type === "tool-result" && Array.isArray(part.content)) {
-      for (const inner of part.content) {
-        if (typeof inner === "object" && inner !== null && typeof inner.text === "string") {
-          tokens += estimateTextTokens(inner.text);
+    } else if (part.type === "tool-call") {
+      tokens += estimateTextTokens(part.toolName ?? "");
+      if (part.args) {
+        tokens += estimateTextTokens(
+          typeof part.args === "string" ? part.args : JSON.stringify(part.args),
+        );
+      }
+    } else if (part.type === "tool-result") {
+      if (typeof part.content === "string") {
+        tokens += estimateTextTokens(part.content);
+      } else if (Array.isArray(part.content)) {
+        for (const inner of part.content) {
+          if (typeof inner === "object" && inner !== null && typeof inner.text === "string") {
+            tokens += estimateTextTokens(inner.text);
+          }
         }
+      }
+      if (part.result !== undefined && part.result !== null) {
+        tokens += estimateTextTokens(
+          typeof part.result === "string"
+            ? part.result
+            : JSON.stringify(part.result),
+        );
       }
     }
   }

@@ -61,10 +61,17 @@ const WEEKDAY_NAMES = [
 ];
 
 function formatTime(minute: string, hour: string) {
-  const hh = hour.padStart(2, "0");
-  const mm = minute.padStart(2, "0");
-  const hour12 = Number(hour) % 12 === 0 ? 12 : Number(hour) % 12;
-  const suffix = Number(hour) < 12 ? "AM" : "PM";
+  const numHour = Number(hour);
+  const numMin = Number(minute);
+
+  if (Number.isNaN(numHour) || Number.isNaN(numMin)) {
+    return `${hour}:${minute}`;
+  }
+
+  const hh = String(numHour).padStart(2, "0");
+  const mm = String(numMin).padStart(2, "0");
+  const hour12 = numHour % 12 === 0 ? 12 : numHour % 12;
+  const suffix = numHour < 12 ? "AM" : "PM";
 
   return `${hh}:${mm} (${hour12}:${mm} ${suffix})`;
 }
@@ -81,17 +88,19 @@ function expandDowList(dow: string) {
         const end = Number(range[1]);
         const names = [];
 
-        for (let day = start; day <= end; day += 1) {
-          names.push(WEEKDAY_NAMES[day % 7]);
-        }
+        if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end) {
+          for (let day = start; day <= end; day += 1) {
+            names.push(WEEKDAY_NAMES[day % 7]);
+          }
 
-        return names.join(", ");
+          return names.join(", ");
+        }
       }
 
       const numeric = Number(part);
 
-      if (!Number.isNaN(numeric) && numeric >= 0 && numeric <= 6) {
-        return WEEKDAY_NAMES[numeric];
+      if (!Number.isNaN(numeric) && numeric >= 0 && numeric <= 7) {
+        return WEEKDAY_NAMES[numeric % 7];
       }
 
       return part;

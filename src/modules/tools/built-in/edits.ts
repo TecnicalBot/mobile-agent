@@ -67,6 +67,10 @@ export function applyTextEdits(content: string, edits: TextEdit[]) {
 }
 
 function countOccurrences(content: string, needle: string) {
+  if (!needle) {
+    return 0;
+  }
+
   let count = 0;
   let fromIndex = 0;
 

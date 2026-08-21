@@ -617,7 +617,7 @@ export function createExternalFolderService() {
 
       if (parent.list().some((sibling) => sibling.name === trimmedName)) {
         throw new Error(
-          `A file or folder named "${trimmedName}" already exists at "${previousPath}".`,
+          `A file or folder named "${trimmedName}" already exists at "${getEntryPath(parentPath, trimmedName)}".`,
         );
       }
 
@@ -680,15 +680,34 @@ function inferMimeType(fileName: string) {
     return "application/json";
   }
 
-  if (lowerName.endsWith(".js") || lowerName.endsWith(".mjs")) {
+  if (
+    lowerName.endsWith(".js") ||
+    lowerName.endsWith(".mjs") ||
+    lowerName.endsWith(".cjs")
+  ) {
     return "application/javascript";
   }
 
-  if (lowerName.endsWith(".css")) {
+  if (
+    lowerName.endsWith(".ts") ||
+    lowerName.endsWith(".mts") ||
+    lowerName.endsWith(".cts") ||
+    lowerName.endsWith(".tsx") ||
+    lowerName.endsWith(".jsx")
+  ) {
+    return "application/typescript";
+  }
+
+  if (
+    lowerName.endsWith(".css") ||
+    lowerName.endsWith(".scss") ||
+    lowerName.endsWith(".sass") ||
+    lowerName.endsWith(".less")
+  ) {
     return "text/css";
   }
 
-  if (lowerName.endsWith(".html")) {
+  if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
     return "text/html";
   }
 
@@ -700,11 +719,35 @@ function inferMimeType(fileName: string) {
     return "application/xml";
   }
 
-  if (lowerName.endsWith(".md")) {
+  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
     return "text/markdown";
   }
 
-  if (lowerName.endsWith(".txt")) {
+  if (lowerName.endsWith(".yml") || lowerName.endsWith(".yaml")) {
+    return "application/x-yaml";
+  }
+
+  if (lowerName.endsWith(".toml")) {
+    return "application/toml";
+  }
+
+  if (lowerName.endsWith(".sql")) {
+    return "application/sql";
+  }
+
+  if (lowerName.endsWith(".csv") || lowerName.endsWith(".tsv")) {
+    return "text/csv";
+  }
+
+  if (
+    lowerName.endsWith(".txt") ||
+    lowerName.endsWith(".log") ||
+    lowerName.endsWith(".env") ||
+    lowerName.endsWith(".sh") ||
+    lowerName.endsWith(".py") ||
+    lowerName.endsWith(".ini") ||
+    lowerName.endsWith(".conf")
+  ) {
     return "text/plain";
   }
 

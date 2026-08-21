@@ -1,40 +1,12 @@
 import type { ModelMessage } from "ai";
 
-import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
+import {
+  isTextWorkspaceFile,
+  resolveWorkspaceFile,
+} from "@/core/services/workspace-file-service";
 import type { MessageRole, StoredMessage, WorkspaceFile } from "@/core/types/app-state";
 
 const IMAGE_MIME_PREFIXES = ["image/"];
-const TEXT_MIME_PREFIXES = ["text/"];
-const TEXT_MIME_TYPES = new Set([
-  "application/json",
-  "application/ld+json",
-  "application/xml",
-  "application/javascript",
-  "application/typescript",
-  "application/x-typescript",
-  "application/x-javascript",
-  "application/x-sh",
-  "application/x-yaml",
-]);
-const TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".markdown",
-  ".json",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".xml",
-  ".html",
-  ".css",
-  ".yml",
-  ".yaml",
-  ".sh",
-  ".env",
-  ".csv",
-  ".log",
-]);
 
 export function isImageMimeType(mimeType: string | null | undefined): boolean {
   if (!mimeType) {
@@ -46,24 +18,7 @@ export function isImageMimeType(mimeType: string | null | undefined): boolean {
 }
 
 function isTextFile(file: Pick<WorkspaceFile, "displayName" | "mimeType">) {
-  const mimeType = file.mimeType?.toLowerCase() ?? "";
-
-  if (
-    TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix)) ||
-    TEXT_MIME_TYPES.has(mimeType)
-  ) {
-    return true;
-  }
-
-  const lowerName = file.displayName.toLowerCase();
-
-  for (const extension of TEXT_EXTENSIONS) {
-    if (lowerName.endsWith(extension)) {
-      return true;
-    }
-  }
-
-  return false;
+  return isTextWorkspaceFile(file);
 }
 
 export type PartitionedFiles = {

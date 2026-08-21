@@ -9,15 +9,41 @@ const SKILL_FETCH_HEADERS = {
 };
 
 export function githubBlobToRaw(url: string) {
-  const match = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/(.+)$/.exec(
-    url,
-  );
+  const cleanUrl = url.split(/[?#]/)[0] ?? url;
 
-  if (!match) {
-    return null;
+  const gistMatch = /^https?:\/\/gist\.github\.com\/([^/]+)\/([a-f0-9]+)(?:\/raw)?(?:\/.*)?$/i.exec(
+    cleanUrl,
+  );
+  if (gistMatch) {
+    return `https://gist.githubusercontent.com/${gistMatch[1]}/${gistMatch[2]}/raw`;
   }
 
-  return `https://raw.githubusercontent.com/${match[1]}/${match[2]}`;
+  const rawMatch = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/raw\/(.+)$/i.exec(
+    cleanUrl,
+  );
+  if (rawMatch) {
+    return `https://raw.githubusercontent.com/${rawMatch[1]}/${rawMatch[2]}`;
+  }
+
+  const blobOrTreeMatch = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/(?:blob|tree)\/(.+)$/i.exec(
+    cleanUrl,
+  );
+  if (blobOrTreeMatch) {
+    let path = blobOrTreeMatch[2];
+    if (!path.toLowerCase().endsWith(".md")) {
+      path = `${path.replace(/\/+$/, "")}/SKILL.md`;
+    }
+    return `https://raw.githubusercontent.com/${blobOrTreeMatch[1]}/${path}`;
+  }
+
+  const repoMatch = /^https?:\/\/github\.com\/([^/]+\/[^/]+)(?:\/)?$/i.exec(
+    cleanUrl,
+  );
+  if (repoMatch) {
+    return `https://raw.githubusercontent.com/${repoMatch[1]}/main/SKILL.md`;
+  }
+
+  return null;
 }
 
 export function resolveSkillMarkdownUrl(input: string) {
@@ -33,7 +59,7 @@ export function resolveSkillMarkdownUrl(input: string) {
     );
   }
 
-  return githubBlobToRaw(trimmed) ?? trimmed;
+  return githubBlobToRaw(trimmed) ?? trimmed.split(/[?#]/)[0]!;
 }
 
 export async function fetchSkillMarkdownFromUrl(input: string): Promise<{

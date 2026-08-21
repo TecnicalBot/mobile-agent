@@ -10,6 +10,8 @@ import {
   msg,
   reasoningPart,
   textPart,
+  toolCallInputPart,
+  toolResultOutputPart,
   toolResultPart,
 } from "./test-fixtures";
 
@@ -70,6 +72,27 @@ describe("estimateMessageTokens", () => {
   it("counts tool-result parts with result object", () => {
     const message = contentMessage("tool", [
       { type: "tool-result", toolCallId: "call_1", result: { status: "success", data: "x".repeat(400) } },
+    ]);
+    expect(estimateMessageTokens(message)).toBeGreaterThan(100);
+  });
+
+  it("counts AI SDK v7 tool-call parts with input", () => {
+    const message = contentMessage("assistant", [
+      toolCallInputPart({ fileId: "123", path: "x".repeat(400) }),
+    ]);
+    expect(estimateMessageTokens(message)).toBeGreaterThan(100);
+  });
+
+  it("counts AI SDK v7 tool-result parts with text output", () => {
+    const message = contentMessage("tool", [
+      toolResultOutputPart({ type: "text", value: "x".repeat(400) }),
+    ]);
+    expect(estimateMessageTokens(message)).toBe(4 + 100);
+  });
+
+  it("counts AI SDK v7 tool-result parts with json output", () => {
+    const message = contentMessage("tool", [
+      toolResultOutputPart({ type: "json", value: { data: "x".repeat(400) } }),
     ]);
     expect(estimateMessageTokens(message)).toBeGreaterThan(100);
   });

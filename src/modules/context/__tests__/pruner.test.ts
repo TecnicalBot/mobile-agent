@@ -5,6 +5,7 @@ import {
   contentMessage,
   msg,
   textPart,
+  toolResultOutputPart,
   toolResultPart,
 } from "./test-fixtures";
 
@@ -83,5 +84,45 @@ describe("pruneToolOutputs", () => {
       typeof toolResultPart
     >[];
     expect(firstContent[0]!.content).toMatch(/^\[Tool output pruned/);
+  });
+
+  it("prunes large AI SDK v7 tool-result output parts and keeps a valid output shape", () => {
+    const toolMessages = Array.from({ length: 12 }, () =>
+      contentMessage("tool", [
+        toolResultOutputPart({ type: "text", value: "z".repeat(10_000) }),
+      ]),
+    );
+    const messages = [...toolMessages, ...smallTail(4)];
+
+    const pruned = pruneToolOutputs(messages);
+    expect(pruned).not.toBe(messages);
+
+    const firstContent = pruned[0]!.content as unknown as ReturnType<
+      typeof toolResultOutputPart
+    >[];
+    const output = firstContent[0]!.output as { type: string; value: string };
+    expect(output.type).toBe("text");
+    expect(output.value).toMatch(/^\[Tool output pruned/);
+  });
+
+  it("prunes large v7 json tool-result outputs", () => {
+    const toolMessages = Array.from({ length: 12 }, () =>
+      contentMessage("tool", [
+        toolResultOutputPart({
+          type: "json",
+          value: { data: "j".repeat(10_000) },
+        }),
+      ]),
+    );
+    const messages = [...toolMessages, ...smallTail(4)];
+
+    const pruned = pruneToolOutputs(messages);
+    expect(pruned).not.toBe(messages);
+
+    const firstContent = pruned[0]!.content as unknown as ReturnType<
+      typeof toolResultOutputPart
+    >[];
+    const output = firstContent[0]!.output as { type: string; value: string };
+    expect(output.value).toMatch(/^\[Tool output pruned/);
   });
 });

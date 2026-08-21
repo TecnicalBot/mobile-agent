@@ -32,6 +32,28 @@ export function toolResultPart(
   return { type: "tool-result", content };
 }
 
+export function toolCallInputPart(
+  input: unknown,
+): { type: "tool-call"; toolCallId: string; toolName: string; input: unknown } {
+  return { type: "tool-call", toolCallId: "call_1", toolName: "read", input };
+}
+
+export function toolResultOutputPart(
+  output: unknown,
+): {
+  type: "tool-result";
+  toolCallId: string;
+  toolName: string;
+  output: unknown;
+} {
+  return {
+    type: "tool-result",
+    toolCallId: "call_1",
+    toolName: "read",
+    output,
+  };
+}
+
 export function fakeModel(contextWindow?: number | null): ResolvedModel {
   return {
     contextWindow: contextWindow ?? null,

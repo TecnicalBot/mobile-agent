@@ -6,14 +6,43 @@ const PROTECT_RECENT_TURNS = 2;
 const PRUNE_MINIMUM_FREE = 15_000;
 const PRUNE_SIZE_THRESHOLD = 3_000;
 
+type ToolOutputValue = { type?: string; value?: unknown };
+
 type ContentPart = {
   type: string;
   text?: string;
   content?: string | { type: string; text?: string }[];
   result?: unknown;
+  output?: ToolOutputValue;
   toolCallId?: string;
   toolName?: string;
 };
+
+function getOutputPrunableLength(output: ToolOutputValue): number {
+  if (typeof output.value === "string") {
+    return output.value.length;
+  }
+  if (Array.isArray(output.value)) {
+    return output.value.reduce((sum: number, inner) => {
+      return (
+        sum +
+        (typeof inner === "object" &&
+        inner !== null &&
+        typeof (inner as { text?: unknown }).text === "string"
+          ? ((inner as { text: string }).text as string).length
+          : 0)
+      );
+    }, 0);
+  }
+  if (output.value !== undefined && output.value !== null) {
+    try {
+      return JSON.stringify(output.value).length;
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
 
 function getPartPrunableLength(part: ContentPart): number {
   if (part.type === "text" && typeof part.text === "string") {
@@ -32,6 +61,9 @@ function getPartPrunableLength(part: ContentPart): number {
             : 0)
         );
       }, 0);
+    }
+    if (part.output && typeof part.output === "object") {
+      return getOutputPrunableLength(part.output);
     }
     if (part.result !== undefined && part.result !== null) {
       return typeof part.result === "string"
@@ -75,6 +107,16 @@ function replaceContentWithPlaceholder(
       const newContent = parts.map((part) => {
         if (getPartPrunableLength(part) > PRUNE_SIZE_THRESHOLD * 2) {
           if (part.type === "tool-result") {
+            if (
+              part.output &&
+              typeof part.output === "object" &&
+              "value" in part.output
+            ) {
+              return {
+                ...part,
+                output: { type: "text", value: placeholder },
+              };
+            }
             return {
               ...part,
               content: placeholder,

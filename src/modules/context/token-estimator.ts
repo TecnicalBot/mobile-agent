@@ -9,15 +9,48 @@ function estimateTextTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
+type ToolOutputValue = { type?: string; value?: unknown };
+
+type ContentPartLike = {
+  type: string;
+  text?: string;
+  content?: string | { type: string; text?: string }[];
+  toolName?: string;
+  args?: unknown;
+  input?: unknown;
+  result?: unknown;
+  output?: ToolOutputValue;
+};
+
+function estimateOutputTokens(output: ToolOutputValue): number {
+  if (typeof output.value === "string") {
+    return estimateTextTokens(output.value);
+  }
+  if (Array.isArray(output.value)) {
+    let tokens = 0;
+    for (const inner of output.value) {
+      if (
+        typeof inner === "object" &&
+        inner !== null &&
+        typeof (inner as { text?: unknown }).text === "string"
+      ) {
+        tokens += estimateTextTokens((inner as { text: string }).text);
+      }
+    }
+    return tokens;
+  }
+  if (output.value !== undefined && output.value !== null) {
+    try {
+      return estimateTextTokens(JSON.stringify(output.value));
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
 function estimateContentArrayTokens(
-  parts: {
-    type: string;
-    text?: string;
-    content?: string | { type: string; text?: string }[];
-    toolName?: string;
-    args?: unknown;
-    result?: unknown;
-  }[],
+  parts: ContentPartLike[],
 ): number {
   let tokens = 0;
   for (const part of parts) {
@@ -29,9 +62,12 @@ function estimateContentArrayTokens(
       tokens += IMAGE_TOKEN_ESTIMATE;
     } else if (part.type === "tool-call") {
       tokens += estimateTextTokens(part.toolName ?? "");
-      if (part.args) {
+      const callPayload = part.args ?? part.input;
+      if (callPayload !== undefined && callPayload !== null) {
         tokens += estimateTextTokens(
-          typeof part.args === "string" ? part.args : JSON.stringify(part.args),
+          typeof callPayload === "string"
+            ? callPayload
+            : JSON.stringify(callPayload),
         );
       }
     } else if (part.type === "tool-result") {
@@ -43,6 +79,9 @@ function estimateContentArrayTokens(
             tokens += estimateTextTokens(inner.text);
           }
         }
+      }
+      if (part.output && typeof part.output === "object") {
+        tokens += estimateOutputTokens(part.output);
       }
       if (part.result !== undefined && part.result !== null) {
         tokens += estimateTextTokens(
@@ -68,7 +107,7 @@ export function estimateMessageTokens(message: ModelMessage): number {
     contentTokens = estimateTextTokens(message.content);
   } else if (Array.isArray(message.content)) {
     contentTokens = estimateContentArrayTokens(
-      message.content as { type: string; text?: string; content?: string | { type: string; text?: string }[] }[],
+      message.content as ContentPartLike[],
     );
   }
 

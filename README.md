@@ -1,5 +1,3 @@
-![MobileAgent](./assets/images/splash-icon.png)
-
 # Mobile Agent
 
 Mobile Agent is an open-source AI agent built specifically for mobile devices that runs entirely on your phone.

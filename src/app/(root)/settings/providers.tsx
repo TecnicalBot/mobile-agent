@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useConfig } from "@/hooks/use-config";
 import { useAppState } from "@/hooks/use-app-state";
 import { useTheme } from "@/hooks/use-theme";
-import { invalidateLiveModelCatalog } from "@/modules/config/live-model-catalog";
+import { invalidateModelsDevCatalog } from "@/modules/config/models-dev-catalog";
 import { getSupportedProviderDefinition } from "@/modules/config/registry";
 import { fetchOnDeviceModelCatalogCached } from "@/modules/on-device/catalog";
 import { getOnDeviceToolsMode } from "@/modules/on-device/runtime-policy";
@@ -1031,7 +1031,7 @@ export default function SettingsProvidersScreen() {
                           runAction(
                             `refresh-models:${selectedProvider.id}`,
                             async () => {
-                              invalidateLiveModelCatalog();
+                              invalidateModelsDevCatalog();
                               await refresh();
                             },
                           ).catch(console.error);

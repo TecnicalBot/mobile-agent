@@ -5,7 +5,7 @@ import { getSupportedProviderDefinition } from "@/modules/providers";
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
-type ModelsDevModel = {
+export type ModelsDevModel = {
   cost?: {
     cache_read?: number;
     cache_write?: number;
@@ -27,7 +27,7 @@ type ModelsDevModel = {
   };
 };
 
-type ModelsDevProvider = {
+export type ModelsDevProvider = {
   api?: string;
   models?: Record<string, ModelsDevModel>;
 };
@@ -39,6 +39,7 @@ let cachedCatalog: {
 
 const PROVIDER_ID_ALIASES: Record<string, string> = {
   fireworks: "fireworks-ai",
+  "openai-api": "openai",
 };
 
 // OpenCode Zen serves different model families over different protocols. The
@@ -161,11 +162,87 @@ export async function fetchModelsDevCatalogCached() {
   }
 }
 
+export function invalidateModelsDevCatalog() {
+  cachedCatalog = null;
+}
+
+export type ModelsDevModelInfo = {
+  contextWindow: number | null;
+  inputPricePerToken: number | null;
+  outputPricePerToken: number | null;
+};
+
+function toPerTokenPrice(value: number | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value / 1_000_000
+    : null;
+}
+
+function toModelInfo(model: ModelsDevModel): ModelsDevModelInfo {
+  return {
+    contextWindow: model.limit?.context ?? null,
+    inputPricePerToken: toPerTokenPrice(model.cost?.input),
+    outputPricePerToken: toPerTokenPrice(model.cost?.output),
+  };
+}
+
+function findProviderModel(
+  provider: ModelsDevProvider | undefined,
+  match: (id: string, model: ModelsDevModel) => boolean,
+) {
+  for (const [key, model] of Object.entries(provider?.models ?? {})) {
+    if (match(model.id?.trim() || key, model)) {
+      return model;
+    }
+  }
+  return null;
+}
+
+export function findModelsDevModel(
+  catalog: Record<string, ModelsDevProvider>,
+  providerId: string,
+  modelId: string,
+): ModelsDevModelInfo | null {
+  const catalogId = PROVIDER_ID_ALIASES[providerId] ?? providerId;
+  const direct = findProviderModel(
+    catalog[catalogId],
+    (id) => id === modelId,
+  );
+  if (direct) {
+    return toModelInfo(direct);
+  }
+
+  const suffix = `/${modelId}`;
+  let scopedMatch = findProviderModel(
+    catalog[catalogId],
+    (id) => id.endsWith(suffix),
+  );
+  if (scopedMatch) {
+    return toModelInfo(scopedMatch);
+  }
+
+  for (const provider of Object.values(catalog)) {
+    const exact = findProviderModel(provider, (id) => id === modelId);
+    if (exact) {
+      return toModelInfo(exact);
+    }
+  }
+
+  for (const provider of Object.values(catalog)) {
+    scopedMatch = findProviderModel(provider, (id) => id.endsWith(suffix));
+    if (scopedMatch) {
+      return toModelInfo(scopedMatch);
+    }
+  }
+
+  return null;
+}
+
 export function getModelsDevDefinitionsForProvider(
   catalog: Record<string, ModelsDevProvider>,
   provider: ProviderConfig,
 ): CuratedModelDefinition[] {
-  if (provider.family !== "openai-compatible" && provider.family !== "xai") {
+  if (provider.family === "ollama" || provider.family === "on-device") {
     return [];
   }
 

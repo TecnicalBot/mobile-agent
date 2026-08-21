@@ -1,7 +1,10 @@
 import type { ToolSet } from "ai";
 import type { RefObject } from "react";
 
-import { fetchLiveModelCatalogCached } from "@/modules/config/live-model-catalog";
+import {
+  fetchModelsDevCatalogCached,
+  findModelsDevModel,
+} from "@/modules/config/models-dev-catalog";
 import { resolveConfiguredModel } from "@/modules/config/registry";
 import {
   prepareMessagesForLLMWithSummary,
@@ -1228,13 +1231,13 @@ export async function executeClaimedAgentRun(
 
     let contextWindowFromCatalog: number | null = null;
     try {
-      const liveModels = await fetchLiveModelCatalogCached();
-      const liveModel = liveModels.find(
-        (m) =>
-          m.id === resolvedModel.modelId ||
-          m.id.endsWith(`/${resolvedModel.modelId}`),
-      );
-      contextWindowFromCatalog = liveModel?.contextWindow ?? null;
+      const catalog = await fetchModelsDevCatalogCached();
+      contextWindowFromCatalog =
+        findModelsDevModel(
+          catalog,
+          resolvedModel.providerId,
+          resolvedModel.modelId,
+        )?.contextWindow ?? null;
     } catch {}
 
     if (

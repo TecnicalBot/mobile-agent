@@ -2,8 +2,11 @@ import { useMemo } from "react";
 
 import { useChat } from "@/hooks/use-chat";
 import { useConfig } from "@/hooks/use-config";
-import { useLiveModelCatalog } from "@/hooks/use-live-model-catalog";
-import type { LiveCatalogModel } from "@/modules/config/live-model-catalog";
+import { useModelsDevCatalog } from "@/hooks/use-models-dev-catalog";
+import {
+  findModelsDevModel,
+  type ModelsDevModelInfo,
+} from "@/modules/config/models-dev-catalog";
 import type { ModelUsageSnapshot, ResolvedModel } from "@/core/types/app-state";
 
 function getOllamaContextWindow(model: ResolvedModel): number | null {
@@ -53,24 +56,13 @@ function roundPercent(value: number | null) {
   return Math.round(value * 10) / 10;
 }
 
-function findLiveModel(
-  models: LiveCatalogModel[],
-  usage: Pick<ModelUsageSnapshot, "modelId" | "providerId">,
-) {
-  return (
-    models.find((model) => model.id === usage.modelId) ??
-    models.find((model) => model.id.endsWith(`/${usage.modelId}`)) ??
-    null
-  );
-}
-
 function enrichUsage(
   usage: ModelUsageSnapshot,
-  liveModel: LiveCatalogModel | null,
+  catalogModel: ModelsDevModelInfo | null,
   fallbackContextWindow?: number | null,
 ) {
-  const inputPricePerToken = liveModel?.inputPricePerToken ?? null;
-  const outputPricePerToken = liveModel?.outputPricePerToken ?? null;
+  const inputPricePerToken = catalogModel?.inputPricePerToken ?? null;
+  const outputPricePerToken = catalogModel?.outputPricePerToken ?? null;
   const inputCost =
     usage.inputTokens !== null && inputPricePerToken !== null
       ? usage.inputTokens * inputPricePerToken
@@ -84,7 +76,10 @@ function enrichUsage(
       ? (inputCost ?? 0) + (outputCost ?? 0)
       : usage.costTotal;
   const contextWindow =
-    liveModel?.contextWindow ?? usage.contextWindow ?? fallbackContextWindow ?? null;
+    catalogModel?.contextWindow ??
+    usage.contextWindow ??
+    fallbackContextWindow ??
+    null;
   const usedTokens =
     usage.totalTokens ??
     (usage.inputTokens !== null || usage.outputTokens !== null
@@ -118,12 +113,18 @@ function enrichUsage(
 export function useChatInfo() {
   const { currentModel } = useConfig();
   const { messages } = useChat();
-  const { data: liveModels = [] } = useLiveModelCatalog();
+  const { data: modelsDevCatalog } = useModelsDevCatalog();
 
   return useMemo(() => {
-    const currentLiveModel =
+    const findCatalogModel = (
+      usage: Pick<ModelUsageSnapshot, "modelId" | "providerId">,
+    ) =>
+      modelsDevCatalog
+        ? findModelsDevModel(modelsDevCatalog, usage.providerId, usage.modelId)
+        : null;
+    const currentCatalogModel =
       currentModel !== null
-        ? findLiveModel(liveModels, {
+        ? findCatalogModel({
             modelId: currentModel.modelId,
             providerId: currentModel.providerId,
           })
@@ -138,8 +139,7 @@ export function useChatInfo() {
       .map((message) => message.metadata?.usage)
       .filter((usage): usage is ModelUsageSnapshot => usage !== null && usage !== undefined);
     const latestUsage = assistantUsages.at(-1) ?? null;
-    const latestLiveModel =
-      latestUsage !== null ? findLiveModel(liveModels, latestUsage) : null;
+    const latestCatalogModel = latestUsage !== null ? findCatalogModel(latestUsage) : null;
     const ollamaContextWindow =
       currentModel !== null ? getOllamaContextWindow(currentModel) : null;
     const fallbackContextWindow =
@@ -149,7 +149,7 @@ export function useChatInfo() {
       assistantUsages.length > 0
         ? (() => {
             const enriched = assistantUsages.map((usage) =>
-              enrichUsage(usage, findLiveModel(liveModels, usage), fallbackContextWindow),
+              enrichUsage(usage, findCatalogModel(usage), fallbackContextWindow),
             );
             const modelLabels = new Set(enriched.map((usage) => usage.modelLabel));
             const providerLabels = new Set(
@@ -200,7 +200,7 @@ export function useChatInfo() {
       currentModel: currentModel
         ? {
             contextWindow:
-              currentLiveModel?.contextWindow ??
+              currentCatalogModel?.contextWindow ??
               currentModel.contextWindow ??
               ollamaContextWindow ??
               null,
@@ -212,8 +212,8 @@ export function useChatInfo() {
         : null,
       latestTurn:
         latestUsage !== null
-          ? enrichUsage(latestUsage, latestLiveModel, fallbackContextWindow)
+          ? enrichUsage(latestUsage, latestCatalogModel, fallbackContextWindow)
           : null,
     };
-  }, [currentModel, liveModels, messages]);
+  }, [currentModel, modelsDevCatalog, messages]);
 }

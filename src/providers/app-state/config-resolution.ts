@@ -1,11 +1,6 @@
 import { Platform } from "react-native";
 
 import {
-  fetchLiveModelCatalogCached,
-  getCatalogModelDefinitionsForProvider,
-  type LiveCatalogModel,
-} from "@/modules/config/live-model-catalog";
-import {
   fetchModelsDevCatalogCached,
   getModelsDevDefinitionsForProvider,
 } from "@/modules/config/models-dev-catalog";
@@ -94,32 +89,18 @@ export async function resolveConfig(
   const activeProviderIds = input.providers
     .filter((provider) => providerCredentialMap.get(provider.id) === true)
     .map((provider) => provider.id);
-  let liveCatalog: LiveCatalogModel[] = [];
   let modelsDevCatalog = {};
   let onDeviceModelDefinitions = getOnDeviceModelDefinitions(
     getBundledOnDeviceModelCatalog(),
   );
   const ollamaModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
   const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
-  const needsLiveModelCatalog = input.providers.some(
+  const needsModelsDevCatalog = input.providers.some(
     (provider) =>
       provider.family !== "ollama" && provider.family !== "on-device",
   );
-  const needsModelsDevCatalog = input.providers.some(
-    (provider) =>
-      provider.family === "openai-compatible" || provider.family === "xai",
-  );
 
   await Promise.all([
-    discoverRemote && needsLiveModelCatalog
-      ? fetchLiveModelCatalogCached()
-          .then((catalog) => {
-            liveCatalog = catalog;
-          })
-          .catch((error) => {
-            console.warn("Failed to load the AI Gateway model catalog.", error);
-          })
-      : Promise.resolve(),
     discoverRemote && needsModelsDevCatalog
       ? fetchModelsDevCatalogCached()
           .then((catalog) => {
@@ -197,9 +178,8 @@ export async function resolveConfig(
               ]
             : [];
       const discoveredModels = [
-        ...(ollamaModelsByProvider[provider.id] ?? []),
-        ...getCatalogModelDefinitionsForProvider(liveCatalog, provider),
         ...getModelsDevDefinitionsForProvider(modelsDevCatalog, provider),
+        ...(ollamaModelsByProvider[provider.id] ?? []),
       ]
         .filter(
           (model) =>

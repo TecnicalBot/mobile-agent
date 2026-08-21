@@ -4,6 +4,10 @@
 
 Mobile Agent is an open-source AI agent built specifically for mobile devices that runs entirely on your phone.
 
+## Demo
+
+[![Mobile Agent demo](https://img.youtube.com/vi/_P_SQ0MW-aU/maxresdefault.jpg)](https://youtu.be/_P_SQ0MW-aU?si=klxA4b7RU3Y2j5iy)
+
 ## Features
 
 - On-device models that can run completely offline

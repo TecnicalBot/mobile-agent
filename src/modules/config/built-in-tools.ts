@@ -26,8 +26,11 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   schedules: true,
 };
 
-const LEGACY_TOOL_KEY_MAP: Partial<Record<string, BuiltInToolKey>> = {
-  askQuestion: "question",
+export const ALL_BUILT_IN_TOOL_KEYS = Object.keys(
+  DEFAULT_BUILT_IN_TOOL_SETTINGS,
+) as BuiltInToolKey[];
+
+const LEGACY_TOOL_KEY_MAP: Partial<Record<string, BuiltInToolKey>> = {  askQuestion: "question",
   folderEditFile: "folderEdit",
   folderReadFile: "folderRead",
   folderSearchText: "folderGrep",

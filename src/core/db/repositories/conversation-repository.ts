@@ -21,6 +21,7 @@ export function createConversationRepository(
         title: input.title,
         providerId: input.providerId ?? null,
         modelId: input.modelId ?? null,
+        agentId: input.agentId ?? null,
         pinnedAt: input.pinnedAt ?? null,
         reasoningEffort: "medium",
         agentMode: "build",
@@ -89,6 +90,8 @@ export function createConversationRepository(
           pinnedAt:
             input.pinnedAt !== undefined ? input.pinnedAt : current.pinnedAt,
           reasoningEffort: input.reasoningEffort ?? current.reasoningEffort,
+          agentId:
+            input.agentId !== undefined ? input.agentId : current.agentId,
           agentMode: input.agentMode ?? current.agentMode,
           selectedFileIds: input.selectedFileIds ?? current.selectedFileIds,
           selectedMcpServerIds:

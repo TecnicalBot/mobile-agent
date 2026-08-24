@@ -83,7 +83,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { isFolderPickerCancellation } from "@/core/services/external-folder/external-folder-service";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
-  AgentMode,
+  AgentConfig,
   ExternalFolderSession,
   McpServerConfig,
   ModelRef,
@@ -94,6 +94,7 @@ import type {
   WorkspaceFile,
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
+import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { useChatInfo } from "@/hooks/use-chat-info";
@@ -135,29 +136,6 @@ function getReasoningEffortLabel(effort: ReasoningEffort) {
   return (
     REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ??
     "Medium"
-  );
-}
-
-const AGENT_MODE_OPTIONS: {
-  value: AgentMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "build",
-    label: "Build",
-    description: "Full tool access: research, write, and make changes",
-  },
-  {
-    value: "plan",
-    label: "Plan",
-    description: "Read-only research and analysis; no changes are made",
-  },
-];
-
-function getAgentModeLabel(mode: AgentMode) {
-  return (
-    AGENT_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? "Build"
   );
 }
 
@@ -269,8 +247,10 @@ export default function Screen() {
     reasoningEffort,
     savedPrompts,
     setReasoningEffort,
-    agentMode,
-    setAgentMode,
+    agents,
+    currentSelectedAgentId,
+    conversationAgentName,
+    setConversationAgent,
   } = useChat();
   const currentConversationBusy =
     currentConversationRunStatus === "queued" ||
@@ -568,8 +548,14 @@ export default function Screen() {
               toolApprovalMode={toolApprovalMode}
               updateToolApprovalMode={updateToolApprovalMode}
               workspaceFiles={workspaceFiles}
-              agentMode={agentMode}
-              setAgentMode={setAgentMode}
+              agents={agents}
+              currentSelectedAgentId={currentSelectedAgentId}
+              conversationAgentName={conversationAgentName}
+              setConversationAgent={setConversationAgent}
+              currentConversationId={currentConversation?.id ?? null}
+              onOpenAgentSettings={() =>
+                router.push("/settings/agents" as never)
+              }
             />
           </MessageScrollerProvider>
 
@@ -871,8 +857,12 @@ const ChatInput = memo(function ChatInput({
   toolApprovalMode,
   updateToolApprovalMode,
   workspaceFiles,
-  agentMode,
-  setAgentMode,
+  agents,
+  currentSelectedAgentId,
+  conversationAgentName,
+  setConversationAgent,
+  currentConversationId,
+  onOpenAgentSettings,
 }: {
   activeModels: Array<{
     label: string;
@@ -926,8 +916,15 @@ const ChatInput = memo(function ChatInput({
   toolApprovalMode: "ask" | "auto";
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
   workspaceFiles: WorkspaceFile[];
-  agentMode: AgentMode;
-  setAgentMode: (mode: AgentMode) => Promise<void>;
+  agents: AgentConfig[];
+  currentSelectedAgentId: string | null;
+  conversationAgentName: string;
+  setConversationAgent: (
+    conversationId: string,
+    agentIdOrName: string | null,
+  ) => Promise<void>;
+  currentConversationId: string | null;
+  onOpenAgentSettings: () => void;
 }) {
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
@@ -939,7 +936,7 @@ const ChatInput = memo(function ChatInput({
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
-  const [agentModeDrawerOpen, setAgentModeDrawerOpen] = useState(false);
+  const [agentsDrawerOpen, setAgentsDrawerOpen] = useState(false);
   const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
   const [mcpServersDrawerOpen, setMcpServersDrawerOpen] = useState(false);
@@ -960,6 +957,7 @@ const ChatInput = memo(function ChatInput({
     content: string;
     selectedFileIds: string[];
   }>(null);
+  const primaryAgents = useMemo(() => listPrimaryAgents(agents), [agents]);
 
   useEffect(() => {
     if (editDraft !== null) {
@@ -1497,6 +1495,19 @@ const ChatInput = memo(function ChatInput({
             : "No saved prompts",
       },
       {
+        id: "select-agent",
+        icon: <ClipboardList color={theme.text} size={16} />,
+        label: "Select agent",
+        onPress: () => {
+          clearTriggerText();
+          setAgentsDrawerOpen(true);
+        },
+        subtitle:
+          conversationAgentName === "build"
+            ? "Build agent for this chat"
+            : `${conversationAgentName} for this chat`,
+      },
+      {
         id: "reasoning-level",
         icon: <Brain color={theme.text} size={16} />,
         label: "Reasoning level",
@@ -1545,6 +1556,7 @@ const ChatInput = memo(function ChatInput({
     ],
     [
       activeMcpServerIds.size,
+      conversationAgentName,
       currentModelLabel,
       enabledMcpServers.length,
       reasoningEffort,
@@ -1750,17 +1762,24 @@ const ChatInput = memo(function ChatInput({
             </Pressable>
 
             <Pressable
-              accessibilityLabel="Select agent mode"
+              accessibilityLabel="Select agent"
               accessibilityRole="button"
               className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
               onPress={() => {
-                setAgentModeDrawerOpen(true);
+                setAgentsDrawerOpen(true);
               }}
               style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
             >
               <ClipboardList color={theme.textSecondary} size={14} />
-              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-                {getAgentModeLabel(agentMode)}
+              <Text
+                className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark"
+                numberOfLines={1}
+              >
+                {conversationAgentName === "build"
+                  ? "Build"
+                  : conversationAgentName === "plan"
+                    ? "Plan"
+                    : conversationAgentName}
               </Text>
               <ChevronDown color={theme.textSecondary} size={14} />
             </Pressable>
@@ -1969,30 +1988,48 @@ const ChatInput = memo(function ChatInput({
         </DrawerContent>
       </Drawer>
 
-      <Drawer onOpenChange={setAgentModeDrawerOpen} open={agentModeDrawerOpen}>
+      <Drawer onOpenChange={setAgentsDrawerOpen} open={agentsDrawerOpen}>
         <DrawerContent showCloseButton showHandle>
           <DrawerHeader>
-            <DrawerTitle>Agent mode</DrawerTitle>
+            <DrawerTitle>Select agent</DrawerTitle>
             <DrawerDescription>
-              Choose how the agent can act for this chat.
+              Choose the agent that runs this chat.
             </DrawerDescription>
           </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
-            {AGENT_MODE_OPTIONS.map((option) => (
+            {primaryAgents.map((agent) => (
               <DrawerSelectRow
-                key={option.value}
+                key={agent.id}
                 onPress={() => {
-                  setAgentMode(option.value)
+                  if (!currentConversationId) return;
+                  setConversationAgent(currentConversationId, agent.name)
                     .then(() => {
-                      setAgentModeDrawerOpen(false);
+                      setAgentsDrawerOpen(false);
                     })
                     .catch(console.error);
                 }}
-                selected={agentMode === option.value}
-                subtitle={option.description}
-                title={option.label}
+                selected={
+                  resolveAgent(agents, currentSelectedAgentId).name ===
+                  agent.name
+                }
+                subtitle={agent.description ?? undefined}
+                title={
+                  agent.name === "build"
+                    ? "Build"
+                    : agent.name === "plan"
+                      ? "Plan"
+                      : agent.name
+                }
               />
             ))}
+            <DrawerSelectRow
+              onPress={() => {
+                setAgentsDrawerOpen(false);
+                onOpenAgentSettings();
+              }}
+              selected={false}
+              title="Manage agents"
+            />
           </DrawerBody>
         </DrawerContent>
       </Drawer>

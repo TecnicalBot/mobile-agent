@@ -18,7 +18,7 @@ export type ParsedSkillMarkdown = {
 const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_DESCRIPTION_LENGTH = 1024;
 
-const TOOL_ALIAS_TO_BUILT_IN_KEY: Record<string, BuiltInToolKey> = {
+export const TOOL_ALIAS_TO_BUILT_IN_KEY: Record<string, BuiltInToolKey> = {
   askquestion: "question",
   askuserquestion: "question",
   create: "workspaceCreateFile",

@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
+import { createAgentRepository } from "@/core/db/repositories/agent-repository";
 import { createAgentRunRepository } from "@/core/db/repositories/agent-run-repository";
 import { createConfigRepository } from "@/core/db/repositories/config-repository";
 import { createConversationRepository } from "@/core/db/repositories/conversation-repository";
@@ -18,6 +19,7 @@ export function createRepositories(sqliteDb: SQLiteDatabase): Repositories {
   const db = createDrizzleDb(sqliteDb);
 
   return {
+    agentRepository: createAgentRepository(db),
     agentRunRepository: createAgentRunRepository(db),
     configRepository: createConfigRepository(db),
     conversationRepository: createConversationRepository(db),

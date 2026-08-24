@@ -7,6 +7,17 @@ import {
 } from "@/modules/config/models-dev-catalog";
 import { resolveConfiguredModel } from "@/modules/config/registry";
 import {
+  DEFAULT_AGENT_NAME,
+  resolveAgent,
+} from "@/modules/agents/registry";
+import {
+  MUTATING_BUILT_IN_TOOL_NAMES,
+  SUBAGENT_DEFAULT_DENIED_TOOL_NAMES,
+  agentAllowsBuiltInKey,
+  filterMcpServerIdsByAgentPermissions,
+  isPlanAgent,
+} from "@/modules/agents/permissions";
+import {
   prepareMessagesForLLMWithSummary,
   type GenerateSummary,
 } from "@/modules/context";
@@ -38,9 +49,14 @@ import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createQuestionTool } from "@/modules/tools/built-in/question";
+import { createAgentTools } from "@/modules/tools/built-in/agent-tools";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createScheduleTools } from "@/modules/tools/built-in/schedules";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
+import {
+  createTaskTool,
+  describeSubagentCatalog,
+} from "@/modules/tools/built-in/task-tool";
 import { summarizeValue } from "@/modules/tools/built-in/shared";
 import { createTodosTool } from "@/modules/tools/built-in/todos";
 import {
@@ -66,6 +82,7 @@ import type { WorkspaceFileService } from "@/core/services/workspace-file-servic
 import type {
   AgentRun,
   AppStateSnapshot,
+  BuiltInToolKey,
   Conversation,
   ExternalFolderSession,
   MemoryEvent,
@@ -100,30 +117,6 @@ import {
 } from "./helpers";
 import { isUiProjectionFailure, type RunUiPublisher } from "./run-ui-publisher";
 
-const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
-  "createDirectory",
-  "createFile",
-  "deleteEntry",
-  "downloadFile",
-  "edit",
-  "exportWorkspaceFileToFolder",
-  "importFolderFileToWorkspace",
-  "manageSkill",
-  "moveEntry",
-  "renameEntry",
-  "write",
-]);
-
-const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
-  "createFile",
-  "edit",
-  "glob",
-  "grep",
-  "listFiles",
-  "read",
-  "write",
-]);
-
 const FOLDER_BOUND_TOOL_NAMES = new Set([
   "createDirectory",
   "deleteEntry",
@@ -135,31 +128,15 @@ const FOLDER_BOUND_TOOL_NAMES = new Set([
   "renameEntry",
 ]);
 
-function filterToolsToAgentMode(
-  tools: Record<string, unknown>,
-  isPlanMode: boolean,
-): Record<string, unknown> {
-  if (!isPlanMode) {
-    return tools;
-  }
-
-  return Object.fromEntries(
-    Object.entries(tools).filter(
-      ([name]) => !MUTATING_BUILT_IN_TOOL_NAMES.has(name),
-    ),
-  );
-}
-
-function buildPlanModeSystemPrompt() {
-  return [
-    "You are in Plan mode. You may research, inspect, and analyze, but you must NOT make any changes.",
-    "Never create, write, edit, delete, move, or rename files. Never tap, type, or otherwise operate the device. Never modify memory or MCP-connected systems.",
-    "Your mutating tools are disabled, so attempting a change is impossible. Instead, investigate the relevant code and present a clear, step-by-step plan.",
-    "Read-only MCP tools, such as web search, remain available for research. Never call an MCP tool that would modify or send data.",
-    "Structure your plan with the specific files and changes involved, why each step is needed, and any risks or trade-offs you noticed.",
-    "End by telling the user to switch to Build mode when they are ready for you to make the changes.",
-  ].join("\n");
-}
+const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
+  "createFile",
+  "edit",
+  "glob",
+  "grep",
+  "listFiles",
+  "read",
+  "write",
+]);
 
 export type AgentRunDeps = {
   repositories: Repositories;
@@ -192,12 +169,16 @@ export type AgentRunDeps = {
     title: string;
   }) => Promise<void>;
   onSkillsChange: () => void;
+  /** Refresh the snapshot after agents change via tools. */
+  onAgentsChange: () => void;
   ui: RunUiPublisher;
   retryRun: (runId: string, delayMs: number) => void;
   /** Whether the background service should be kept alive after this run. */
   shouldKeepBackgroundAgentAlive: () => boolean;
   /** Ask the scheduler engine to re-scan schedules (after tool-driven CRUD). */
   refreshScheduler: () => void;
+  /** Spawn and await a subagent task run. */
+  spawnSubagent: (input: SubagentTaskInput) => Promise<{ output: string }>;
 };
 
 function summarizeToolInput(toolInput: unknown) {
@@ -262,6 +243,7 @@ export async function executeClaimedAgentRun(
     retryRun,
     shouldKeepBackgroundAgentAlive,
     refreshScheduler,
+    onAgentsChange,
   } = deps;
 
   const run =
@@ -314,6 +296,13 @@ export async function executeClaimedAgentRun(
     runRegistry.clear(runId);
     return;
   }
+
+  const agent = resolveAgent(
+    snapshotRef.current.agents,
+    run.agentId ?? conversation.agentId,
+  );
+  const isPlanMode = isPlanAgent(agent);
+  const isSubagentRun = agent.mode === "subagent";
 
   const provider = snapshotRef.current.resolvedConfig.providers.find(
     (item) => item.id === run.providerId,
@@ -415,6 +404,7 @@ export async function executeClaimedAgentRun(
 
   const baseAssistantMetadata: MessageMetadata | null = {
     ...(assistantMessage.metadata ?? {}),
+    agentName: agent.name,
     runId: run.id,
   };
   const startingAssistantText =
@@ -468,7 +458,6 @@ export async function executeClaimedAgentRun(
   );
   const onDevicePolicy = await resolveOnDeviceRuntimePolicy(resolvedModel);
   const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
-  const isPlanMode = run.agentMode === "plan";
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
     await safeUpdateRunRecord(run.id, {
@@ -545,12 +534,20 @@ export async function executeClaimedAgentRun(
       : null;
   const activeFolderSession: ExternalFolderSession | null =
     conversation.externalFolderSession;
-  const runMcpServers =
+  const conversationMcpServers =
     conversation.selectedMcpServerIds === null
       ? snapshotRef.current.mcpServers
       : snapshotRef.current.mcpServers.filter((server) =>
           conversation.selectedMcpServerIds!.includes(server.id),
         );
+  const runMcpServers = filterMcpServerIdsByAgentPermissions(
+    conversationMcpServers.map((server) => server.id),
+    agent,
+  )
+    .map((serverId) =>
+      conversationMcpServers.find((server) => server.id === serverId),
+    )
+    .filter((server): server is NonNullable<typeof server> => Boolean(server));
   const selectedWorkspaceToolFileIds = currentRunWorkspaceFiles.map(
     (file) => file.id,
   );
@@ -878,6 +875,8 @@ export async function executeClaimedAgentRun(
           const tools: Record<string, unknown> = {};
           const toolSettings =
             snapshotRef.current.settings.builtInToolSettings;
+          const enabledFor = (key: BuiltInToolKey) =>
+            toolSettings[key] && agentAllowsBuiltInKey(agent, key);
 
           if (run.fileContextSource === "external-folder") {
             const folderTools = createExternalFolderTools({
@@ -888,17 +887,17 @@ export async function executeClaimedAgentRun(
             Object.assign(
               tools,
               pickEnabledTools(folderTools, [
-                ["createDirectory", toolSettings.folderCreateDirectory],
-                ["createFile", toolSettings.folderCreateFile],
-                ["deleteEntry", toolSettings.folderDeleteEntry],
-                ["edit", toolSettings.folderEdit],
-                ["glob", toolSettings.folderGlob],
-                ["grep", toolSettings.folderGrep],
-                ["listDirectory", toolSettings.folderListDirectory],
-                ["moveEntry", toolSettings.folderMoveEntry],
-                ["read", toolSettings.folderRead],
-                ["renameEntry", toolSettings.folderRenameEntry],
-                ["write", toolSettings.folderWrite],
+                ["createDirectory", enabledFor("folderCreateDirectory")],
+                ["createFile", enabledFor("folderCreateFile")],
+                ["deleteEntry", enabledFor("folderDeleteEntry")],
+                ["edit", enabledFor("folderEdit")],
+                ["glob", enabledFor("folderGlob")],
+                ["grep", enabledFor("folderGrep")],
+                ["listDirectory", enabledFor("folderListDirectory")],
+                ["moveEntry", enabledFor("folderMoveEntry")],
+                ["read", enabledFor("folderRead")],
+                ["renameEntry", enabledFor("folderRenameEntry")],
+                ["write", enabledFor("folderWrite")],
               ]),
             );
 
@@ -913,7 +912,7 @@ export async function executeClaimedAgentRun(
                     onRecord: handleToolExecutionRecord,
                   }),
                 },
-                [["downloadFile", toolSettings.downloadFile]],
+                [["downloadFile", enabledFor("downloadFile")]],
               ),
             );
 
@@ -925,7 +924,7 @@ export async function executeClaimedAgentRun(
             Object.assign(
               tools,
               pickEnabledTools(workspaceDiscoveryTools, [
-                ["listFiles", toolSettings.workspaceListFiles],
+                ["listFiles", enabledFor("workspaceListFiles")],
               ]),
             );
           } else {
@@ -939,14 +938,14 @@ export async function executeClaimedAgentRun(
             Object.assign(
               tools,
               pickEnabledTools(workspaceTools, [
-                ["createFile", toolSettings.workspaceCreateFile],
-                ["downloadFile", toolSettings.downloadFile],
-                ["edit", toolSettings.workspaceEdit],
-                ["glob", toolSettings.workspaceGlob],
-                ["grep", toolSettings.workspaceGrep],
-                ["listFiles", toolSettings.workspaceListFiles],
-                ["read", toolSettings.workspaceRead],
-                ["write", toolSettings.workspaceWrite],
+                ["createFile", enabledFor("workspaceCreateFile")],
+                ["downloadFile", enabledFor("downloadFile")],
+                ["edit", enabledFor("workspaceEdit")],
+                ["glob", enabledFor("workspaceGlob")],
+                ["grep", enabledFor("workspaceGrep")],
+                ["listFiles", enabledFor("workspaceListFiles")],
+                ["read", enabledFor("workspaceRead")],
+                ["write", enabledFor("workspaceWrite")],
               ]),
             );
 
@@ -959,7 +958,7 @@ export async function executeClaimedAgentRun(
               Object.assign(
                 tools,
                 pickEnabledTools(folderDiscoveryTools, [
-                  ["listDirectory", toolSettings.folderListDirectory],
+                  ["listDirectory", enabledFor("folderListDirectory")],
                 ]),
               );
             }
@@ -967,7 +966,9 @@ export async function executeClaimedAgentRun(
 
           if (activeFolderSession) {
             const transferEnabled =
-              toolSettings.folderRead && toolSettings.folderWrite;
+              enabledFor("folderRead") &&
+              enabledFor("folderWrite") &&
+              !isPlanMode;
 
             if (transferEnabled) {
               Object.assign(
@@ -981,8 +982,16 @@ export async function executeClaimedAgentRun(
             }
           }
 
+          if (!isPlanMode) {
+            return Object.keys(tools).length > 0 ? (tools as ToolSet) : undefined;
+          }
+
           return Object.keys(tools).length > 0
-            ? (filterToolsToAgentMode(tools, isPlanMode) as ToolSet)
+            ? (Object.fromEntries(
+                Object.entries(tools).filter(
+                  ([name]) => !MUTATING_BUILT_IN_TOOL_NAMES.has(name),
+                ),
+              ) as ToolSet)
             : undefined;
         })()
       : undefined;
@@ -1000,6 +1009,7 @@ export async function executeClaimedAgentRun(
     const memoryRuntime =
       runtimeSupportsTools &&
       !isPlanMode &&
+      !isSubagentRun &&
       snapshotRef.current.settings.memoryEnabled
         ? createMemoryTools({
             conversationId: conversation.id,
@@ -1013,6 +1023,7 @@ export async function executeClaimedAgentRun(
         : null;
     const todosRuntime =
       runtimeSupportsTools &&
+      !isSubagentRun &&
       snapshotRef.current.settings.builtInToolSettings.todos
         ? createTodosTool({
             getCurrentTodos: () => todoList,
@@ -1027,24 +1038,29 @@ export async function executeClaimedAgentRun(
         : null;
     const questionRuntime =
       runtimeSupportsTools &&
+      !isSubagentRun &&
       snapshotRef.current.settings.builtInToolSettings.question
         ? createQuestionTool({
             onRecord: handleToolExecutionRecord,
             requestQuestionnaire: (request) => requestRunQuestionnaire(request),
           })
         : null;
-    const skillRuntime = runtimeSupportsTools
-      ? createSkillTools({
-          onRecord: handleToolExecutionRecord,
-          onSkillsChange: () => {
-            deps.onSkillsChange();
-            markActivity();
-          },
-          repository: repositories.skillRepository,
-        })
-      : null;
+    const skillRuntime =
+      runtimeSupportsTools && agentAllowsBuiltInKey(agent, "skill")
+        ? createSkillTools({
+            onRecord: handleToolExecutionRecord,
+            onSkillsChange: () => {
+              deps.onSkillsChange();
+              markActivity();
+            },
+            repository: repositories.skillRepository,
+          })
+        : null;
     const scheduleRuntime =
-      runtimeSupportsTools && !isPlanMode
+      runtimeSupportsTools &&
+      !isPlanMode &&
+      !isSubagentRun &&
+      agentAllowsBuiltInKey(agent, "schedules")
         ? createScheduleTools({
             onRecord: handleToolExecutionRecord,
             refreshScheduler: () => {
@@ -1052,6 +1068,29 @@ export async function executeClaimedAgentRun(
               markActivity();
             },
             repositories,
+          })
+        : null;
+    const taskRuntime =
+      runtimeSupportsTools && !isPlanMode && !isSubagentRun
+        ? createTaskTool({
+            getAgents: () => snapshotRef.current.agents,
+            onRecord: handleToolExecutionRecord,
+            spawnSubagent: (task) =>
+              deps.spawnSubagent({
+                ...task,
+                abortSignal: abortController.signal,
+              }),
+          })
+        : null;
+    const agentRuntime =
+      runtimeSupportsTools && !isPlanMode && !isSubagentRun
+        ? createAgentTools({
+            onAgentsChange: () => {
+              onAgentsChange();
+              markActivity();
+            },
+            onRecord: handleToolExecutionRecord,
+            repository: repositories.agentRepository,
           })
         : null;
 
@@ -1068,7 +1107,7 @@ export async function executeClaimedAgentRun(
     }
 
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1076,6 +1115,8 @@ export async function executeClaimedAgentRun(
             ...(questionRuntime?.tools ?? {}),
             ...(skillRuntime?.tools ?? {}),
             ...(scheduleRuntime?.tools ?? {}),
+            ...(taskRuntime?.tools ?? {}),
+            ...(agentRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
     const autoApprovedToolNames = new Set([
@@ -1128,13 +1169,20 @@ export async function executeClaimedAgentRun(
             requestRunApproval(request as PendingToolApprovalRequest),
         })
       : undefined;
-    const runtimeTools =
+    const runtimeToolsBase =
       approvedRuntimeTools || memoryRuntime?.tools
         ? ({
             ...(approvedRuntimeTools ?? {}),
             ...(memoryRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
+    const runtimeTools = isSubagentRun && runtimeToolsBase
+      ? (Object.fromEntries(
+          Object.entries(runtimeToolsBase).filter(
+            ([name]) => !SUBAGENT_DEFAULT_DENIED_TOOL_NAMES.has(name),
+          ),
+        ) as ToolSet)
+      : runtimeToolsBase;
     const builtInRuntimeSystem =
       run.fileContextSource === "external-folder" && builtInRuntimeTools
         ? buildExternalFolderSystemPrompt(
@@ -1175,13 +1223,27 @@ export async function executeClaimedAgentRun(
       skillRuntime && runtimeSupportsTools && !isPlanMode
         ? "You can create, update, delete, and list skills with the manageSkill tool. Skills follow the SKILL.md format: a name, a short description, and markdown instructions. Create a skill when the user explicitly asks to save one, or when a repeated task would benefit from reusable instructions."
         : undefined;
+    const agentManagementRuntimeSystem =
+      agentRuntime && runtimeSupportsTools && !isPlanMode
+        ? "You can create, update, delete, and list agents with the manageAgent tool. Agents are reusable personas: a kebab-case name, a description of when to use them, an availability mode (primary = selectable in chats, subagent = invoked via the task tool, all = both), and a markdown system prompt that replaces your default persona while they run. Create an agent when the user explicitly asks to save one."
+        : undefined;
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
       ? buildMemorySystemPrompt(snapshotRef.current.memory, {
-          canWrite: runtimeSupportsTools && !isPlanMode,
+          canWrite: runtimeSupportsTools && !isPlanMode && !isSubagentRun,
         })
       : undefined;
-    const agentModeRuntimeSystem = isPlanMode
-      ? buildPlanModeSystemPrompt()
+    const subagentRuntimeSystem = isSubagentRun
+      ? [
+          `You are the "${agent.name}" subagent, spawned by the primary agent to complete a delegated task.`,
+          agent.description ? `Your specialty: ${agent.description}.` : undefined,
+          "Work only on the delegated task. When you finish, report your findings or results as the final response; the primary agent will use them.",
+          "You cannot spawn further subagents, schedule jobs, or modify persistent memory.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : undefined;
+    const taskRuntimeSystem = taskRuntime && runtimeSupportsTools && !isPlanMode
+      ? `You can delegate work with the task tool.\n\n${describeSubagentCatalog(snapshotRef.current.agents)}\n\nDelegate when a subagent's specialty fits part of the work or for isolated multi-step research. Write self-contained prompts; the subagent cannot see this conversation. Wait for its result before continuing dependent work.`
       : undefined;
     const toolLoopRuntimeSystem = runtimeTools
       ? [
@@ -1196,8 +1258,8 @@ export async function executeClaimedAgentRun(
       : undefined;
     const runtimeSystem =
       [
-        BASE_AGENT_SYSTEM_PROMPT,
-        agentModeRuntimeSystem,
+        agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+        subagentRuntimeSystem,
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,
         workspaceRuntimeSystem,
@@ -1206,6 +1268,8 @@ export async function executeClaimedAgentRun(
         memoryRuntimeSystem,
         skillsRuntimeSystem,
         skillManagementRuntimeSystem,
+        agentManagementRuntimeSystem,
+        taskRuntimeSystem,
         toolLoopRuntimeSystem,
       ]
         .filter((part): part is string => Boolean(part?.trim()))
@@ -1811,4 +1875,146 @@ export async function executeClaimedAgentRun(
       current.filter((approval) => approval.runId !== run.id),
     );
   }
+}
+
+const SUBAGENT_NOOP_UI: RunUiPublisher = {
+  publishApprovals: () => {},
+  publishError: () => {},
+  publishSnapshot: () => {},
+};
+
+export type SubagentTaskInput = {
+  abortSignal?: AbortSignal;
+  agentName: string;
+  description: string;
+  prompt: string;
+};
+
+export async function executeSubagentTask(
+  parentDeps: AgentRunDeps,
+  input: SubagentTaskInput,
+): Promise<{ output: string }> {
+  const {
+    repositories,
+    snapshotRef,
+    runRegistry,
+    shouldKeepBackgroundAgentAlive,
+    refreshScheduler,
+  } = parentDeps;
+
+  const snapshot = snapshotRef.current;
+  const agent = resolveAgent(snapshot.agents, input.agentName);
+
+  if (agent.name === DEFAULT_AGENT_NAME || agent.mode === "primary") {
+    throw new Error(`"${input.agentName}" is not available as a subagent.`);
+  }
+
+  if (
+    !agent.modelProviderId ||
+    !agent.modelModelId
+  ) {
+    if (!snapshot.resolvedConfig.currentModel) {
+      throw new Error("No active model is available to run the subagent.");
+    }
+  }
+
+  const modelRef =
+    agent.modelProviderId && agent.modelModelId
+      ? {
+          modelId: agent.modelModelId,
+          providerId: agent.modelProviderId,
+        }
+      : {
+          modelId: snapshot.resolvedConfig.currentModel!.modelId,
+          providerId: snapshot.resolvedConfig.currentModel!.providerId,
+        };
+
+  const conversation = await repositories.conversationRepository.create({
+    modelId: modelRef.modelId,
+    providerId: modelRef.providerId,
+    title: `${input.description} (@${agent.name} subagent)`,
+  });
+
+  await repositories.conversationRepository.updateMetadata(conversation.id, {
+    agentId: agent.id,
+    agentMode: "build",
+  });
+
+  const userSequence = await repositories.messageRepository.getNextSequence(
+    conversation.id,
+  );
+  const userMessage = await repositories.messageRepository.create({
+    content: input.prompt,
+    conversationId: conversation.id,
+    role: "user",
+    sequence: userSequence,
+    status: "completed",
+  });
+  const assistantMessage = await repositories.messageRepository.create({
+    content: "",
+    conversationId: conversation.id,
+    role: "assistant",
+    sequence: userSequence + 1,
+    status: "streaming",
+  });
+  const childRun = await repositories.agentRunRepository.create({
+    agentId: agent.id,
+    agentMode: "build",
+    assistantMessageId: assistantMessage.id,
+    autoApprove:
+      snapshot.conversationApprovalModes?.[conversation.id] === "auto",
+    conversationId: conversation.id,
+    input: input.prompt,
+    modelId: modelRef.modelId,
+    providerId: modelRef.providerId,
+    selectedFileIds: [],
+    status: "queued",
+    userMessageId: userMessage.id,
+  });
+
+  const childDeps: AgentRunDeps = {
+    ...parentDeps,
+    generateAndApplyConversationTitle: async () => {},
+    notifyRunStateChange: async () => {},
+    requestToolApproval: (childRunRecord, request) =>
+      parentDeps.requestToolApproval(childRunRecord, request),
+    retryRun: (retryRunId, delayMs) => {
+      setTimeout(() => {
+        void executeClaimedAgentRun(retryRunId, childDeps).catch(() => {});
+      }, delayMs);
+    },
+    shouldKeepBackgroundAgentAlive,
+    refreshScheduler,
+    ui: SUBAGENT_NOOP_UI,
+  };
+
+  if (!runRegistry.claim(childRun.id)) {
+    throw new Error("Subagent run could not be started.");
+  }
+
+  const onParentAbort = () => {
+    runRegistry.stopRun(childRun.id);
+  };
+
+  input.abortSignal?.addEventListener("abort", onParentAbort);
+
+  try {
+    await executeClaimedAgentRun(childRun.id, childDeps);
+  } finally {
+    input.abortSignal?.removeEventListener("abort", onParentAbort);
+  }
+
+  const childMessages =
+    await repositories.messageRepository.listByConversation(conversation.id);
+  const finalAssistant = childMessages.find(
+    (message) => message.id === childRun.assistantMessageId,
+  );
+
+  if (!finalAssistant || finalAssistant.status === "failed") {
+    throw new Error(
+      finalAssistant?.error ?? "Subagent did not produce a result.",
+    );
+  }
+
+  return { output: finalAssistant.content };
 }

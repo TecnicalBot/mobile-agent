@@ -27,6 +27,11 @@ export type ModelTransport =
   | "openaiResponses";
 export type ToolApprovalMode = "ask" | "auto";
 export type AgentMode = "plan" | "build";
+export type AgentVisibilityMode = "primary" | "subagent" | "all";
+export type AgentToolPermissions = {
+  builtInTools?: Partial<Record<BuiltInToolKey, boolean>>;
+  mcpServers?: Record<string, boolean>;
+};
 export type ThemeMode = "system" | "light" | "dark";
 export type McpServerTransport = "http" | "sse";
 export type McpServerAuthMode = "none" | "headers" | "oauth";
@@ -79,6 +84,22 @@ export type SkillConfig = {
   matchKeywords: string[];
   recommendedMcpServerIds: string[];
   recommendedBuiltInToolKeys: BuiltInToolKey[];
+  createdAt: string;
+  updatedAt: string;
+};
+export type AgentConfig = {
+  id: string;
+  name: string;
+  description: string | null;
+  prompt: string | null;
+  mode: AgentVisibilityMode;
+  modelProviderId: string | null;
+  modelModelId: string | null;
+  temperature: number | null;
+  enabled: boolean;
+  hidden: boolean;
+  sourceMarkdown: string | null;
+  toolPermissions: AgentToolPermissions;
   createdAt: string;
   updatedAt: string;
 };
@@ -234,6 +255,7 @@ export type Schedule = {
   timezone: string;
   providerId: string;
   modelId: string;
+  agentId: string | null;
   autoApprove: boolean;
   enabled: boolean;
   conversationId: string | null;
@@ -262,6 +284,7 @@ export type ScheduleRun = {
 };
 
 export type MessageMetadata = {
+  agentName?: string | null;
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];
   externalFolderDisplayName?: string | null;
@@ -297,6 +320,7 @@ export type AgentRun = {
   retryCount: number;
   maxRetries: number;
   lastRetryAt: string | null;
+  agentId: string | null;
   agentMode: AgentMode;
   autoApprove: boolean;
 };
@@ -360,6 +384,7 @@ export type Conversation = {
   providerId: string | null;
   modelId: string | null;
   reasoningEffort: ReasoningEffort;
+  agentId: string | null;
   agentMode: AgentMode;
   selectedFileIds: string[];
   selectedMcpServerIds: string[] | null;
@@ -472,9 +497,11 @@ export type ResolvedConfig = {
 
 export type AppStateSnapshot = {
   agentRuns: AgentRun[];
+  agents: AgentConfig[];
   conversations: Conversation[];
   conversationApprovalModes?: Record<string, ToolApprovalMode>;
   currentConversation: Conversation | null;
+  currentSelectedAgentId: string | null;
   currentSelectedFileIds: string[];
   currentSelectedMcpServerIds: string[] | null;
   currentSelectedSkillIds: string[];

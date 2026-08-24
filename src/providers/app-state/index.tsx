@@ -62,8 +62,18 @@ import {
     parseSkillMarkdown,
     serializeSkillToMarkdown,
 } from "@/modules/skills/skill-markdown";
+import {
+    isNativeAgentId,
+    resolveConversationAgent,
+} from "@/modules/agents/registry";
+import { isPlanAgent } from "@/modules/agents/permissions";
+import {
+    normalizeAgentName,
+    parseAgentMarkdown,
+    serializeAgentToMarkdown,
+} from "@/modules/agents/agent-markdown";
 import type {
-    AgentMode,
+    AgentConfig,
     AgentRun,
     AppSettings,
     AppStateSnapshot,
@@ -101,7 +111,7 @@ import {
     syncScheduleCalendarNotifications,
 } from "@/modules/scheduler";
 
-import { executeClaimedAgentRun, type AgentRunDeps } from "./agent-run";
+import { executeClaimedAgentRun, executeSubagentTask, type AgentRunDeps } from "./agent-run";
 import { createRunUiPublisher } from "./run-ui-publisher";
 import { resolveConfig } from "./config-resolution";
 import {
@@ -211,6 +221,40 @@ type AppStateContextValue = {
         replaceById?: string | null;
     }) => Promise<SkillConfig>;
     exportSkillMarkdown: (skillId: string) => string;
+    agents: AgentConfig[];
+    createAgent: (input: {
+        description?: string | null;
+        mode?: AgentConfig["mode"];
+        modelModelId?: string | null;
+        modelProviderId?: string | null;
+        name: string;
+        prompt?: string | null;
+        sourceMarkdown?: string | null;
+        temperature?: number | null;
+        toolPermissions?: AgentConfig["toolPermissions"];
+    }) => Promise<AgentConfig>;
+    updateAgent: (
+        agentId: string,
+        input: {
+            description?: string | null;
+            enabled?: boolean;
+            hidden?: boolean;
+            mode?: AgentConfig["mode"];
+            modelModelId?: string | null;
+            modelProviderId?: string | null;
+            name?: string;
+            prompt?: string | null;
+            sourceMarkdown?: string | null;
+            temperature?: number | null;
+            toolPermissions?: AgentConfig["toolPermissions"];
+        },
+    ) => Promise<void>;
+    deleteAgent: (agentId: string) => Promise<void>;
+    importAgentMarkdown: (input: {
+        markdown: string;
+        replaceById?: string | null;
+    }) => Promise<AgentConfig>;
+    exportAgentMarkdown: (agentId: string) => string;
     createSavedPrompt: (input: {
         content: string;
         title: string;
@@ -292,8 +336,12 @@ type AppStateContextValue = {
     stopSending: () => Promise<void>;
     reasoningEffort: ReasoningEffort;
     setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
-    agentMode: AgentMode;
-    setAgentMode: (mode: AgentMode) => Promise<void>;
+    currentSelectedAgentId: string | null;
+    conversationAgentName: string;
+    setConversationAgent: (
+        conversationId: string,
+        agentIdOrName: string | null,
+    ) => Promise<void>;
     setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
     setCurrentSelectedMcpServerIds: (
         selectedMcpServerIds: string[] | null,
@@ -901,10 +949,13 @@ Your output must be:
             const schedules = await repositories.scheduleRepository.list();
             const skills = await repositories.skillRepository.list();
             const workspaceFiles = await repositories.workspaceRepository.list();
+            const agents = await repositories.agentRepository.list();
             const nextSnapshot = {
                 agentRuns: normalizedAgentRuns,
+                agents,
                 conversations,
                 currentConversation,
+                currentSelectedAgentId: currentConversation?.agentId ?? null,
                 currentSelectedFileIds: currentConversation?.selectedFileIds ?? [],
                 currentSelectedMcpServerIds:
                     currentConversation?.selectedMcpServerIds ?? null,
@@ -1145,6 +1196,7 @@ Your output must be:
 
     const createSchedule = useCallback(
         async (input: {
+            agentId?: string | null;
             autoApprove?: boolean;
             expression: string;
             externalFolderSession?: ExternalFolderSession | null;
@@ -1157,6 +1209,7 @@ Your output must be:
             const timezone = input.timezone ?? getLocalTimeZone();
             const nextRunAt = computeNextRun(input.expression, timezone)?.toISOString() ?? null;
             const schedule = await repositoriesRef.current.scheduleRepository.create({
+                agentId: input.agentId ?? null,
                 autoApprove: input.autoApprove ?? true,
                 expression: input.expression,
                 externalFolderSession: input.externalFolderSession ?? null,
@@ -1824,6 +1877,145 @@ Your output must be:
         return serializeSkillToMarkdown(skill);
     }
 
+    async function createAgent(input: {
+        description?: string | null;
+        mode?: AgentConfig["mode"];
+        modelModelId?: string | null;
+        modelProviderId?: string | null;
+        name: string;
+        prompt?: string | null;
+        sourceMarkdown?: string | null;
+        temperature?: number | null;
+        toolPermissions?: AgentConfig["toolPermissions"];
+    }) {
+        const name = normalizeAgentName(input.name);
+        const existing =
+            await repositoriesRef.current.agentRepository.getByName(name);
+
+        if (existing) {
+            throw new Error(`An agent named "${name}" already exists.`);
+        }
+
+        if (isNativeAgentId(name)) {
+            throw new Error(`"${name}" is reserved by a built-in agent.`);
+        }
+
+        const agent = await repositoriesRef.current.agentRepository.create({
+            ...input,
+            name,
+            prompt: input.prompt?.trim() || null,
+        });
+        await hydrate();
+        return agent;
+    }
+
+    async function updateAgent(
+        agentId: string,
+        input: {
+            description?: string | null;
+            enabled?: boolean;
+            hidden?: boolean;
+            mode?: AgentConfig["mode"];
+            modelModelId?: string | null;
+            modelProviderId?: string | null;
+            name?: string;
+            prompt?: string | null;
+            sourceMarkdown?: string | null;
+            temperature?: number | null;
+            toolPermissions?: AgentConfig["toolPermissions"];
+        },
+    ) {
+        if (input.name !== undefined) {
+            const name = normalizeAgentName(input.name);
+            const existing =
+                await repositoriesRef.current.agentRepository.getByName(name);
+
+            if (existing && existing.id !== agentId) {
+                throw new Error(`An agent named "${name}" already exists.`);
+            }
+
+            input = { ...input, name };
+        }
+
+        await repositoriesRef.current.agentRepository.update(agentId, input);
+        await hydrate();
+    }
+
+    async function deleteAgent(agentId: string) {
+        await repositoriesRef.current.agentRepository.delete(agentId);
+        await hydrate();
+    }
+
+    async function importAgentMarkdown(input: {
+        markdown: string;
+        replaceById?: string | null;
+    }) {
+        const parsed = parseAgentMarkdown(input.markdown);
+        let agent: AgentConfig;
+
+        if (input.replaceById) {
+            await repositoriesRef.current.agentRepository.update(
+                input.replaceById,
+                {
+                    description: parsed.description,
+                    mode: parsed.mode,
+                    modelModelId: parsed.modelModelId,
+                    modelProviderId: parsed.modelProviderId,
+                    name: normalizeAgentName(parsed.name),
+                    prompt: parsed.prompt,
+                    sourceMarkdown: parsed.sourceMarkdown,
+                    temperature: parsed.temperature,
+                    toolPermissions: parsed.toolPermissions,
+                },
+            );
+            const replaced =
+                await repositoriesRef.current.agentRepository.getById(
+                    input.replaceById,
+                );
+
+            if (!replaced) {
+                throw new Error(`Agent not found: ${input.replaceById}`);
+            }
+
+            agent = replaced;
+        } else {
+            const name = normalizeAgentName(parsed.name);
+            const existing =
+                await repositoriesRef.current.agentRepository.getByName(name);
+
+            if (existing || isNativeAgentId(name)) {
+                throw new Error(`An agent named "${name}" already exists.`);
+            }
+
+            agent = await repositoriesRef.current.agentRepository.create({
+                description: parsed.description,
+                mode: parsed.mode,
+                modelModelId: parsed.modelModelId,
+                modelProviderId: parsed.modelProviderId,
+                name,
+                prompt: parsed.prompt,
+                sourceMarkdown: parsed.sourceMarkdown,
+                temperature: parsed.temperature,
+                toolPermissions: parsed.toolPermissions,
+            });
+        }
+
+        await hydrate();
+        return agent;
+    }
+
+    function exportAgentMarkdown(agentId: string) {
+        const agent = snapshotRef.current.agents.find(
+            (item) => item.id === agentId,
+        );
+
+        if (!agent) {
+            throw new Error(`Agent not found: ${agentId}`);
+        }
+
+        return serializeAgentToMarkdown(agent);
+    }
+
     async function createSavedPrompt(input: {
         content: string;
         title: string;
@@ -1993,6 +2185,8 @@ Your output must be:
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
         const now = new Date().toISOString();
         const conversation: Conversation = {
+            agentId: null,
+            agentMode: "build",
             archivedAt: null,
             createdAt: now,
             externalFolderSession: null,
@@ -2001,7 +2195,6 @@ Your output must be:
             pinnedAt: null,
             providerId: currentModel?.providerId ?? null,
             reasoningEffort: "medium",
-            agentMode: "build",
             selectedFileIds: [],
             selectedMcpServerIds: null,
             selectedSkillIds: [],
@@ -2487,32 +2680,45 @@ Your output must be:
         [ensureConversationPersisted],
     );
 
-    const setAgentMode = useCallback(
-        async (mode: AgentMode) => {
-            const currentConversation = snapshotRef.current.currentConversation;
+    const setConversationAgent = useCallback(
+        async (conversationId: string, agentIdOrName: string | null) => {
+            const target = snapshotRef.current.conversations.find(
+                (conversation) => conversation.id === conversationId,
+            );
 
-            if (!currentConversation) {
+            if (!target) {
                 return;
             }
 
-            await ensureConversationPersisted(currentConversation);
+            const agent = resolveConversationAgent(
+                snapshotRef.current,
+                agentIdOrName ?? target.agentId,
+            );
+
+            await ensureConversationPersisted(target);
 
             await repositoriesRef.current.conversationRepository.updateMetadata(
-                currentConversation.id,
-                { agentMode: mode },
+                conversationId,
+                { agentId: agent.id },
             );
+
+            const nextAgentId = agent.id;
 
             setSnapshot((current) => ({
                 ...current,
                 conversations: current.conversations.map((conversation) =>
-                    conversation.id === currentConversation.id
-                        ? { ...conversation, agentMode: mode }
+                    conversation.id === conversationId
+                        ? { ...conversation, agentId: nextAgentId }
                         : conversation,
                 ),
                 currentConversation:
-                    current.currentConversation?.id === currentConversation.id
-                        ? { ...current.currentConversation, agentMode: mode }
+                    current.currentConversation?.id === conversationId
+                        ? { ...current.currentConversation, agentId: nextAgentId }
                         : current.currentConversation,
+                currentSelectedAgentId:
+                    current.currentConversation?.id === conversationId
+                        ? nextAgentId
+                        : current.currentSelectedAgentId,
             }));
         },
         [ensureConversationPersisted],
@@ -2555,6 +2761,9 @@ Your output must be:
                 onSkillsChange: () => {
                     hydrate().catch(() => {});
                 },
+                onAgentsChange: () => {
+                    hydrate().catch(() => {});
+                },
                 retryRun: (retryRunId, delayMs) => {
                     setTimeout(() => {
                         executeAgentRun(retryRunId).catch(() => {});
@@ -2563,6 +2772,8 @@ Your output must be:
                 shouldKeepBackgroundAgentAlive: () =>
                     runRegistryRef.current.hasActiveRuns(),
                 refreshScheduler,
+                spawnSubagent: (task) =>
+                    executeSubagentTask(deps, task),
             };
 
             await executeClaimedAgentRun(runId, deps);
@@ -2902,9 +3113,31 @@ Your output must be:
             failSend("No active model available. Configure a provider first.");
         }
 
-        const model =
+        const conversationAgent = resolveConversationAgent(
+            snapshotRef.current,
+            conversation.agentId,
+        );
+        let model =
             currentModel ??
             failSend("No active model available. Configure a provider first.");
+
+        if (conversationAgent.modelProviderId && conversationAgent.modelModelId) {
+            const overrideModel =
+                snapshotRef.current.resolvedConfig.availableModels.find(
+                    (item) =>
+                        item.providerId ===
+                            conversationAgent.modelProviderId &&
+                        item.modelId === conversationAgent.modelModelId,
+                );
+
+            if (!overrideModel) {
+                failSend(
+                    `Agent "${conversationAgent.name}" is configured to use ${conversationAgent.modelProviderId}/${conversationAgent.modelModelId}, which is unavailable. Enable that provider or pick a different agent.`,
+                );
+            } else {
+                model = overrideModel;
+            }
+        }
 
         const provider = snapshotRef.current.resolvedConfig.providers.find(
             (item) => item.id === model.providerId,
@@ -3025,7 +3258,8 @@ Your output must be:
             updatedAt: timestamp,
         };
         const optimisticAgentRun: AgentRun = {
-            agentMode: conversation.agentMode,
+            agentId: conversation.agentId,
+            agentMode: isPlanAgent(conversationAgent) ? "plan" : "build",
             assistantMessageId,
             autoApprove: false,
             completedAt: null,
@@ -3138,7 +3372,8 @@ Your output must be:
                 status: "streaming",
             });
             agentRun = await repositories.agentRunRepository.create({
-                agentMode: conversation.agentMode,
+                agentId: conversation.agentId,
+                agentMode: isPlanAgent(conversationAgent) ? "plan" : "build",
                 assistantMessageId: assistantMessage.id,
                 conversationId: conversation.id,
                 externalFolderSession,
@@ -3257,13 +3492,20 @@ Your output must be:
                 createSavedPrompt,
                 createSchedule,
                 createSkill,
+                createAgent,
+                updateAgent,
+                deleteAgent,
+                importAgentMarkdown,
+                exportAgentMarkdown,
                 createWorkspaceFile,
                 currentConversation: snapshot.currentConversation,
                 currentExternalFolderSession:
                     snapshot.currentConversation?.externalFolderSession ?? null,
+                currentSelectedAgentId: snapshot.currentSelectedAgentId,
                 currentSelectedFileIds: snapshot.currentSelectedFileIds,
                 currentSelectedMcpServerIds: snapshot.currentSelectedMcpServerIds,
                 currentSelectedSkillIds: snapshot.currentSelectedSkillIds,
+                agents: snapshot.agents,
                 deleteProvider,
                 deleteConversation,
                 deleteSchedule,
@@ -3329,9 +3571,11 @@ Your output must be:
                 reasoningEffort:
                     snapshot.currentConversation?.reasoningEffort ?? "medium",
                 setReasoningEffort,
-                agentMode:
-                    snapshot.currentConversation?.agentMode ?? "build",
-                setAgentMode,
+                conversationAgentName: resolveConversationAgent(
+                    snapshot,
+                    snapshot.currentSelectedAgentId,
+                ).name,
+                setConversationAgent,
                 setCurrentSelectedFileIds,
                 setCurrentSelectedMcpServerIds,
                 setCurrentSelectedSkillIds,
@@ -3406,6 +3650,12 @@ export function useConfig() {
         createSkill: context.createSkill,
         importSkillMarkdown: context.importSkillMarkdown,
         exportSkillMarkdown: context.exportSkillMarkdown,
+        agents: context.agents,
+        createAgent: context.createAgent,
+        updateAgent: context.updateAgent,
+        deleteAgent: context.deleteAgent,
+        importAgentMarkdown: context.importAgentMarkdown,
+        exportAgentMarkdown: context.exportAgentMarkdown,
         createWorkspaceFile: context.createWorkspaceFile,
         deleteMcpServer: context.deleteMcpServer,
         deleteProvider: context.deleteProvider,
@@ -3515,8 +3765,15 @@ export function useChat() {
         stopSending: context.stopSending,
         reasoningEffort: context.reasoningEffort,
         setReasoningEffort: context.setReasoningEffort,
-        agentMode: context.agentMode,
-        setAgentMode: context.setAgentMode,
+        agents: context.agents,
+        currentSelectedAgentId: context.currentSelectedAgentId,
+        conversationAgentName: context.conversationAgentName,
+        setConversationAgent: context.setConversationAgent,
+        createAgent: context.createAgent,
+        updateAgent: context.updateAgent,
+        deleteAgent: context.deleteAgent,
+        importAgentMarkdown: context.importAgentMarkdown,
+        exportAgentMarkdown: context.exportAgentMarkdown,
         setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
         setCurrentSelectedMcpServerIds: context.setCurrentSelectedMcpServerIds,
         setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,

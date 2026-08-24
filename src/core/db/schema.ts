@@ -1,8 +1,10 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import type {
   AgentMode,
   AgentRunStatus,
+  AgentToolPermissions,
+  AgentVisibilityMode,
   ExternalFolderSession,
   FileContextSource,
   MessageMetadata,
@@ -30,6 +32,7 @@ export const conversations = sqliteTable(
       .$type<ReasoningEffort>()
       .notNull()
       .default("medium"),
+    agentId: text("agent_id"),
     agentMode: text("agent_mode").$type<AgentMode>().notNull().default("build"),
     selectedFileIds: text("selected_file_ids_json", { mode: "json" })
       .$type<string[]>()
@@ -105,6 +108,7 @@ export const agentRuns = sqliteTable(
     retryCount: integer("retry_count").notNull().default(0),
     maxRetries: integer("max_retries").notNull().default(3),
     lastRetryAt: text("last_retry_at"),
+    agentId: text("agent_id"),
     agentMode: text("agent_mode").$type<AgentMode>().notNull().default("build"),
     autoApprove: integer("auto_approve", { mode: "boolean" })
       .notNull()
@@ -232,6 +236,33 @@ export const skills = sqliteTable(
   (table) => [index("idx_skills_updated_at").on(table.updatedAt)],
 );
 
+export const agents = sqliteTable(
+  "agents",
+  {
+    id: text("id").primaryKey().notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    prompt: text("prompt"),
+    mode: text("mode").$type<AgentVisibilityMode>().notNull().default("all"),
+    modelProviderId: text("model_provider_id"),
+    modelModelId: text("model_model_id"),
+    temperature: real("temperature"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+    sourceMarkdown: text("source_markdown"),
+    toolPermissions: text("tool_permissions_json", { mode: "json" })
+      .$type<AgentToolPermissions>()
+      .notNull()
+      .default({}),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("agents_name_unique").on(table.name),
+    index("idx_agents_updated_at").on(table.updatedAt),
+  ],
+);
+
 export const savedPrompts = sqliteTable(
   "saved_prompts",
   {
@@ -254,6 +285,7 @@ export const schedules = sqliteTable(
     timezone: text("timezone").notNull(),
     providerId: text("provider_id").notNull(),
     modelId: text("model_id").notNull(),
+    agentId: text("agent_id"),
     autoApprove: integer("auto_approve", { mode: "boolean" })
       .notNull()
       .default(true),
@@ -319,6 +351,7 @@ export const appSettings = sqliteTable("app_settings", {
 
 export const schema = {
   agentRuns,
+  agents,
   appSettings,
   conversations,
   memories,

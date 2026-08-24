@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 22;
+const DATABASE_VERSION = 23;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -55,6 +55,26 @@ const CORE_SCHEMA_REPAIR_SQL = `
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    prompt TEXT,
+    mode TEXT NOT NULL DEFAULT 'all',
+    model_provider_id TEXT,
+    model_model_id TEXT,
+    temperature REAL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    source_markdown TEXT,
+    tool_permissions_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS agents_name_unique ON agents(name);
+  CREATE INDEX IF NOT EXISTS idx_agents_updated_at ON agents(updated_at);
 
   CREATE TABLE IF NOT EXISTS schedule_runs (
     id TEXT PRIMARY KEY NOT NULL,
@@ -115,6 +135,60 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       `);
     }
 
+    if (!conversationColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN agent_id TEXT;
+      `);
+
+      await db.execAsync(`
+        UPDATE conversations
+        SET agent_id = CASE WHEN agent_mode = 'plan' THEN 'plan' ELSE 'build' END
+        WHERE agent_id IS NULL;
+      `);
+    }
+
+    const runColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(agent_runs)",
+    );
+
+    if (!runColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE agent_runs
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    const scheduleColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(schedules)",
+    );
+
+    if (!scheduleColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE schedules
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        prompt TEXT,
+        mode TEXT NOT NULL DEFAULT 'all',
+        model_provider_id TEXT,
+        model_model_id TEXT,
+        temperature REAL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        hidden INTEGER NOT NULL DEFAULT 0,
+        source_markdown TEXT,
+        tool_permissions_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+
     return;
   }
 
@@ -129,6 +203,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         model_id TEXT,
         reasoning_effort TEXT NOT NULL DEFAULT 'medium',
         agent_mode TEXT NOT NULL DEFAULT 'build',
+        agent_id TEXT,
         selected_file_ids_json TEXT NOT NULL DEFAULT '[]',
         selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -272,9 +347,30 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         max_retries INTEGER NOT NULL DEFAULT 3,
         last_retry_at TEXT,
         agent_mode TEXT NOT NULL DEFAULT 'build',
+        agent_id TEXT,
         auto_approve INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (conversation_id) REFERENCES conversations(id)
       );
+
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        prompt TEXT,
+        mode TEXT NOT NULL DEFAULT 'all',
+        model_provider_id TEXT,
+        model_model_id TEXT,
+        temperature REAL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        hidden INTEGER NOT NULL DEFAULT 0,
+        source_markdown TEXT,
+        tool_permissions_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS agents_name_unique ON agents(name);
+      CREATE INDEX IF NOT EXISTS idx_agents_updated_at ON agents(updated_at);
 
       CREATE INDEX IF NOT EXISTS idx_messages_conversation_sequence
       ON messages(conversation_id, sequence);
@@ -308,6 +404,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         timezone TEXT NOT NULL,
         provider_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
+        agent_id TEXT,
         auto_approve INTEGER NOT NULL DEFAULT 1,
         enabled INTEGER NOT NULL DEFAULT 1,
         conversation_id TEXT,
@@ -772,6 +869,71 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     }
 
     currentVersion = 22;
+  }
+
+  if (currentVersion === 22) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        prompt TEXT,
+        mode TEXT NOT NULL DEFAULT 'all',
+        model_provider_id TEXT,
+        model_model_id TEXT,
+        temperature REAL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        hidden INTEGER NOT NULL DEFAULT 0,
+        source_markdown TEXT,
+        tool_permissions_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS agents_name_unique ON agents(name);
+      CREATE INDEX IF NOT EXISTS idx_agents_updated_at ON agents(updated_at);
+    `);
+
+    const conversationColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(conversations)",
+    );
+
+    if (!conversationColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    const agentRunColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(agent_runs)",
+    );
+
+    if (!agentRunColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE agent_runs
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    const scheduleColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(schedules)",
+    );
+
+    if (!scheduleColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE schedules
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    await db.execAsync(`
+      UPDATE conversations
+      SET agent_id = CASE WHEN agent_mode = 'plan' THEN 'plan' ELSE 'build' END
+      WHERE agent_id IS NULL;
+    `);
+
+    currentVersion = 23;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

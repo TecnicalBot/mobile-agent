@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import type { schema } from "@/core/db/schema";
 import type { MemoryStore } from "@/modules/memory/types";
 import type {
+  AgentConfig,
   AgentMode,
   AgentRun,
   AgentRunStatus,
@@ -34,9 +35,47 @@ import type {
   WorkspaceFileSourceKind,
 } from "@/core/types/app-state";
 
+export interface AgentRepository {
+  create(input: {
+    description?: string | null;
+    enabled?: boolean;
+    hidden?: boolean;
+    id?: string;
+    mode?: AgentConfig["mode"];
+    modelModelId?: string | null;
+    modelProviderId?: string | null;
+    name: string;
+    prompt?: string | null;
+    sourceMarkdown?: string | null;
+    temperature?: number | null;
+    toolPermissions?: AgentConfig["toolPermissions"];
+  }): Promise<AgentConfig>;
+  delete(id: string): Promise<void>;
+  getById(id: string): Promise<AgentConfig | null>;
+  getByName(name: string): Promise<AgentConfig | null>;
+  list(): Promise<AgentConfig[]>;
+  update(
+    id: string,
+    input: {
+      description?: string | null;
+      enabled?: boolean;
+      hidden?: boolean;
+      mode?: AgentConfig["mode"];
+      modelModelId?: string | null;
+      modelProviderId?: string | null;
+      name?: string;
+      prompt?: string | null;
+      sourceMarkdown?: string | null;
+      temperature?: number | null;
+      toolPermissions?: AgentConfig["toolPermissions"];
+    },
+  ): Promise<void>;
+}
+
 export interface ConversationRepository {
   deleteById(id: string): Promise<void>;
   create(input: {
+    agentId?: string | null;
     id?: string;
     modelId?: string | null;
     pinnedAt?: string | null;
@@ -48,6 +87,7 @@ export interface ConversationRepository {
   updateMetadata(
     id: string,
     input: {
+      agentId?: string | null;
       agentMode?: AgentMode;
       externalFolderSession?: ExternalFolderSession | null;
       modelId?: string | null;
@@ -89,6 +129,7 @@ export interface MessageRepository {
 
 export interface AgentRunRepository {
   create(input: {
+    agentId?: string | null;
     agentMode?: AgentMode;
     assistantMessageId: string;
     autoApprove?: boolean;
@@ -117,6 +158,7 @@ export interface AgentRunRepository {
   update(
     id: string,
     input: {
+  agentId?: string | null;
   agentMode?: AgentMode;
   completedAt?: string | null;
   externalFolderSession?: ExternalFolderSession | null;
@@ -268,6 +310,7 @@ export interface ScheduleRepository {
     enabled?: boolean;
     expression: string;
     externalFolderSession?: ExternalFolderSession | null;
+    agentId?: string | null;
     id?: string;
     lastRunAt?: string | null;
     modelId: string;
@@ -284,6 +327,7 @@ export interface ScheduleRepository {
   update(
     id: string,
     input: {
+      agentId?: string | null;
       autoApprove?: boolean;
       conversationId?: string | null;
       enabled?: boolean;
@@ -375,6 +419,7 @@ export interface ConfigRepository {
 }
 
 export type Repositories = {
+  agentRepository: AgentRepository;
   agentRunRepository: AgentRunRepository;
   configRepository: ConfigRepository;
   conversationRepository: ConversationRepository;

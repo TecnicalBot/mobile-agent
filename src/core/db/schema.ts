@@ -236,6 +236,26 @@ export const skills = sqliteTable(
   (table) => [index("idx_skills_updated_at").on(table.updatedAt)],
 );
 
+export const skillFiles = sqliteTable(
+  "skill_files",
+  {
+    id: text("id").primaryKey().notNull(),
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: text("content").notNull(),
+    mimeType: text("mime_type"),
+    size: integer("size"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("skill_files_skill_id_path_unique").on(table.skillId, table.path),
+    index("idx_skill_files_skill_id").on(table.skillId),
+  ],
+);
+
 export const agents = sqliteTable(
   "agents",
   {
@@ -362,6 +382,7 @@ export const schema = {
   savedPrompts,
   scheduleRuns,
   schedules,
+  skillFiles,
   skills,
   workspaceFiles,
 };

@@ -438,7 +438,7 @@ export function buildSkillsSystemPrompt(input: {
     "<available_skills>",
     ...catalog,
     "</available_skills>",
-    "When the current task matches one of these skills, call the skill tool with the exact skill name to load its full instructions before continuing. You may load more than one skill when needed.",
+    "When the current task matches one of these skills, call the skill tool with the exact skill name to load its full instructions before continuing. You may load more than one skill when needed. If a loaded skill lists supporting files, use the skillReadFile tool to read one of them when you need its contents.",
   ].join("\n");
 }
 

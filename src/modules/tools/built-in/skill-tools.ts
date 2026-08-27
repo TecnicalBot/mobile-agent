@@ -13,6 +13,7 @@ import {
   slugifySkillName,
 } from "@/modules/skills/skill-markdown";
 import { fetchSkillMarkdownFromUrl } from "@/modules/skills/skill-github";
+import { fetchSkillFiles } from "@/modules/skills/skill-files";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 
 const MAX_INSTRUCTIONS_LENGTH = 40_000;
@@ -116,6 +117,71 @@ export function createSkillTools(input: {
             recommendedBuiltInToolKeys: skill.recommendedBuiltInToolKeys,
             recommendedMcpServerIds: skill.recommendedMcpServerIds,
             instructions: skill.instructions,
+            files: skill.skillFiles.map((file) => ({
+              path: file.path,
+              size: file.size,
+              mimeType: file.mimeType,
+            })),
+          };
+        },
+      }),
+      skillReadFile: tool({
+        description:
+          "Read the contents of a related file that belongs to a skill. Use when a loaded skill references a supporting file (scripts, references, templates, config) listed in its files and you need its full contents to complete the task.",
+        inputSchema: z.object({
+          name: z
+            .string()
+            .trim()
+            .min(1)
+            .max(MAX_TITLE_LENGTH)
+            .describe("The skill name that owns the file."),
+          path: z
+            .string()
+            .trim()
+            .min(1)
+            .describe(
+              "The relative path of the file within the skill, e.g. 'references/guide.md' or 'scripts/run.sh'.",
+            ),
+        }),
+        execute: async ({ name, path }) => {
+          const skill = await findSkillBySlug(name);
+
+          if (!skill) {
+            return {
+              found: false,
+              message: `No skill named "${name}" exists.`,
+            };
+          }
+
+          const file = skill.skillFiles.find((item) => item.path === path);
+
+          if (!file) {
+            return {
+              found: false,
+              name: skill.title,
+              availableFiles: skill.skillFiles.map((item) => item.path),
+              message: `No file "${path}" found in skill "${skill.title}". Use one of the available files or read the skill to list them.`,
+            };
+          }
+
+          onRecord?.(
+            createRecord({
+              toolName: "skillReadFile",
+              status: "completed",
+              inputSummary: summarizeValue({ name: skill.title, path }),
+              outputSummary: summarizeValue({
+                chars: file.content.length,
+                mimeType: file.mimeType,
+              }),
+            }),
+          );
+
+          return {
+            found: true,
+            name: skill.title,
+            path: file.path,
+            mimeType: file.mimeType,
+            content: file.content,
           };
         },
       }),
@@ -138,9 +204,19 @@ export function createSkillTools(input: {
             displayName.replace(/\.md$/i, "") ||
             "Imported skill";
           const existing = await findSkillBySlug(title);
+          const files = await fetchSkillFiles({
+            sourceUrl: url,
+            referencedPaths: parsed.files,
+          });
           const input = {
             autoMatch: parsed.autoMatch,
             description: parsed.description?.trim() || null,
+            files: files.map((file) => ({
+              path: file.path,
+              content: file.content,
+              mimeType: file.mimeType,
+              size: file.size,
+            })),
             instructions: parsed.instructions.trim(),
             matchKeywords: parsed.matchKeywords,
             recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
@@ -168,6 +244,7 @@ export function createSkillTools(input: {
               outputSummary: summarizeValue({
                 name: skill?.title,
                 replaced: Boolean(existing),
+                files: files.length,
               }),
             }),
           );
@@ -178,6 +255,7 @@ export function createSkillTools(input: {
             id: skill?.id ?? null,
             name: skill?.title ?? title,
             description: skill?.description ?? null,
+            fileCount: files.length,
           };
         },
       }),

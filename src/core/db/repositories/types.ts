@@ -28,6 +28,7 @@ import type {
   ScheduleRun,
   ScheduleRunStatus,
   SkillConfig,
+  SkillFile,
   StoredMessage,
   ToolApprovalMode,
   ThemeMode,
@@ -265,8 +266,16 @@ export interface SkillRepository {
     recommendedMcpServerIds?: string[];
     sourceMarkdown?: string | null;
     title: string;
+    files?: {
+      path: string;
+      content: string;
+      mimeType?: string | null;
+      size?: number | null;
+      id?: string;
+    }[];
   }): Promise<SkillConfig>;
   delete(id: string): Promise<void>;
+
   getById(id: string): Promise<SkillConfig | null>;
   list(): Promise<SkillConfig[]>;
   update(
@@ -281,8 +290,17 @@ export interface SkillRepository {
       recommendedMcpServerIds?: string[];
       sourceMarkdown?: string | null;
       title?: string;
+      files?: {
+        path: string;
+        content: string;
+        mimeType?: string | null;
+        size?: number | null;
+        id?: string;
+      }[];
     },
   ): Promise<void>;
+  listFilesForSkill(skillId: string): Promise<SkillFile[]>;
+  deleteFilesForSkill(skillId: string): Promise<void>;
 }
 
 export interface SavedPromptRepository {

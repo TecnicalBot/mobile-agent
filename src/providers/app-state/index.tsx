@@ -62,6 +62,7 @@ import {
     parseSkillMarkdown,
     serializeSkillToMarkdown,
 } from "@/modules/skills/skill-markdown";
+import { fetchSkillFiles } from "@/modules/skills/skill-files";
 import {
     isNativeAgentId,
     resolveConversationAgent,
@@ -219,6 +220,7 @@ type AppStateContextValue = {
     importSkillMarkdown: (input: {
         markdown: string;
         replaceById?: string | null;
+        sourceUrl?: string | null;
     }) => Promise<SkillConfig>;
     exportSkillMarkdown: (skillId: string) => string;
     agents: AgentConfig[];
@@ -1826,8 +1828,21 @@ Your output must be:
     async function importSkillMarkdown(input: {
         markdown: string;
         replaceById?: string | null;
+        sourceUrl?: string | null;
     }) {
         const parsed = parseSkillMarkdown(input.markdown);
+        const files = input.sourceUrl
+            ? await fetchSkillFiles({
+                  sourceUrl: input.sourceUrl,
+                  referencedPaths: parsed.files,
+              })
+            : [];
+        const fileInput = files.map((file) => ({
+            path: file.path,
+            content: file.content,
+            mimeType: file.mimeType,
+            size: file.size,
+        }));
         let skill: SkillConfig;
 
         if (input.replaceById) {
@@ -1835,10 +1850,12 @@ Your output must be:
                 autoMatch: parsed.autoMatch,
                 description: parsed.description,
                 enabled: true,
+                files: fileInput,
                 instructions: parsed.instructions,
                 matchKeywords: parsed.matchKeywords,
                 recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
                 recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                sourceMarkdown: input.markdown,
                 title: parsed.title,
             });
             const replaced = await repositoriesRef.current.skillRepository.getById(
@@ -1855,10 +1872,12 @@ Your output must be:
                 autoMatch: parsed.autoMatch,
                 description: parsed.description,
                 enabled: true,
+                files: fileInput,
                 instructions: parsed.instructions,
                 matchKeywords: parsed.matchKeywords,
                 recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
                 recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                sourceMarkdown: input.markdown,
                 title: parsed.title,
             });
         }

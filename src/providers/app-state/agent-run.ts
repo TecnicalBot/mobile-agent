@@ -1123,7 +1123,7 @@ export async function executeClaimedAgentRun(
       ...WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES,
       ...(todosRuntime ? Object.keys(todosRuntime.tools) : []),
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
-      ...(skillRuntime ? ["skill"] : []),
+      ...(skillRuntime ? ["skill", "skillReadFile"] : []),
       ...(scheduleRuntime ? Object.keys(scheduleRuntime.tools) : []),
       ...(isPlanMode && mcpRuntime?.tools
         ? Object.keys(mcpRuntime.tools)
@@ -1221,7 +1221,7 @@ export async function executeClaimedAgentRun(
     });
     const skillManagementRuntimeSystem =
       skillRuntime && runtimeSupportsTools && !isPlanMode
-        ? "You can create, update, delete, and list skills with the manageSkill tool. Skills follow the SKILL.md format: a name, a short description, and markdown instructions. Create a skill when the user explicitly asks to save one, or when a repeated task would benefit from reusable instructions."
+        ? "You can create, update, delete, and list skills with the manageSkill tool. Skills follow the SKILL.md format: a name, a short description, and markdown instructions. Create a skill when the user explicitly asks to save one, or when a repeated task would benefit from reusable instructions. A skill may include supporting files (scripts, references, templates) which are listed when you load it with the skill tool; use the skillReadFile tool to read the full contents of one of those files when needed."
         : undefined;
     const agentManagementRuntimeSystem =
       agentRuntime && runtimeSupportsTools && !isPlanMode

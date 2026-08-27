@@ -28,6 +28,7 @@ describe("skill-markdown", () => {
       matchKeywords: ["git"],
       recommendedMcpServerIds: [],
       recommendedBuiltInToolKeys: [],
+      skillFiles: [],
       createdAt: "",
       updatedAt: "",
     };
@@ -113,5 +114,57 @@ describe("skill-github", () => {
         "https://github.com/owner/repo/blob/main/SKILL.md?plain=1#L10",
       ),
     ).toBe("https://raw.githubusercontent.com/owner/repo/main/SKILL.md");
+  });
+});
+
+describe("parseSkillMarkdown files extraction", () => {
+  const base = `---
+name: sample
+description: A sample skill
+---
+
+# Guide
+
+See the reference.`;
+  const withFrontmatterFiles = `---
+name: sample
+description: A sample skill
+files:
+  - references/guide.md
+  - scripts/run.sh
+---
+
+# Guide
+
+See the reference.`;
+  const withBodyLinks = `---
+name: sample
+description: A sample skill
+---
+
+# Guide
+
+Read [the guide](references/guide.md) and the image below.
+
+![diagram](assets/diagram.png)
+
+Also run \`scripts/run.sh\`.
+`;
+
+  it("returns an empty file list when no files are referenced", () => {
+    expect(parseSkillMarkdown(base).files).toEqual([]);
+  });
+
+  it("extracts files from frontmatter files/resources", () => {
+    const parsed = parseSkillMarkdown(withFrontmatterFiles);
+    expect(parsed.files).toContain("references/guide.md");
+    expect(parsed.files).toContain("scripts/run.sh");
+  });
+
+  it("extracts relative markdown link and image paths", () => {
+    const parsed = parseSkillMarkdown(withBodyLinks);
+    expect(parsed.files).toContain("references/guide.md");
+    expect(parsed.files).toContain("assets/diagram.png");
+    expect(parsed.files).toContain("scripts/run.sh");
   });
 });

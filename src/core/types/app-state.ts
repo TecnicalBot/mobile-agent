@@ -73,6 +73,15 @@ export type BuiltInToolKey =
   | "skill"
   | "schedules";
 export type BuiltInToolSettings = Record<BuiltInToolKey, boolean>;
+export type SkillFile = {
+  id: string;
+  path: string;
+  content: string;
+  mimeType: string | null;
+  size: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
 export type SkillConfig = {
   id: string;
   title: string;
@@ -84,6 +93,7 @@ export type SkillConfig = {
   matchKeywords: string[];
   recommendedMcpServerIds: string[];
   recommendedBuiltInToolKeys: BuiltInToolKey[];
+  skillFiles: SkillFile[];
   createdAt: string;
   updatedAt: string;
 };

@@ -147,6 +147,7 @@ export function SkillImportDrawer({
       await importSkillMarkdown({
         markdown: content,
         replaceById: existing?.id ?? null,
+        sourceUrl: url.trim() || null,
       });
 
       setUrl("");

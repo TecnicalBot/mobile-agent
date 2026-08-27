@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 23;
+const DATABASE_VERSION = 24;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -95,6 +95,24 @@ const CORE_SCHEMA_REPAIR_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started_at
   ON schedule_runs(schedule_id, started_at);
+
+  CREATE TABLE IF NOT EXISTS skill_files (
+    id TEXT PRIMARY KEY NOT NULL,
+    skill_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    mime_type TEXT,
+    size INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS skill_files_skill_id_path_unique
+  ON skill_files(skill_id, path);
+
+  CREATE INDEX IF NOT EXISTS idx_skill_files_skill_id
+  ON skill_files(skill_id);
 `;
 
 export async function migrateAppDatabase(db: SQLiteDatabase) {
@@ -934,6 +952,30 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 23;
+  }
+
+  if (currentVersion === 23) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS skill_files (
+        id TEXT PRIMARY KEY NOT NULL,
+        skill_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        mime_type TEXT,
+        size INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS skill_files_skill_id_path_unique
+      ON skill_files(skill_id, path);
+
+      CREATE INDEX IF NOT EXISTS idx_skill_files_skill_id
+      ON skill_files(skill_id);
+    `);
+
+    currentVersion = 24;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

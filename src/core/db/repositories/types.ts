@@ -21,6 +21,7 @@ import type {
   MessageMetadata,
   ModelPreset,
   NotificationSettings,
+  ProviderAccount,
   ProviderConfig,
   ReasoningEffort,
   SavedPrompt,
@@ -438,6 +439,29 @@ export interface ConfigRepository {
   setSetting(key: string, value: string | null): Promise<void>;
 }
 
+export interface ProviderAccountRepository {
+  create(input: {
+    credentialKind: "apiKey" | "oauth";
+    id?: string;
+    label: string;
+    providerId: string;
+  }): Promise<ProviderAccount>;
+  delete(id: string): Promise<void>;
+  deleteByProvider(providerId: string): Promise<void>;
+  getActiveForProvider(providerId: string): Promise<ProviderAccount | null>;
+  getById(id: string): Promise<ProviderAccount | null>;
+  listActiveStates(): Promise<
+    Array<{ activeAccountId: string | null; providerId: string }>
+  >;
+  listAll(): Promise<ProviderAccount[]>;
+  listByProvider(providerId: string): Promise<ProviderAccount[]>;
+  setActiveForProvider(
+    providerId: string,
+    activeAccountId: string | null,
+  ): Promise<void>;
+  updateLabel(id: string, label: string): Promise<void>;
+}
+
 export type Repositories = {
   agentRepository: AgentRepository;
   agentRunRepository: AgentRunRepository;
@@ -446,6 +470,7 @@ export type Repositories = {
   memoryStore: MemoryStore;
   mcpServerRepository: McpServerRepository;
   messageRepository: MessageRepository;
+  providerAccountRepository: ProviderAccountRepository;
   savedPromptRepository: SavedPromptRepository;
   scheduleRepository: ScheduleRepository;
   scheduleRunRepository: ScheduleRunRepository;

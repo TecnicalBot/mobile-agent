@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 25;
+const DATABASE_VERSION = 26;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -287,6 +287,23 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY NOT NULL,
         value TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_accounts (
+        id TEXT PRIMARY KEY NOT NULL,
+        provider_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        credential_kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_id
+      ON provider_accounts(provider_id);
+
+      CREATE TABLE IF NOT EXISTS provider_account_state (
+        provider_id TEXT PRIMARY KEY NOT NULL,
+        active_account_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS workspace_files (
@@ -1010,6 +1027,29 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 25;
+  }
+
+  if (currentVersion === 25) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS provider_accounts (
+        id TEXT PRIMARY KEY NOT NULL,
+        provider_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        credential_kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_id
+      ON provider_accounts(provider_id);
+
+      CREATE TABLE IF NOT EXISTS provider_account_state (
+        provider_id TEXT PRIMARY KEY NOT NULL,
+        active_account_id TEXT
+      );
+    `);
+
+    currentVersion = 26;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

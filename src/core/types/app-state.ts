@@ -398,6 +398,15 @@ export type ModelPreset = {
   updatedAt: string;
 };
 
+export type ProviderAccount = {
+  id: string;
+  providerId: string;
+  label: string;
+  credentialKind: "apiKey" | "oauth";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Conversation = {
   id: string;
   title: string;
@@ -516,6 +525,7 @@ export type ResolvedConfig = {
 };
 
 export type AppStateSnapshot = {
+  activeProviderAccountIds: Record<string, string | null>;
   agentRuns: AgentRun[];
   agents: AgentConfig[];
   conversations: Conversation[];
@@ -528,6 +538,7 @@ export type AppStateSnapshot = {
   memory: MemoryEntry | null;
   mcpServers: McpServerConfig[];
   messages: StoredMessage[];
+  providerAccounts: ProviderAccount[];
   savedPrompts: SavedPrompt[];
   schedules: Schedule[];
   skills: SkillConfig[];

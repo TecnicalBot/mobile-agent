@@ -3,8 +3,10 @@ import { Platform } from "react-native";
 
 import {
   getValidOpenAiTokenInfo,
+  getValidOpenAiTokenInfoForAccount,
   refreshOpenAIToken,
   setOpenAiTokens,
+  setOpenAiTokensForAccount,
 } from "@/modules/providers/openai-oauth";
 import { getOllamaOpenAIBaseUrl } from "@/modules/providers/ollama-models";
 import type { ModelRuntime } from "@/modules/runtime/drivers/types";
@@ -78,8 +80,11 @@ function buildCodexRequestInit(init?: RequestInit): RequestInit | undefined {
 async function fetchWithCodexOAuth(
   input: RequestInfo | URL,
   init?: RequestInit,
+  accountId?: string | null,
 ): Promise<Response> {
-  let session = await getValidOpenAiTokenInfo();
+  let session = accountId
+    ? await getValidOpenAiTokenInfoForAccount(accountId)
+    : await getValidOpenAiTokenInfo();
 
   if (!session.accessToken) {
     throw new Error("Missing OpenAI access token. Please connect ChatGPT first.");
@@ -125,15 +130,29 @@ async function fetchWithCodexOAuth(
   if (response.status === 401 && session.refreshToken) {
     const refreshed = await refreshOpenAIToken(session.refreshToken);
 
-    await setOpenAiTokens({
-      accessToken: refreshed.access_token,
-      accountId: session.accountId,
-      email: session.email,
-      expiresIn: refreshed.expires_in ?? null,
-      idToken: refreshed.id_token ?? null,
-      refreshToken: refreshed.refresh_token ?? session.refreshToken,
-    });
-    session = await getValidOpenAiTokenInfo();
+    if (accountId) {
+      await setOpenAiTokensForAccount(accountId, {
+        accessToken: refreshed.access_token,
+        accountId: session.accountId,
+        email: session.email,
+        expiresIn: refreshed.expires_in ?? null,
+        idToken: refreshed.id_token ?? null,
+        refreshToken: refreshed.refresh_token ?? session.refreshToken,
+      });
+    } else {
+      await setOpenAiTokens({
+        accessToken: refreshed.access_token,
+        accountId: session.accountId,
+        email: session.email,
+        expiresIn: refreshed.expires_in ?? null,
+        idToken: refreshed.id_token ?? null,
+        refreshToken: refreshed.refresh_token ?? session.refreshToken,
+      });
+    }
+
+    session = accountId
+      ? await getValidOpenAiTokenInfoForAccount(accountId)
+      : await getValidOpenAiTokenInfo();
 
     if (!session.accessToken) {
       throw new Error("Session expired. Please connect ChatGPT again.");
@@ -150,10 +169,15 @@ export async function createOpenAIClient(input: {
   secretStore: SecretStore;
 }) {
   if (input.provider.family === "openai" && input.provider.authType === "oauth") {
+    const activeAccountId = await input.secretStore.getActiveProviderAccountId(
+      input.provider.id,
+    );
+
     return createOpenAI({
       apiKey: OAUTH_DUMMY_API_KEY,
       baseURL: "https://api.openai.com/v1",
-      fetch: fetchWithCodexOAuth,
+      fetch: (request, init) =>
+        fetchWithCodexOAuth(request, init, activeAccountId),
       name: "openai",
     });
   }

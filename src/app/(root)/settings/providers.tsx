@@ -39,6 +39,7 @@ import {
   createModelRef,
   type CuratedModelDefinition,
   type ModelRef,
+  type ProviderAccount,
   type ProviderConfig,
   type ResolvedModel,
 } from "@/core/types/app-state";
@@ -57,20 +58,25 @@ export default function SettingsProvidersScreen() {
   const { error: hydrationError, modelDiscoveryInProgress, ready } = useAppState();
   const {
     activeProviderIds,
+    activeProviderAccountIds,
     availableModels,
     clearProviderApiKey,
     connectOpenAIOAuth,
     createModelPreset,
     createProvider,
+    createProviderAccount,
     currentModel,
     deleteProvider,
+    deleteProviderAccount,
     disconnectOpenAIOAuth,
     providers,
+    providerAccounts,
     providerModelDiscovery,
     refresh,
     saveProviderApiKey,
     selectModel,
     suggestedModelsByProvider,
+    switchProviderAccount,
     updateProvider,
   } = useConfig();
   const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
@@ -82,6 +88,11 @@ export default function SettingsProvidersScreen() {
   const [baseUrlInput, setBaseUrlInput] = useState("");
   const [customModelId, setCustomModelId] = useState("");
   const [modelQuery, setModelQuery] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [accountManagerOpen, setAccountManagerOpen] = useState(false);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [newAccountLabel, setNewAccountLabel] = useState("");
+  const [newAccountApiKey, setNewAccountApiKey] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [onDeviceModels, setOnDeviceModels] = useState<DownloadableModel[]>([]);
   const [onDeviceError, setOnDeviceError] = useState<string | null>(null);
@@ -164,6 +175,22 @@ export default function SettingsProvidersScreen() {
   const selectedProviderIsCustom = selectedProvider
     ? getSupportedProviderDefinition(selectedProvider.id) === null
     : false;
+  const selectedProviderAccounts = useMemo(
+    () =>
+      selectedProvider
+        ? providerAccounts.filter(
+            (account) => account.providerId === selectedProvider.id,
+          )
+        : [],
+    [providerAccounts, selectedProvider],
+  );
+  const selectedProviderActiveAccountId = selectedProvider
+    ? (activeProviderAccountIds[selectedProvider.id] ?? null)
+    : null;
+  const selectedProviderActiveAccount =
+    selectedProviderAccounts.find(
+      (account) => account.id === selectedProviderActiveAccountId,
+    ) ?? null;
   useEffect(() => {
     if (selectedProvider?.family !== "on-device") {
       return;
@@ -739,6 +766,9 @@ export default function SettingsProvidersScreen() {
             setBaseUrlInput("");
             setCustomModelId("");
             setModelQuery("");
+            setAddingAccount(false);
+            setNewAccountLabel("");
+            setNewAccountApiKey("");
           }
         }}
         open={selectedItemKey !== null}
@@ -780,6 +810,41 @@ export default function SettingsProvidersScreen() {
                     </>
                   ) : null}
                 </View>
+
+                {selectedProvider.authType === "oauth" ||
+                selectedProvider.authType === "apiKey" ? (
+                  <View className="gap-sp-2">
+                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                      Active account
+                    </Text>
+                    <Pressable
+                      onPress={() => {
+                        setNewAccountLabel("");
+                        setNewAccountApiKey("");
+                        setAddingAccount(false);
+                        setSelectedAccountIds([]);
+                        setAccountManagerOpen(true);
+                      }}
+                      style={({ pressed }) =>
+                        pressed ? { opacity: 0.82 } : null
+                      }
+                      className="flex-row items-center justify-between overflow-hidden rounded-card border border-border px-sp-4 py-sp-3 dark:border-border-dark"
+                    >
+                      <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                        {selectedProviderActiveAccount?.label ?? "None"}
+                      </Text>
+                      <View className="flex-row items-center gap-sp-1">
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          Switch
+                        </Text>
+                        <ChevronRight
+                          color={theme.textSecondary}
+                          size={18}
+                        />
+                      </View>
+                    </Pressable>
+                  </View>
+                ) : null}
 
                 {selectedProvider.family === "ollama" &&
                 selectedProviderDiscovery?.error ? (
@@ -1307,7 +1372,311 @@ export default function SettingsProvidersScreen() {
           ) : null}
         </DrawerContent>
       </Drawer>
+
+      <Drawer
+        onOpenChange={(open) => {
+          setAccountManagerOpen(open);
+          if (!open) {
+            setAddingAccount(false);
+            setNewAccountLabel("");
+            setNewAccountApiKey("");
+            setSelectedAccountIds([]);
+          }
+        }}
+        open={accountManagerOpen}
+      >
+        {selectedProvider ? (
+          <DrawerContent showCloseButton showHandle>
+            <DrawerHeader>
+              <DrawerTitle>Accounts</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+              <AccountManager
+                accounts={selectedProviderAccounts}
+                activeAccountId={selectedProviderActiveAccountId}
+                adding={addingAccount}
+                busy={busyKey !== null}
+                credentialKind={
+                  selectedProvider.authType === "oauth" ? "oauth" : "apiKey"
+                }
+                newAccountApiKey={newAccountApiKey}
+                newAccountLabel={newAccountLabel}
+                onCancelAdd={() => {
+                  setAddingAccount(false);
+                  setNewAccountLabel("");
+                  setNewAccountApiKey("");
+                }}
+                onChangeNewAccountApiKey={setNewAccountApiKey}
+                onChangeNewAccountLabel={setNewAccountLabel}
+                onConfirmAdd={(label, apiKey) => {
+                  void runAction(
+                    `add-account:${selectedProvider.id}`,
+                    async () => {
+                      await createProviderAccount({
+                        apiKey: apiKey?.trim() || undefined,
+                        label: label.trim() || "Account",
+                        providerId: selectedProvider.id,
+                      });
+                      setAddingAccount(false);
+                      setNewAccountLabel("");
+                      setNewAccountApiKey("");
+                    },
+                  ).catch((error) => {
+                    Alert.alert(
+                      "Account could not be added",
+                      error instanceof Error
+                        ? error.message
+                        : "Please try again.",
+                    );
+                  });
+                }}
+                onEnterSelectionMode={(accountId) => {
+                  setSelectedAccountIds([accountId]);
+                }}
+                onPress={(accountId) => {
+                  if (busyKey !== null) return;
+                  if (selectedAccountIds.length > 0) {
+                    setSelectedAccountIds((prev) =>
+                      prev.includes(accountId)
+                        ? prev.filter((id) => id !== accountId)
+                        : [...prev, accountId],
+                    );
+                  } else {
+                    const account = selectedProviderAccounts.find(
+                      (item) => item.id === accountId,
+                    );
+                    if (account) {
+                      void runAction(
+                        `switch:${account.id}`,
+                        async () => {
+                          await switchProviderAccount({
+                            accountId: account.id,
+                            providerId: selectedProvider.id,
+                          });
+                        },
+                      ).catch(console.error);
+                    }
+                  }
+                }}
+                selectedAccountIds={selectedAccountIds}
+              />
+            </DrawerBody>
+            {selectedAccountIds.length > 0 ? (
+              <DrawerFooter>
+                <Button
+                  disabled={busyKey !== null}
+                  onPress={() => {
+                    Alert.alert(
+                      `Delete ${selectedAccountIds.length} account${
+                        selectedAccountIds.length === 1 ? "" : "s"
+                      }?`,
+                      "This will remove the saved credentials for the selected accounts.",
+                      [
+                        { style: "cancel", text: "Cancel" },
+                        {
+                          style: "destructive",
+                          text: "Delete",
+                          onPress: () => {
+                            void runAction("delete-accounts", async () => {
+                              for (const accountId of selectedAccountIds) {
+                                await deleteProviderAccount({
+                                  accountId,
+                                  providerId: selectedProvider.id,
+                                });
+                              }
+                              setSelectedAccountIds([]);
+                            }).catch((error) => {
+                              Alert.alert(
+                                "Accounts could not be deleted",
+                                error instanceof Error
+                                  ? error.message
+                                  : "Please try again.",
+                              );
+                            });
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  textClassName="text-destructive-foreground dark:text-destructive-foreground-dark"
+                  variant="destructive"
+                >
+                  {selectedAccountIds.length > 1
+                    ? `Delete ${selectedAccountIds.length} accounts`
+                    : "Delete account"}
+                </Button>
+              </DrawerFooter>
+            ) : !addingAccount ? (
+              <DrawerFooter>
+                <Button onPress={() => setAddingAccount(true)}>
+                  Add account
+                </Button>
+              </DrawerFooter>
+            ) : null}
+          </DrawerContent>
+        ) : null}
+      </Drawer>
     </Container>
+  );
+}
+
+function AccountSelectRow({
+  active,
+  onLongPress,
+  onPress,
+  selectedForDelete,
+  selectedMode,
+  title,
+}: {
+  active: boolean;
+  onLongPress: () => void;
+  onPress: () => void;
+  selectedForDelete: boolean;
+  selectedMode: boolean;
+  title: string;
+}) {
+  const theme = useTheme();
+  const highlighted = selectedForDelete;
+
+  return (
+    <View
+      className={cn(
+        "flex-row items-center gap-sp-3 rounded-ui border px-sp-4 py-sp-3",
+        highlighted
+          ? "border-foreground bg-secondary dark:border-foreground-dark dark:bg-secondary-dark"
+          : "border-border bg-background dark:border-border-dark dark:bg-background-dark",
+      )}
+    >
+      <Pressable
+        accessibilityRole="button"
+        className="min-w-0 flex-1 flex-row items-center gap-sp-3"
+        onLongPress={onLongPress}
+        onPress={onPress}
+        style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
+      >
+        {selectedMode ? (
+          <View className="h-5 w-5 shrink-0 items-center justify-center">
+            {selectedForDelete ? (
+              <Check color={theme.text} size={16} />
+            ) : null}
+          </View>
+        ) : null}
+        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+          {title}
+        </Text>
+        {active ? (
+          <Text className="ml-auto font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            Active
+          </Text>
+        ) : null}
+      </Pressable>
+    </View>
+  );
+}
+
+function AccountManager({
+  accounts,
+  activeAccountId,
+  adding,
+  busy,
+  credentialKind,
+  newAccountApiKey,
+  newAccountLabel,
+  onCancelAdd,
+  onChangeNewAccountApiKey,
+  onChangeNewAccountLabel,
+  onConfirmAdd,
+  onEnterSelectionMode,
+  onPress,
+  selectedAccountIds,
+}: {
+  accounts: ProviderAccount[];
+  activeAccountId: string | null;
+  adding: boolean;
+  busy: boolean;
+  credentialKind: "apiKey" | "oauth";
+  newAccountApiKey: string;
+  newAccountLabel: string;
+  onCancelAdd: () => void;
+  onChangeNewAccountApiKey: (value: string) => void;
+  onChangeNewAccountLabel: (value: string) => void;
+  onConfirmAdd: (label: string, apiKey: string) => void;
+  onEnterSelectionMode: (accountId: string) => void;
+  onPress: (accountId: string) => void;
+  selectedAccountIds: string[];
+}) {
+  const selectedMode = selectedAccountIds.length > 0;
+
+  return (
+    <View className="gap-sp-2">
+      {accounts.length === 0 ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          No accounts yet.
+        </Text>
+      ) : (
+        accounts.map((account) => (
+          <AccountSelectRow
+            active={account.id === activeAccountId}
+            key={account.id}
+            onLongPress={() => {
+              if (!busy && !adding) {
+                onEnterSelectionMode(account.id);
+              }
+            }}
+            onPress={() => {
+              if (!busy && !adding) {
+                onPress(account.id);
+              }
+            }}
+            selectedForDelete={selectedAccountIds.includes(account.id)}
+            selectedMode={selectedMode}
+            title={account.label}
+          />
+        ))
+      )}
+
+      {adding ? (
+        <View className="gap-sp-2">
+          <Input
+            autoCapitalize="words"
+            onChangeText={onChangeNewAccountLabel}
+            placeholder="Account label"
+            value={newAccountLabel}
+          />
+          {credentialKind === "apiKey" ? (
+            <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={onChangeNewAccountApiKey}
+              placeholder="API key"
+              secureTextEntry
+              value={newAccountApiKey}
+            />
+          ) : null}
+          <View className="flex-row gap-sp-2">
+            <Button
+              className="flex-1"
+              onPress={onCancelAdd}
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={
+                credentialKind === "apiKey"
+                  ? !newAccountLabel.trim() || !newAccountApiKey.trim()
+                  : !newAccountLabel.trim()
+              }
+              loading={busy}
+              onPress={() => onConfirmAdd(newAccountLabel, newAccountApiKey)}
+            >
+              Add
+            </Button>
+          </View>
+        </View>
+      ) : null}
+    </View>
   );
 }
 

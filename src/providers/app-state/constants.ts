@@ -82,6 +82,7 @@ export const EMPTY_RESOLVED_CONFIG: ResolvedConfig = {
 };
 
 export const EMPTY_SNAPSHOT: AppStateSnapshot = {
+    activeProviderAccountIds: {},
     agentRuns: [],
     agents: [],
     conversations: [],
@@ -94,6 +95,7 @@ export const EMPTY_SNAPSHOT: AppStateSnapshot = {
     memory: null,
     mcpServers: [],
     messages: [],
+    providerAccounts: [],
     savedPrompts: [],
     schedules: [],
     skills: [],

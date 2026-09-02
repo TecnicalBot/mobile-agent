@@ -12,6 +12,10 @@ const REFRESH_TOKEN_KEY = "openai_refresh_token";
 const SESSION_KEY = "openai_oauth_session";
 const REFRESH_SKEW_MS = 60_000;
 
+function getAccountSessionKey(accountId: string) {
+  return `openai_account_${accountId}_session`;
+}
+
 type TokenResponse = {
   access_token: string;
   expires_in?: number;
@@ -38,6 +42,7 @@ type OpenAiClaims = {
 };
 
 let refreshPromise: Promise<OpenAiTokenInfo> | null = null;
+let refreshPromiseForAccount: Map<string, Promise<OpenAiTokenInfo>> = new Map();
 
 async function returnToAppAfterOAuth() {
   try {
@@ -113,6 +118,26 @@ function buildTokenInfo(input: {
   };
 }
 
+function parseTokenInfo(raw: string | null): OpenAiTokenInfo | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as OpenAiTokenInfo;
+
+    return {
+      accessToken: parsed.accessToken ?? null,
+      accountId: parsed.accountId ?? null,
+      email: parsed.email ?? null,
+      expiresAt: normalizeExpiresAt(parsed.expiresAt),
+      refreshToken: parsed.refreshToken ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function getLegacyTokenInfo(): Promise<OpenAiTokenInfo> {
   const [accessToken, refreshToken] = await Promise.all([
     SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
@@ -161,21 +186,22 @@ async function persistTokenInfo(info: OpenAiTokenInfo) {
   }
 }
 
+async function persistTokenInfoForAccount(
+  accountId: string,
+  info: OpenAiTokenInfo,
+) {
+  await SecureStore.setItemAsync(
+    getAccountSessionKey(accountId),
+    JSON.stringify(info),
+  );
+}
+
 export async function getOpenAiTokenInfo(): Promise<OpenAiTokenInfo> {
   const raw = await SecureStore.getItemAsync(SESSION_KEY);
+  const parsed = parseTokenInfo(raw);
 
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as OpenAiTokenInfo;
-
-      return {
-        accessToken: parsed.accessToken ?? null,
-        accountId: parsed.accountId ?? null,
-        email: parsed.email ?? null,
-        expiresAt: normalizeExpiresAt(parsed.expiresAt),
-        refreshToken: parsed.refreshToken ?? null,
-      };
-    } catch {}
+  if (parsed) {
+    return parsed;
   }
 
   const legacy = await getLegacyTokenInfo();
@@ -183,14 +209,32 @@ export async function getOpenAiTokenInfo(): Promise<OpenAiTokenInfo> {
   return legacy;
 }
 
-export async function handleLogin() {
+export async function getOpenAiTokenInfoForAccount(
+  accountId: string,
+): Promise<OpenAiTokenInfo> {
+  return (
+    parseTokenInfo(
+      await SecureStore.getItemAsync(getAccountSessionKey(accountId)),
+    ) ?? {
+      accessToken: null,
+      accountId: null,
+      email: null,
+      expiresAt: null,
+      refreshToken: null,
+    }
+  );
+}
+
+export async function handleLogin(options?: {
+  accountId?: string;
+}): Promise<OpenAiTokenInfo> {
   const randomBytes = Crypto.getRandomBytes(32);
   const codeVerifier = base64UrlEncode(randomBytes);
   const codeChallenge = await sha256(codeVerifier);
   const state = Math.random().toString(36).slice(2);
 
   let serverReadyPromise: Promise<unknown> | null = null;
-  const callbackPromise = new Promise<void>((resolve, reject) => {
+  const callbackPromise = new Promise<OpenAiTokenInfo>((resolve, reject) => {
     serverReadyPromise = prepareOpenAICallbackSession(
       state,
       async (code, returnedState) => {
@@ -204,16 +248,21 @@ export async function handleLogin() {
             code,
             codeVerifier,
           });
-
-          await setOpenAiTokens({
+          const info = buildTokenInfo({
             accessToken: tokenData.access_token,
             expiresIn: tokenData.expires_in ?? null,
             idToken: tokenData.id_token ?? null,
             refreshToken: tokenData.refresh_token ?? null,
           });
 
+          if (options?.accountId) {
+            await persistTokenInfoForAccount(options.accountId, info);
+          } else {
+            await persistTokenInfo(info);
+          }
+
           await returnToAppAfterOAuth();
-          resolve();
+          resolve(info);
         } catch (e) {
           reject(e);
         }
@@ -249,7 +298,7 @@ export async function handleLogin() {
   });
 
   try {
-    await Promise.race([
+    return await Promise.race([
       callbackPromise,
       browserClosedPromise,
       new Promise<never>((_, reject) => {
@@ -293,6 +342,32 @@ export async function setOpenAiTokens(input: {
   );
 }
 
+export async function setOpenAiTokensForAccount(
+  accountId: string,
+  input: {
+    accessToken: string;
+    accountId?: string | null;
+    email?: string | null;
+    expiresAt?: number | null;
+    expiresIn?: number | null;
+    idToken?: string | null;
+    refreshToken?: string | null;
+  },
+) {
+  await persistTokenInfoForAccount(
+    accountId,
+    buildTokenInfo({
+      accessToken: input.accessToken,
+      accountId: input.accountId,
+      email: input.email,
+      expiresAt: input.expiresAt,
+      expiresIn: input.expiresIn,
+      idToken: input.idToken,
+      refreshToken: input.refreshToken,
+    }),
+  );
+}
+
 export async function clearOpenAiTokens() {
   refreshPromise = null;
   await Promise.all([
@@ -300,6 +375,21 @@ export async function clearOpenAiTokens() {
     SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
     SecureStore.deleteItemAsync(SESSION_KEY),
   ]);
+}
+
+export async function clearOpenAiTokensForAccount(accountId: string) {
+  refreshPromiseForAccount.delete(accountId);
+  await SecureStore.deleteItemAsync(getAccountSessionKey(accountId));
+}
+
+export async function migrateLegacyOpenAiTokensToAccount(accountId: string) {
+  const legacy = await getOpenAiTokenInfo();
+
+  if (legacy.accessToken || legacy.refreshToken) {
+    await persistTokenInfoForAccount(accountId, legacy);
+  }
+
+  await clearOpenAiTokens();
 }
 
 function base64UrlEncode(buffer: Uint8Array) {
@@ -384,6 +474,28 @@ export async function refreshOpenAIToken(refreshToken: string) {
   return data as TokenResponse;
 }
 
+async function refreshTokenInfo(
+  current: OpenAiTokenInfo,
+  persist: (info: OpenAiTokenInfo) => Promise<void>,
+): Promise<OpenAiTokenInfo> {
+  if (!current.refreshToken) {
+    return current;
+  }
+
+  const tokens = await refreshOpenAIToken(current.refreshToken);
+  const next = buildTokenInfo({
+    accessToken: tokens.access_token,
+    accountId: current.accountId,
+    email: current.email,
+    expiresIn: tokens.expires_in ?? null,
+    idToken: tokens.id_token ?? null,
+    refreshToken: tokens.refresh_token ?? current.refreshToken,
+  });
+
+  await persist(next);
+  return next;
+}
+
 export async function getValidOpenAiTokenInfo(): Promise<OpenAiTokenInfo> {
   const current = await getOpenAiTokenInfo();
   const now = Date.now();
@@ -405,24 +517,46 @@ export async function getValidOpenAiTokenInfo(): Promise<OpenAiTokenInfo> {
   }
 
   if (!refreshPromise) {
-    refreshPromise = refreshOpenAIToken(current.refreshToken)
-      .then(async (tokens) => {
-        const next = buildTokenInfo({
-          accessToken: tokens.access_token,
-          accountId: current.accountId,
-          email: current.email,
-          expiresIn: tokens.expires_in ?? null,
-          idToken: tokens.id_token ?? null,
-          refreshToken: tokens.refresh_token ?? current.refreshToken,
-        });
-
-        await persistTokenInfo(next);
-        return next;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+    refreshPromise = refreshTokenInfo(current, persistTokenInfo).finally(() => {
+      refreshPromise = null;
+    });
   }
 
   return refreshPromise;
+}
+
+export async function getValidOpenAiTokenInfoForAccount(
+  accountId: string,
+): Promise<OpenAiTokenInfo> {
+  const current = await getOpenAiTokenInfoForAccount(accountId);
+  const now = Date.now();
+
+  if (
+    current.accessToken &&
+    current.expiresAt !== null &&
+    current.expiresAt - REFRESH_SKEW_MS > now
+  ) {
+    return current;
+  }
+
+  if (current.accessToken && current.expiresAt === null) {
+    return current;
+  }
+
+  if (!current.refreshToken) {
+    return current;
+  }
+
+  let promise = refreshPromiseForAccount.get(accountId);
+
+  if (!promise) {
+    promise = refreshTokenInfo(current, (info) =>
+      persistTokenInfoForAccount(accountId, info),
+    ).finally(() => {
+      refreshPromiseForAccount.delete(accountId);
+    });
+    refreshPromiseForAccount.set(accountId, promise);
+  }
+
+  return promise;
 }

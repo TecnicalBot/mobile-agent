@@ -381,6 +381,28 @@ export const memories = sqliteTable(
   (table) => [index("idx_memories_updated_at").on(table.updatedAt)],
 );
 
+export const providerAccounts = sqliteTable(
+  "provider_accounts",
+  {
+    id: text("id").primaryKey().notNull(),
+    providerId: text("provider_id").notNull(),
+    label: text("label").notNull(),
+    credentialKind: text("credential_kind")
+      .$type<"apiKey" | "oauth">()
+      .notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_provider_accounts_provider_id").on(table.providerId),
+  ],
+);
+
+export const providerAccountState = sqliteTable("provider_account_state", {
+  providerId: text("provider_id").primaryKey().notNull(),
+  activeAccountId: text("active_account_id"),
+});
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey().notNull(),
   value: text("value"),
@@ -396,6 +418,8 @@ export const schema = {
   messages,
   mcpServers,
   modelPresets,
+  providerAccounts,
+  providerAccountState,
   providerConfigs,
   savedPrompts,
   scheduleRuns,

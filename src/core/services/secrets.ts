@@ -8,11 +8,20 @@ import * as SecureStore from "expo-secure-store";
 import {
   getOpenAiAccessToken,
   getOpenAiRefreshToken,
+  getOpenAiTokenInfoForAccount,
 } from "@/modules/providers/openai-oauth";
 import type { ProviderConfig } from "@/core/types/app-state";
 
-function getProviderApiKeyKey(providerId: string) {
+function getLegacyProviderApiKeyKey(providerId: string) {
   return `provider_${providerId}_apiKey`;
+}
+
+function getProviderAccountApiKeyKey(accountId: string) {
+  return `provider_account_${accountId}_apiKey`;
+}
+
+function getActiveProviderAccountKey(providerId: string) {
+  return `provider_${providerId}_active_account`;
 }
 
 function getMcpHeaderValuesKey(serverId: string) {
@@ -43,21 +52,31 @@ export type McpOAuthSession = {
 };
 
 export interface SecretStore {
-  deleteProviderApiKey(providerId: string): Promise<void>;
+  deleteLegacyProviderApiKey(providerId: string): Promise<void>;
   deleteMcpHeaderValues(serverId: string): Promise<void>;
   deleteMcpOAuthTokens(serverId: string): Promise<void>;
+  deleteProviderAccountApiKey(accountId: string): Promise<void>;
+  getActiveProviderAccountId(providerId: string): Promise<string | null>;
+  getLegacyProviderApiKey(providerId: string): Promise<string | null>;
   getMcpHeaderValues(serverId: string): Promise<Record<string, string>>;
   getMcpOAuthSession(serverId: string): Promise<McpOAuthSession | null>;
   getMcpOAuthTokens(serverId: string): Promise<McpOAuthTokens | null>;
+  getProviderAccountApiKey(accountId: string): Promise<string | null>;
   getProviderApiKey(providerId: string): Promise<string | null>;
   hasProviderCredential(provider: ProviderConfig): Promise<boolean>;
+  setActiveProviderAccount(
+    providerId: string,
+    accountId: string | null,
+  ): Promise<void>;
+  setLegacyProviderApiKey(providerId: string, apiKey: string): Promise<void>;
   setMcpHeaderValues(
     serverId: string,
     headers: Record<string, string>,
   ): Promise<void>;
   setMcpOAuthSession(serverId: string, session: McpOAuthSession): Promise<void>;
   setMcpOAuthTokens(serverId: string, tokens: McpOAuthTokens): Promise<void>;
-  setProviderApiKey(providerId: string, apiKey: string): Promise<void>;
+  setProviderAccountApiKey(accountId: string, apiKey: string): Promise<void>;
+  syncActiveProviderAccounts(map: Record<string, string | null>): Promise<void>;
 }
 
 function normalizeExpiresAt(value: unknown) {
@@ -134,14 +153,23 @@ function parseMcpOAuthSession(raw: string | null): McpOAuthSession | null {
 }
 
 export const secureSecretStore: SecretStore = {
-  async deleteProviderApiKey(providerId) {
-    await SecureStore.deleteItemAsync(getProviderApiKeyKey(providerId));
+  async deleteLegacyProviderApiKey(providerId) {
+    await SecureStore.deleteItemAsync(getLegacyProviderApiKeyKey(providerId));
   },
   async deleteMcpHeaderValues(serverId) {
     await SecureStore.deleteItemAsync(getMcpHeaderValuesKey(serverId));
   },
   async deleteMcpOAuthTokens(serverId) {
     await SecureStore.deleteItemAsync(getMcpOAuthTokensKey(serverId));
+  },
+  async deleteProviderAccountApiKey(accountId) {
+    await SecureStore.deleteItemAsync(getProviderAccountApiKeyKey(accountId));
+  },
+  async getActiveProviderAccountId(providerId) {
+    return SecureStore.getItemAsync(getActiveProviderAccountKey(providerId));
+  },
+  async getLegacyProviderApiKey(providerId) {
+    return SecureStore.getItemAsync(getLegacyProviderApiKeyKey(providerId));
   },
   async getMcpHeaderValues(serverId) {
     const raw = await SecureStore.getItemAsync(getMcpHeaderValuesKey(serverId));
@@ -186,8 +214,24 @@ export const secureSecretStore: SecretStore = {
       tokenType: session.tokens.token_type ?? null,
     };
   },
+  async getProviderAccountApiKey(accountId) {
+    return SecureStore.getItemAsync(getProviderAccountApiKeyKey(accountId));
+  },
   async getProviderApiKey(providerId) {
-    return SecureStore.getItemAsync(getProviderApiKeyKey(providerId));
+    const activeAccountId =
+      await SecureStore.getItemAsync(getActiveProviderAccountKey(providerId));
+
+    if (activeAccountId) {
+      const accountKey = await SecureStore.getItemAsync(
+        getProviderAccountApiKeyKey(activeAccountId),
+      );
+
+      if (accountKey) {
+        return accountKey;
+      }
+    }
+
+    return SecureStore.getItemAsync(getLegacyProviderApiKeyKey(providerId));
   },
   async hasProviderCredential(provider) {
     if (!provider.enabled) {
@@ -199,6 +243,15 @@ export const secureSecretStore: SecretStore = {
     }
 
     if (provider.authType === "oauth") {
+      const activeAccountId =
+        await SecureStore.getItemAsync(getActiveProviderAccountKey(provider.id));
+
+      if (activeAccountId) {
+        const info = await getOpenAiTokenInfoForAccount(activeAccountId);
+
+        return Boolean(info.accessToken || info.refreshToken);
+      }
+
       const [accessToken, refreshToken] = await Promise.all([
         getOpenAiAccessToken(),
         getOpenAiRefreshToken(),
@@ -207,9 +260,29 @@ export const secureSecretStore: SecretStore = {
       return Boolean(accessToken || refreshToken);
     }
 
-    const apiKey = await SecureStore.getItemAsync(
-      getProviderApiKeyKey(provider.id),
-    );
+    const activeAccountId =
+      await SecureStore.getItemAsync(getActiveProviderAccountKey(provider.id));
+    const apiKey = activeAccountId
+      ? await SecureStore.getItemAsync(
+          getProviderAccountApiKeyKey(activeAccountId),
+        )
+      : null;
+
+    if (!apiKey && !activeAccountId) {
+      const legacyApiKey = await SecureStore.getItemAsync(
+        getLegacyProviderApiKeyKey(provider.id),
+      );
+
+      if (!legacyApiKey) {
+        return false;
+      }
+
+      if (provider.family === "openai-compatible") {
+        return Boolean(provider.baseUrl?.trim());
+      }
+
+      return true;
+    }
 
     if (!apiKey) {
       return false;
@@ -221,8 +294,18 @@ export const secureSecretStore: SecretStore = {
 
     return true;
   },
-  async setProviderApiKey(providerId, apiKey) {
-    await SecureStore.setItemAsync(getProviderApiKeyKey(providerId), apiKey);
+  async setActiveProviderAccount(providerId, accountId) {
+    if (accountId === null) {
+      await SecureStore.deleteItemAsync(
+        getActiveProviderAccountKey(providerId),
+      );
+      return;
+    }
+
+    await SecureStore.setItemAsync(
+      getActiveProviderAccountKey(providerId),
+      accountId,
+    );
   },
   async setMcpHeaderValues(serverId, headers) {
     await SecureStore.setItemAsync(
@@ -248,5 +331,24 @@ export const secureSecretStore: SecretStore = {
         token_type: tokens.tokenType ?? "Bearer",
       },
     });
+  },
+  async setLegacyProviderApiKey(providerId, apiKey) {
+    await SecureStore.setItemAsync(
+      getLegacyProviderApiKeyKey(providerId),
+      apiKey,
+    );
+  },
+  async setProviderAccountApiKey(accountId, apiKey) {
+    await SecureStore.setItemAsync(
+      getProviderAccountApiKeyKey(accountId),
+      apiKey,
+    );
+  },
+  async syncActiveProviderAccounts(map) {
+    await Promise.all(
+      Object.entries(map).map(([providerId, accountId]) =>
+        this.setActiveProviderAccount(providerId, accountId),
+      ),
+    );
   },
 };

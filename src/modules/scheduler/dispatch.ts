@@ -168,6 +168,7 @@ export async function buildHeadlessSnapshot(
   );
 
   return {
+    activeProviderAccountIds: {},
     agentRuns,
     agents,
     conversations,
@@ -180,6 +181,7 @@ export async function buildHeadlessSnapshot(
     memory,
     mcpServers,
     messages,
+    providerAccounts: [],
     savedPrompts,
     schedules,
     skills,

@@ -38,10 +38,11 @@ import {
     stopBackgroundAgent,
 } from "background-agent-service";
 import {
-    clearOpenAiTokens,
+    clearOpenAiTokensForAccount,
     getOpenAiAccessToken,
     getOpenAiRefreshToken,
     getOpenAiTokenInfo,
+    getOpenAiTokenInfoForAccount,
     handleLogin,
 } from "@/modules/providers/openai-oauth";
 import { getSupportedProviderDefinition } from "@/modules/providers";
@@ -95,6 +96,7 @@ import type {
     ToolApprovalMode,
     PendingToolApproval,
     PendingToolApprovalRequest,
+    ProviderAccount,
     ProviderConfig,
     ReasoningEffort,
     ResolvedConfig,
@@ -152,6 +154,7 @@ type AppStateContextValue = {
     ) => void;
     dismissPendingQuestionnaire: () => void;
     agentRuns: AgentRun[];
+    activeProviderAccountIds: Record<string, string | null>;
     cancelRun: (input?: {
         conversationId?: string;
         runId?: string;
@@ -162,6 +165,23 @@ type AppStateContextValue = {
     clearMcpServerCredentials: (serverId: string) => Promise<void>;
     connectOpenAIOAuth: () => Promise<void>;
     connectMcpServerOAuth: (serverId: string) => Promise<void>;
+    createProviderAccount: (input: {
+        apiKey?: string;
+        label: string;
+        providerId: string;
+    }) => Promise<void>;
+    switchProviderAccount: (input: {
+        accountId: string;
+        providerId: string;
+    }) => Promise<void>;
+    deleteProviderAccount: (input: {
+        accountId: string;
+        providerId: string;
+    }) => Promise<void>;
+    updateProviderAccountLabel: (input: {
+        accountId: string;
+        label: string;
+    }) => Promise<void>;
     createMcpServerOAuth: (input: {
         enabled?: boolean;
         label: string;
@@ -330,6 +350,7 @@ type AppStateContextValue = {
     messages: StoredMessage[];
     editAndResendMessage: (messageId: string, content: string) => Promise<void>;
     savedPrompts: SavedPrompt[];
+    providerAccounts: ProviderAccount[];
     mcpServers: McpServerConfig[];
     resumePendingRuns: () => Promise<void>;
     retryRun: (runId: string) => Promise<void>;
@@ -831,7 +852,7 @@ Your output must be:
             await repositories.configRepository.ensureDefaultProviders();
             if (!legacyProviderSecretCleanedRef.current) {
                 try {
-                    await secureSecretStore.deleteProviderApiKey("openai-compatible");
+                    await secureSecretStore.deleteLegacyProviderApiKey("openai-compatible");
                     legacyProviderSecretCleanedRef.current = true;
                 } catch (cleanupError) {
                     console.warn(
@@ -887,6 +908,101 @@ Your output must be:
                 await repositories.configRepository.listProviderConfigs();
             const modelPresets =
                 await repositories.configRepository.listModelPresets();
+
+            // Ensure provider accounts exist and migrate legacy credentials
+            if (repositories.providerAccountRepository) {
+                const existingAccounts =
+                    await repositories.providerAccountRepository.listAll();
+                const accountsByProvider = new Map<string, typeof existingAccounts>();
+                for (const acct of existingAccounts) {
+                    const list = accountsByProvider.get(acct.providerId) ?? [];
+                    list.push(acct);
+                    accountsByProvider.set(acct.providerId, list);
+                }
+
+                for (const provider of providers) {
+                    const accounts = accountsByProvider.get(provider.id) ?? [];
+                    if (accounts.length === 0) {
+                        // Create a default account for this provider
+                        const defaultLabel =
+                            provider.label || provider.id.replace(/-/g, " ");
+                        const newAccount =
+                            await repositories.providerAccountRepository.create({
+                                credentialKind:
+                                    provider.authType === "oauth"
+                                        ? "oauth"
+                                        : "apiKey",
+                                providerId: provider.id,
+                                label: defaultLabel,
+                            });
+                        accounts.push(newAccount);
+                    }
+
+                    // Migrate legacy credential into the first account
+                    if (provider.authType === "apiKey" && accounts.length > 0) {
+                        const legacyKey =
+                            await secureSecretStore.getLegacyProviderApiKey(provider.id);
+                        if (legacyKey) {
+                            await secureSecretStore.setProviderAccountApiKey(
+                                accounts[0].id,
+                                legacyKey,
+                            );
+                            await secureSecretStore.setActiveProviderAccount(
+                                provider.id,
+                                accounts[0].id,
+                            );
+                            await secureSecretStore
+                                .deleteLegacyProviderApiKey(provider.id)
+                                .catch(() => {});
+                        }
+                    }
+
+                    // Ensure active account is set for the provider
+                    const activeAccountId =
+                        await secureSecretStore.getActiveProviderAccountId(provider.id);
+                    if (!activeAccountId && accounts.length > 0) {
+                        await secureSecretStore.setActiveProviderAccount(
+                            provider.id,
+                            accounts[0].id,
+                        );
+                    }
+                }
+
+                // Migrate legacy OpenAI OAuth tokens into an account
+                if (accountsByProvider.has("openai")) {
+                    const openaiAccounts = accountsByProvider.get("openai") ?? [];
+                    const targetAccountId = openaiAccounts[0]?.id;
+                    if (targetAccountId) {
+                        const existingAccountInfo =
+                            await getOpenAiTokenInfoForAccount(targetAccountId);
+                        const legacyInfo = await getOpenAiTokenInfo();
+                        if (
+                            (legacyInfo.accessToken || legacyInfo.refreshToken) &&
+                            !existingAccountInfo.accessToken &&
+                            !existingAccountInfo.refreshToken
+                        ) {
+                            const { migrateLegacyOpenAiTokensToAccount } = await import(
+                                "@/modules/providers/openai-oauth"
+                            );
+                            await migrateLegacyOpenAiTokensToAccount(targetAccountId);
+                            await secureSecretStore.setActiveProviderAccount(
+                                "openai",
+                                targetAccountId,
+                            );
+                        }
+                    }
+                }
+            }
+
+            const providerAccounts = repositories.providerAccountRepository
+                ? await repositories.providerAccountRepository.listAll()
+                : [];
+            const activeProviderAccountIds: Record<string, string | null> = {};
+            for (const provider of providers) {
+                activeProviderAccountIds[provider.id] =
+                    await secureSecretStore.getActiveProviderAccountId(provider.id);
+            }
+
             const resolvedConfig = await resolveConfig(
                 {
                     providers,
@@ -975,6 +1091,7 @@ Your output must be:
             const workspaceFiles = await repositories.workspaceRepository.list();
             const agents = await repositories.agentRepository.list();
             const nextSnapshot = {
+                activeProviderAccountIds,
                 agentRuns: normalizedAgentRuns,
                 agents,
                 conversations,
@@ -987,6 +1104,7 @@ Your output must be:
                 memory,
                 mcpServers,
                 messages,
+                providerAccounts,
                 savedPrompts,
                 schedules,
                 skills,
@@ -1472,8 +1590,28 @@ Your output must be:
             await repositoriesRef.current.configRepository.createProvider(input);
 
         try {
-            if (input.apiKey) {
-                await secureSecretStore.setProviderApiKey(
+            if (repositoriesRef.current.providerAccountRepository) {
+                const defaultLabel =
+                    input.label || input.id.replace(/-/g, " ");
+                const account =
+                    await repositoriesRef.current.providerAccountRepository.create({
+                        credentialKind:
+                            input.authType === "oauth" ? "oauth" : "apiKey",
+                        providerId: provider.id,
+                        label: defaultLabel,
+                    });
+                if (input.apiKey) {
+                    await secureSecretStore.setProviderAccountApiKey(
+                        account.id,
+                        input.apiKey.trim(),
+                    );
+                }
+                await secureSecretStore.setActiveProviderAccount(
+                    provider.id,
+                    account.id,
+                );
+            } else if (input.apiKey) {
+                await secureSecretStore.setLegacyProviderApiKey(
                     provider.id,
                     input.apiKey.trim(),
                 );
@@ -1494,7 +1632,21 @@ Your output must be:
 
         await repositoriesRef.current.configRepository.deleteProvider(providerId);
         try {
-            await secureSecretStore.deleteProviderApiKey(providerId);
+            if (repositoriesRef.current.providerAccountRepository) {
+                const accounts =
+                    await repositoriesRef.current.providerAccountRepository.listByProvider(
+                        providerId,
+                    );
+                for (const account of accounts) {
+                    await secureSecretStore.deleteProviderAccountApiKey(account.id);
+                }
+                await repositoriesRef.current.providerAccountRepository.deleteByProvider(
+                    providerId,
+                );
+                await secureSecretStore.setActiveProviderAccount(providerId, null);
+            } else {
+                await secureSecretStore.deleteLegacyProviderApiKey(providerId);
+            }
         } catch (cleanupError) {
             console.warn("Failed to delete the provider credential.", cleanupError);
         } finally {
@@ -1503,12 +1655,141 @@ Your output must be:
     }
 
     async function saveProviderApiKey(providerId: string, apiKey: string) {
-        await secureSecretStore.setProviderApiKey(providerId, apiKey.trim());
+        if (repositoriesRef.current.providerAccountRepository) {
+            const activeAccountId =
+                await secureSecretStore.getActiveProviderAccountId(providerId);
+            let accountId = activeAccountId;
+
+            if (!accountId) {
+                // Create a default account if none exists
+                const newAccount =
+                    await repositoriesRef.current.providerAccountRepository.create({
+                        credentialKind: "apiKey",
+                        providerId,
+                        label: providerId.replace(/-/g, " "),
+                    });
+                accountId = newAccount.id;
+                await secureSecretStore.setActiveProviderAccount(
+                    providerId,
+                    accountId,
+                );
+            }
+
+            await secureSecretStore.setProviderAccountApiKey(
+                accountId,
+                apiKey.trim(),
+            );
+        } else {
+            await secureSecretStore.setLegacyProviderApiKey(
+                providerId,
+                apiKey.trim(),
+            );
+        }
         await hydrate();
     }
 
     async function clearProviderApiKey(providerId: string) {
-        await secureSecretStore.deleteProviderApiKey(providerId);
+        if (repositoriesRef.current.providerAccountRepository) {
+            const activeAccountId =
+                await secureSecretStore.getActiveProviderAccountId(providerId);
+            if (activeAccountId) {
+                await secureSecretStore.deleteProviderAccountApiKey(activeAccountId);
+            }
+        } else {
+            await secureSecretStore.deleteLegacyProviderApiKey(providerId);
+        }
+        await hydrate();
+    }
+
+    async function createProviderAccount(input: {
+        apiKey?: string;
+        label: string;
+        providerId: string;
+    }) {
+        if (!repositoriesRef.current.providerAccountRepository) {
+            throw new Error("Provider accounts are not available.");
+        }
+
+        const account =
+            await repositoriesRef.current.providerAccountRepository.create({
+                credentialKind: input.apiKey ? "apiKey" : "oauth",
+                providerId: input.providerId,
+                label: input.label,
+            });
+
+        if (input.apiKey) {
+            await secureSecretStore.setProviderAccountApiKey(
+                account.id,
+                input.apiKey.trim(),
+            );
+        }
+
+        // Activate the newly added account
+        await secureSecretStore.setActiveProviderAccount(
+            input.providerId,
+            account.id,
+        );
+
+        await hydrate();
+    }
+
+    async function switchProviderAccount(input: {
+        accountId: string;
+        providerId: string;
+    }) {
+        await secureSecretStore.setActiveProviderAccount(
+            input.providerId,
+            input.accountId,
+        );
+        await hydrate();
+    }
+
+    async function deleteProviderAccount(input: {
+        accountId: string;
+        providerId: string;
+    }) {
+        if (!repositoriesRef.current.providerAccountRepository) {
+            throw new Error("Provider accounts are not available.");
+        }
+
+        const remainingAccounts = (
+            await repositoriesRef.current.providerAccountRepository.listByProvider(
+                input.providerId,
+            )
+        ).filter((account) => account.id !== input.accountId);
+
+        const activeAccountId = await secureSecretStore.getActiveProviderAccountId(
+            input.providerId,
+        );
+
+        await secureSecretStore.deleteProviderAccountApiKey(input.accountId);
+        await repositoriesRef.current.providerAccountRepository.delete(
+            input.accountId,
+        );
+
+        if (activeAccountId === input.accountId) {
+            // Switch active to another account if available
+            const nextAccount = remainingAccounts[0] ?? null;
+            await secureSecretStore.setActiveProviderAccount(
+                input.providerId,
+                nextAccount?.id ?? null,
+            );
+        }
+
+        await hydrate();
+    }
+
+    async function updateProviderAccountLabel(input: {
+        accountId: string;
+        label: string;
+    }) {
+        if (!repositoriesRef.current.providerAccountRepository) {
+            throw new Error("Provider accounts are not available.");
+        }
+        await repositoriesRef.current.providerAccountRepository.updateLabel(
+            input.accountId,
+            input.label,
+        );
         await hydrate();
     }
 
@@ -2283,7 +2564,17 @@ Your output must be:
     }
 
     async function connectOpenAIOAuth() {
-        await handleLogin();
+        const providerId = "openai";
+        const accountRepo = repositoriesRef.current.providerAccountRepository;
+        let accountId =
+            (await secureSecretStore.getActiveProviderAccountId(providerId)) ?? null;
+
+        if (!accountId && accountRepo) {
+            const accounts = await accountRepo.listByProvider(providerId);
+            accountId = accounts[0]?.id ?? null;
+        }
+
+        await handleLogin(accountId ? { accountId } : undefined);
 
         const startedAt = Date.now();
 
@@ -2300,14 +2591,26 @@ Your output must be:
             await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        const tokenInfo = await getOpenAiTokenInfo();
+        const tokenInfo = accountId
+            ? await getOpenAiTokenInfoForAccount(accountId)
+            : await getOpenAiTokenInfo();
         setOpenAIOAuthEmailInSnapshot(tokenInfo.email);
         await persistOpenAIOAuthEmail(tokenInfo.email);
         await hydrate().catch(() => { });
     }
 
     async function disconnectOpenAIOAuth() {
-        await clearOpenAiTokens();
+        const providerId = "openai";
+        const accountId =
+            await secureSecretStore.getActiveProviderAccountId(providerId);
+
+        if (accountId) {
+            await clearOpenAiTokensForAccount(accountId);
+            await secureSecretStore.setActiveProviderAccount(providerId, null);
+        } else {
+            await secureSecretStore.deleteLegacyProviderApiKey(providerId);
+        }
+
         setOpenAIOAuthEmailInSnapshot(null);
         await persistOpenAIOAuthEmail(null);
         await hydrate().catch(() => { });
@@ -3615,6 +3918,12 @@ Your output must be:
                 clearConversationFolder,
                 connectMcpServerOAuth,
                 connectOpenAIOAuth,
+                createProviderAccount,
+                switchProviderAccount,
+                deleteProviderAccount,
+                updateProviderAccountLabel,
+                activeProviderAccountIds: snapshot.activeProviderAccountIds,
+                providerAccounts: snapshot.providerAccounts,
                 createMcpServer,
                 createMcpServerOAuth,
                 writeMemory,
@@ -3772,6 +4081,12 @@ export function useConfig() {
         ...context.resolvedConfig,
         clearMcpServerCredentials: context.clearMcpServerCredentials,
         clearProviderApiKey: context.clearProviderApiKey,
+        createProviderAccount: context.createProviderAccount,
+        switchProviderAccount: context.switchProviderAccount,
+        deleteProviderAccount: context.deleteProviderAccount,
+        updateProviderAccountLabel: context.updateProviderAccountLabel,
+        activeProviderAccountIds: context.activeProviderAccountIds,
+        providerAccounts: context.providerAccounts,
         connectMcpServerOAuth: context.connectMcpServerOAuth,
         connectOpenAIOAuth: context.connectOpenAIOAuth,
         createMcpServer: context.createMcpServer,

@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 24;
+const DATABASE_VERSION = 25;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -75,6 +75,20 @@ const CORE_SCHEMA_REPAIR_SQL = `
 
   CREATE UNIQUE INDEX IF NOT EXISTS agents_name_unique ON agents(name);
   CREATE INDEX IF NOT EXISTS idx_agents_updated_at ON agents(updated_at);
+
+  CREATE TABLE IF NOT EXISTS agent_docs (
+    id TEXT PRIMARY KEY NOT NULL,
+    agent_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    mime_type TEXT,
+    size INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_docs_agent_id
+  ON agent_docs(agent_id);
 
   CREATE TABLE IF NOT EXISTS schedule_runs (
     id TEXT PRIMARY KEY NOT NULL,
@@ -976,6 +990,26 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 24;
+  }
+
+  if (currentVersion === 24) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS agent_docs (
+        id TEXT PRIMARY KEY NOT NULL,
+        agent_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        mime_type TEXT,
+        size INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_docs_agent_id
+      ON agent_docs(agent_id);
+    `);
+
+    currentVersion = 25;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

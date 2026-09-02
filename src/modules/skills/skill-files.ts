@@ -1,5 +1,6 @@
 import { githubBlobToRaw } from "@/modules/skills/skill-github";
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
+import { parseSkillMarkdown } from "@/modules/skills/skill-markdown";
 
 export const SKILL_FILE_FETCH_TIMEOUT_MS = 15_000;
 export const SKILL_FILE_MAX_BYTES = 200_000;
@@ -32,18 +33,26 @@ type GitHubEntry = {
 
 export async function fetchSkillFiles(opts: {
   sourceUrl: string;
-  referencedPaths: string[];
+  referencedPaths?: string[];
+  extraFiles?: string[];
 }): Promise<SkillAttachment[]> {
-  const { sourceUrl, referencedPaths } = opts;
+  const {
+    sourceUrl,
+    referencedPaths = [],
+    extraFiles = [],
+  } = opts;
 
-  if (referencedPaths.length === 0) {
+  if (referencedPaths.length === 0 && extraFiles.length === 0) {
     return [];
   }
 
   const context = await resolveGithubContext(sourceUrl);
 
   if (!context) {
-    return fetchRelativeReferences(sourceUrl, referencedPaths);
+    return fetchRelativeReferences(sourceUrl, [
+      ...referencedPaths,
+      ...extraFiles,
+    ]);
   }
 
   const { owner, repo, branch, dirPath } = context;
@@ -63,6 +72,22 @@ export async function fetchSkillFiles(opts: {
   const fetched = new Map<string, SkillAttachment>();
   let totalBytes = 0;
 
+  const ingest = (attachment: SkillAttachment) => {
+    const size = attachment.size ?? 0;
+
+    if (fetched.has(attachment.path)) {
+      return;
+    }
+
+    if (totalBytes + size > SKILL_FILE_MAX_TOTAL_BYTES) {
+      return false;
+    }
+
+    fetched.set(attachment.path, attachment);
+    totalBytes += size;
+    return true;
+  };
+
   for (const path of Array.from(targetPaths)) {
     if (fetched.size >= SKILL_FILE_MAX_COUNT) {
       break;
@@ -72,18 +97,50 @@ export async function fetchSkillFiles(opts: {
     const attachment = await fetchSingleFile(path, rawUrl);
 
     if (attachment) {
-      const size = attachment.size ?? 0;
+      ingest(attachment);
+    }
+  }
 
-      if (totalBytes + size > SKILL_FILE_MAX_TOTAL_BYTES) {
-        break;
-      }
+  for (const fileUrl of extraFiles) {
+    if (fetched.size >= SKILL_FILE_MAX_COUNT) {
+      break;
+    }
 
-      fetched.set(path, attachment);
-      totalBytes += size;
+    const raw = githubBlobToRaw(fileUrl) ?? fileUrl;
+    const path = derivePathFromRaw(raw, owner, repo, branch);
+    const attachment = await fetchSingleFile(path, raw);
+
+    if (attachment) {
+      ingest(attachment);
     }
   }
 
   return Array.from(fetched.values());
+}
+
+function derivePathFromRaw(
+  rawUrl: string,
+  owner: string,
+  repo: string,
+  branch: string,
+) {
+  const match = new RegExp(
+    `^https:\/\/raw\.githubusercontent\.com\/${escapeRegex(owner)}\/${escapeRegex(repo)}\/${escapeRegex(branch)}\/(.+)$`,
+    "i",
+  ).exec(rawUrl);
+
+  if (match) {
+    return match[1] as string;
+  }
+
+  const stripped = rawUrl.replace(/[?#].*$/, "");
+  const basename = stripped.split("/").pop();
+
+  return basename || rawUrl;
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function resolveGithubContext(sourceUrl: string) {
@@ -178,14 +235,30 @@ async function fetchRelativeReferences(
     }
 
     const target = /^https?:\/\//i.test(path) ? path : new URL(path, `${base}/`).href;
-    const attachment = await fetchSingleFile(path, target);
+    const storedPath = /^https?:\/\//i.test(path)
+      ? derivePathFromArbitraryUrl(path)
+      : path;
+    const attachment = await fetchSingleFile(storedPath, target);
 
     if (attachment) {
-      fetched.set(path, attachment);
+      fetched.set(storedPath, attachment);
     }
   }
 
   return Array.from(fetched.values());
+}
+
+function derivePathFromArbitraryUrl(url: string) {
+  const match = githubBlobToRaw(url);
+
+  if (match) {
+    return match.replace(/^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/[^/]+\//, "");
+  }
+
+  const stripped = url.replace(/[?#].*$/, "");
+  const basename = stripped.split("/").pop();
+
+  return basename || url;
 }
 
 async function fetchSingleFile(path: string, rawUrl: string): Promise<SkillAttachment | null> {
@@ -203,32 +276,46 @@ async function fetchSingleFile(path: string, rawUrl: string): Promise<SkillAttac
 
   const contentType = response.headers.get("content-type") ?? null;
   const body = new Uint8Array(await response.arrayBuffer());
-  const size = body.byteLength;
+
+  return attachmentFromBytes({ path, bytes: body, mimeType: contentType });
+}
+
+export function isBinaryMimeType(mimeType: string | null) {
+  return !/^text\/|javascript|json|xml|yaml|yml|markdown|md|csv|toml|sh|zsh|bash|python|x-/i.test(
+    mimeType ?? "",
+  );
+}
+
+export function attachmentFromBytes(input: {
+  path: string;
+  bytes: Uint8Array;
+  mimeType?: string | null;
+}): SkillAttachment | null {
+  const size = input.bytes.byteLength;
 
   if (size > SKILL_FILE_MAX_BYTES) {
     return null;
   }
 
-  const isBinary = !/^text\/|javascript|json|xml|yaml|yml|markdown|md|csv|toml|sh|zsh|bash|python|x-/i.test(
-    contentType ?? "",
-  );
+  const mimeType = input.mimeType ?? null;
+  const isBinary = isBinaryMimeType(mimeType);
 
   let content: string;
 
   if (isBinary) {
-    content = bytesToBase64(body);
+    content = bytesToBase64(input.bytes);
   } else {
     try {
-      content = new TextDecoder().decode(body);
+      content = new TextDecoder().decode(input.bytes);
     } catch {
       return null;
     }
   }
 
-  return { path, content, mimeType: contentType, size };
+  return { path: input.path, content, mimeType, size };
 }
 
-function bytesToBase64(bytes: Uint8Array) {
+export function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
 
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -244,4 +331,22 @@ export function summarizeSkillFiles(files: SkillAttachment[]) {
     size: file.size,
     mimeType: file.mimeType,
   }));
+}
+
+export function pickSkillFile(
+  files: { name: string; content: string }[],
+): string | null {
+  const exact = files.find((file) => file.name.toLowerCase() === "skill.md");
+
+  if (exact) {
+    return exact.name;
+  }
+
+  const parsed = files.find(
+    (file) =>
+      file.name.toLowerCase().endsWith(".md") &&
+      Boolean(parseSkillMarkdown(file.content).title),
+  );
+
+  return parsed?.name ?? null;
 }

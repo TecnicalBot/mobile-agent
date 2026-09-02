@@ -5,9 +5,18 @@ import { Text, View } from "react-native";
 
 import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
 import { McpServerRow } from "@/components/settings/mcp/server-row";
+import { McpServerForm } from "@/components/settings/mcp/mcp-server-form";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppState } from "@/hooks/use-app-state";
@@ -29,6 +38,8 @@ export default function ConnectedMcpServersScreen() {
   } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [setupDrawerOpen, setSetupDrawerOpen] = useState(false);
+  const [editServerId, setEditServerId] = useState<string | null>(null);
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
@@ -52,6 +63,16 @@ export default function ConnectedMcpServersScreen() {
     return <Redirect href={"/settings/mcp/list" as never} />;
   }
 
+  const openAddCustom = () => {
+    setEditServerId(null);
+    setSetupDrawerOpen(true);
+  };
+
+  const openEdit = (serverId: string) => {
+    setEditServerId(serverId);
+    setSetupDrawerOpen(true);
+  };
+
   return (
     <Container
       scroll
@@ -63,7 +84,7 @@ export default function ConnectedMcpServersScreen() {
           <Button
             className="ml-auto"
             leftIcon={<Plus color={theme.text} size={16} />}
-            onPress={() => router.push("/settings/mcp/add" as never)}
+            onPress={openAddCustom}
             size="sm"
             variant="outline"
           >
@@ -111,12 +132,7 @@ export default function ConnectedMcpServersScreen() {
                       await deleteMcpServer(server.id);
                     })
                   }
-                  onEdit={() =>
-                    router.push({
-                      pathname: "/settings/mcp/add" as never,
-                      params: { serverId: server.id },
-                    })
-                  }
+                  onEdit={() => openEdit(server.id)}
                   onTest={() =>
                     runAction(`test:${server.id}`, async () => {
                       await testMcpServer(server.id);
@@ -148,6 +164,26 @@ export default function ConnectedMcpServersScreen() {
           {error}
         </Text>
       ) : null}
+
+      <Drawer onOpenChange={setSetupDrawerOpen} open={setupDrawerOpen}>
+        <DrawerContent showCloseButton showHandle>
+          <DrawerHeader>
+            <DrawerTitle>
+              {editServerId ? "Edit MCP server" : "Add MCP server"}
+            </DrawerTitle>
+            <DrawerDescription>
+              Review the connection and authentication settings before saving.
+            </DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="pb-sp-4">
+            <McpServerForm
+              key={editServerId ?? "custom"}
+              onSaved={() => setSetupDrawerOpen(false)}
+              serverId={editServerId ?? undefined}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
     </Container>
   );
 }

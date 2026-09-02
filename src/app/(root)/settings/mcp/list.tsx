@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 
 import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
+import { McpServerForm } from "@/components/settings/mcp/mcp-server-form";
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
@@ -24,8 +25,6 @@ import {
   type McpServerPreset,
 } from "@/modules/mcp/catalog";
 import { isMcpOAuthCanceledError } from "@/modules/mcp/oauth";
-
-import { McpServerForm } from "./add";
 
 function normalizeMcpUrl(value: string) {
   try {

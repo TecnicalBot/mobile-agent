@@ -1,3 +1,4 @@
+import { BlurView } from "expo-blur";
 import { X } from "lucide-react-native";
 import {
   cloneElement,
@@ -373,8 +374,22 @@ export const DrawerContent = forwardRef<
           ]}
           {...props}
         >
+          <Animated.View
+            className="absolute inset-0"
+            pointerEvents="none"
+            style={{ opacity: progress }}
+          >
+            <BlurView
+              className="absolute inset-0"
+              intensity={55}
+              tint="dark"
+            />
+            <View
+              className={cn("absolute inset-0 bg-black/45", overlayClassName)}
+            />
+          </Animated.View>
           <Pressable
-            className={cn("absolute inset-0 bg-transparent", overlayClassName)}
+            className="absolute inset-0 bg-transparent"
             onPress={
               closeOnOverlayPress && dismissible
                 ? () => setOpen(false)

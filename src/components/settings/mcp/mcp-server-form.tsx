@@ -1,9 +1,6 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
-import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -98,32 +95,6 @@ function parseHeaderText(value: string) {
         return name && headerValue ? [name, headerValue] : null;
       })
       .filter((entry): entry is [string, string] => Boolean(entry)),
-  );
-}
-
-export default function AddMcpServerScreen() {
-  const router = useRouter();
-  const { presetId, serverId } = useLocalSearchParams<{
-    presetId?: string;
-    serverId?: string;
-  }>();
-
-  return (
-    <Container
-      scroll
-      contentClassName="gap-sp-4 py-sp-4"
-      includeBottomTabInset={false}
-    >
-      <McpScreenHeader
-        backHref={serverId ? "/settings/mcp/connected" : "/settings/mcp/list"}
-        title={serverId ? "Edit MCP server" : "Add MCP server"}
-      />
-      <McpServerForm
-        onSaved={() => router.replace("/settings/mcp/connected" as never)}
-        presetId={presetId}
-        serverId={serverId}
-      />
-    </Container>
   );
 }
 

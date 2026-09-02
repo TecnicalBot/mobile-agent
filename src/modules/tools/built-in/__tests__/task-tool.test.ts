@@ -22,6 +22,7 @@ function makeAgent(overrides: Partial<AgentConfig>): AgentConfig {
     sourceMarkdown: null,
     temperature: null,
     toolPermissions: {},
+    docs: [],
     updatedAt: "",
     ...overrides,
   };

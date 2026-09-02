@@ -62,7 +62,11 @@ import {
     parseSkillMarkdown,
     serializeSkillToMarkdown,
 } from "@/modules/skills/skill-markdown";
-import { fetchSkillFiles } from "@/modules/skills/skill-files";
+import {
+    fetchSkillFiles,
+    SKILL_FILE_MAX_COUNT,
+    SKILL_FILE_MAX_TOTAL_BYTES,
+} from "@/modules/skills/skill-files";
 import {
     isNativeAgentId,
     resolveConversationAgent,
@@ -221,8 +225,24 @@ type AppStateContextValue = {
         markdown: string;
         replaceById?: string | null;
         sourceUrl?: string | null;
+        extraFiles?: string[];
+        localFiles?: {
+            path: string;
+            content: string;
+            mimeType: string | null;
+            size: number | null;
+        }[];
     }) => Promise<SkillConfig>;
     exportSkillMarkdown: (skillId: string) => string;
+    addSkillFiles: (
+        skillId: string,
+        files: {
+            path: string;
+            content: string;
+            mimeType?: string | null;
+            size?: number | null;
+        }[],
+    ) => Promise<void>;
     agents: AgentConfig[];
     createAgent: (input: {
         description?: string | null;
@@ -234,6 +254,7 @@ type AppStateContextValue = {
         sourceMarkdown?: string | null;
         temperature?: number | null;
         toolPermissions?: AgentConfig["toolPermissions"];
+        docs?: Omit<AgentConfig["docs"][number], "createdAt" | "updatedAt" | "id">[];
     }) => Promise<AgentConfig>;
     updateAgent: (
         agentId: string,
@@ -249,6 +270,7 @@ type AppStateContextValue = {
             sourceMarkdown?: string | null;
             temperature?: number | null;
             toolPermissions?: AgentConfig["toolPermissions"];
+            docs?: Omit<AgentConfig["docs"][number], "createdAt" | "updatedAt" | "id">[];
         },
     ) => Promise<void>;
     deleteAgent: (agentId: string) => Promise<void>;
@@ -1820,6 +1842,79 @@ Your output must be:
         await hydrate();
     }
 
+    async function addSkillFiles(
+        skillId: string,
+        files: {
+            path: string;
+            content: string;
+            mimeType?: string | null;
+            size?: number | null;
+        }[],
+    ) {
+        const current =
+            await repositoriesRef.current.skillRepository.getById(skillId);
+
+        if (!current) {
+            throw new Error(`Skill not found: ${skillId}`);
+        }
+
+        const byPath = new Map<string, {
+            path: string;
+            content: string;
+            mimeType: string | null;
+            size: number | null;
+            id?: string;
+        }>(
+            current.skillFiles.map((file) => [
+                file.path,
+                {
+                    id: file.id,
+                    path: file.path,
+                    content: file.content,
+                    mimeType: file.mimeType,
+                    size: file.size,
+                },
+            ]),
+        );
+        let totalBytes = current.skillFiles.reduce(
+            (sum, file) => sum + (file.size ?? 0),
+            0,
+        );
+
+        for (const file of files) {
+            if (byPath.has(file.path)) {
+                continue;
+            }
+
+            if (byPath.size >= SKILL_FILE_MAX_COUNT) {
+                break;
+            }
+
+            totalBytes += file.size ?? 0;
+
+            if (totalBytes > SKILL_FILE_MAX_TOTAL_BYTES) {
+                break;
+            }
+
+            byPath.set(file.path, {
+                id: undefined,
+                path: file.path,
+                content: file.content,
+                mimeType: file.mimeType ?? null,
+                size: file.size ?? null,
+            });
+        }
+
+        if (byPath.size === current.skillFiles.length) {
+            return;
+        }
+
+        await repositoriesRef.current.skillRepository.update(skillId, {
+            files: Array.from(byPath.values()),
+        });
+        await hydrate();
+    }
+
     async function deleteSkill(skillId: string) {
         await repositoriesRef.current.skillRepository.delete(skillId);
         await hydrate();
@@ -1829,15 +1924,33 @@ Your output must be:
         markdown: string;
         replaceById?: string | null;
         sourceUrl?: string | null;
+        extraFiles?: string[];
+        localFiles?: {
+            path: string;
+            content: string;
+            mimeType: string | null;
+            size: number | null;
+        }[];
     }) {
         const parsed = parseSkillMarkdown(input.markdown);
-        const files = input.sourceUrl
+        const discovered = input.sourceUrl
             ? await fetchSkillFiles({
                   sourceUrl: input.sourceUrl,
                   referencedPaths: parsed.files,
+                  extraFiles: input.extraFiles,
               })
             : [];
-        const fileInput = files.map((file) => ({
+        const byPath = new Map<string, (typeof discovered)[number]>();
+
+        for (const file of discovered) {
+            byPath.set(file.path, file);
+        }
+
+        for (const file of input.localFiles ?? []) {
+            byPath.set(file.path, file);
+        }
+
+        const fileInput = Array.from(byPath.values()).map((file) => ({
             path: file.path,
             content: file.content,
             mimeType: file.mimeType,
@@ -3611,6 +3724,7 @@ Your output must be:
                 updateSchedule,
                 updateSchedulingEnabled,
                 updateSkill,
+                addSkillFiles,
                 updateToolApprovalMode,
                 setConversationApprovalMode,
                 updateThemeMode,
@@ -3719,6 +3833,7 @@ export function useConfig() {
         updateMemoryEnabled: context.updateMemoryEnabled,
         updateSavedPrompt: context.updateSavedPrompt,
         updateSkill: context.updateSkill,
+        addSkillFiles: context.addSkillFiles,
         updateToolApprovalMode: context.updateToolApprovalMode,
         setConversationApprovalMode: context.setConversationApprovalMode,
         updateThemeMode: context.updateThemeMode,

@@ -187,7 +187,7 @@ export function createSkillTools(input: {
       }),
       importSkillFromUrl: tool({
         description:
-          "Import a skill from a SKILL.md file at a URL. Use when the user gives you a link to a SKILL.md file, such as a github.com blob URL or a raw markdown URL, and asks you to add it as a skill. Downloads the file and installs it; if a skill with the same name already exists it is replaced.",
+          "Import a skill from a SKILL.md file at a URL. Use when the user gives you a link to a SKILL.md file, such as a github.com blob URL or a raw markdown URL, and asks you to add it as a skill. Downloads the file and installs it; if a skill with the same name already exists it is replaced. Related files (scripts, references, assets) referenced by the SKILL.md are discovered automatically.",
         inputSchema: z.object({
           url: z
             .string()
@@ -195,8 +195,14 @@ export function createSkillTools(input: {
             .min(1)
             .max(2048)
             .describe("URL to a SKILL.md file."),
+          files: z
+            .array(z.string().trim().min(1).max(2048))
+            .optional()
+            .describe(
+              "Optional direct URLs to related files (scripts, references, assets) that belong to the skill. Only needed when they cannot be discovered automatically.",
+            ),
         }),
-        execute: async ({ url }) => {
+        execute: async ({ url, files }) => {
           const { content, displayName } = await fetchSkillMarkdownFromUrl(url);
           const parsed = parseSkillMarkdown(content);
           const title =
@@ -204,14 +210,15 @@ export function createSkillTools(input: {
             displayName.replace(/\.md$/i, "") ||
             "Imported skill";
           const existing = await findSkillBySlug(title);
-          const files = await fetchSkillFiles({
+          const relatedFiles = await fetchSkillFiles({
             sourceUrl: url,
             referencedPaths: parsed.files,
+            extraFiles: files,
           });
           const input = {
             autoMatch: parsed.autoMatch,
             description: parsed.description?.trim() || null,
-            files: files.map((file) => ({
+            files: relatedFiles.map((file) => ({
               path: file.path,
               content: file.content,
               mimeType: file.mimeType,
@@ -244,7 +251,7 @@ export function createSkillTools(input: {
               outputSummary: summarizeValue({
                 name: skill?.title,
                 replaced: Boolean(existing),
-                files: files.length,
+                files: relatedFiles.length,
               }),
             }),
           );
@@ -255,7 +262,7 @@ export function createSkillTools(input: {
             id: skill?.id ?? null,
             name: skill?.title ?? title,
             description: skill?.description ?? null,
-            fileCount: files.length,
+            fileCount: relatedFiles.length,
           };
         },
       }),

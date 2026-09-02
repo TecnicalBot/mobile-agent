@@ -37,6 +37,7 @@ function nativeAgent(input: {
     sourceMarkdown: null,
     temperature: null,
     toolPermissions: {},
+    docs: [],
     updatedAt: "",
   };
 }

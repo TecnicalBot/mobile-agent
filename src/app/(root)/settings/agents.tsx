@@ -1,11 +1,12 @@
-import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import { ChevronLeft, Copy, FileDown, Trash2 } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { ChevronLeft, Copy, Plus, Trash2 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
-import { AgentImportDrawer } from "@/components/agents/agent-import-drawer";
+import { AgentCreateDrawer } from "@/components/agents/agent-create-drawer";
+import { AgentEditorDrawer } from "@/components/agents/agent-editor-drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,7 +28,8 @@ export default function SettingsAgentsScreen() {
   } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null);
 
   const customAgents = useMemo(
     () =>
@@ -57,6 +59,12 @@ export default function SettingsAgentsScreen() {
     await Clipboard.setStringAsync(markdown);
   };
 
+  const handleCreated = (agent: AgentConfig) => {
+    setEditingAgent(agent);
+    setCreateOpen(false);
+    setError(null);
+  };
+
   return (
     <Container
       scroll
@@ -66,35 +74,26 @@ export default function SettingsAgentsScreen() {
       <View className="flex-row items-center gap-sp-2">
         <Button
           leftIcon={<ChevronLeft color={theme.text} size={16} />}
-          onPress={() => {
-            router.push("/settings");
-          }}
+          onPress={() => router.replace("/settings" as never)}
           size="icon-xs"
           variant="ghost"
         />
-        <View className="min-w-0 flex-1">
-          <Text className="font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
-            Agents
-          </Text>
-          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-            {customAgents.length} custom · built-ins always available
-          </Text>
-        </View>
+        <Text className="min-w-0 flex-1 font-sans text-xl font-semibold text-foreground dark:text-foreground-dark">
+          Agents
+        </Text>
         <Button
-          onPress={() => {
-            router.push("/settings/agents/new" as never);
-          }}
+          className="ml-auto"
+          leftIcon={<Plus color={theme.text} size={16} />}
+          onPress={() => setCreateOpen(true)}
           size="sm"
-        >
-          New agent
-        </Button>
-        <Button
-          leftIcon={<FileDown color={theme.text} size={16} />}
-          onPress={() => setImportOpen(true)}
-          size="icon-xs"
           variant="outline"
-        />
+        >
+          Create
+        </Button>
       </View>
+      <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+        {customAgents.length} custom · built-ins always available
+      </Text>
 
       <Card className="overflow-hidden">
         {NATIVE_AGENTS.map((agent, index) => (
@@ -129,9 +128,10 @@ export default function SettingsAgentsScreen() {
                     copyAgentMarkdown(agent.id),
                   )
                 }
-                onOpen={() =>
-                  router.push(`/settings/agents/${agent.id}` as never)
-                }
+                onOpen={() => {
+                  setEditingAgent(agent);
+                  setError(null);
+                }}
                 onToggle={(enabled) =>
                   runAction(`toggle:${agent.id}`, async () => {
                     await updateAgent(agent.id, { enabled });
@@ -150,7 +150,20 @@ export default function SettingsAgentsScreen() {
         </Text>
       ) : null}
 
-      <AgentImportDrawer onOpenChange={setImportOpen} open={importOpen} />
+      <AgentCreateDrawer
+        onCreated={handleCreated}
+        onOpenChange={setCreateOpen}
+        open={createOpen}
+      />
+      <AgentEditorDrawer
+        agent={editingAgent}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingAgent(null);
+          }
+        }}
+        open={editingAgent !== null}
+      />
     </Container>
   );
 }

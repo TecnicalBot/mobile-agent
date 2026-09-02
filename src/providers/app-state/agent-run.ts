@@ -1256,9 +1256,20 @@ export async function executeClaimedAgentRun(
           "When the task is complete, provide a concise final response describing what you actually completed.",
         ].join("\n")
       : undefined;
+    const agentDocsRuntimeSystem =
+      agent.docs.length > 0
+        ? [
+            "The following are attached reference documents for this agent. Use them as authoritative context, quoting and following them when relevant to the task.",
+            ...agent.docs.map(
+              (doc) =>
+                `--- Document: ${doc.name} ---\n${doc.content}\n--- End document ---`,
+            ),
+          ].join("\n\n")
+        : undefined;
     const runtimeSystem =
       [
         agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+        agentDocsRuntimeSystem,
         subagentRuntimeSystem,
         buildCurrentDateTimeSystemPrompt(),
         builtInRuntimeSystem,

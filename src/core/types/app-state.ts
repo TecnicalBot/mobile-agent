@@ -97,6 +97,15 @@ export type SkillConfig = {
   createdAt: string;
   updatedAt: string;
 };
+export type AgentDoc = {
+  id: string;
+  name: string;
+  content: string;
+  mimeType: string | null;
+  size: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
 export type AgentConfig = {
   id: string;
   name: string;
@@ -110,6 +119,7 @@ export type AgentConfig = {
   hidden: boolean;
   sourceMarkdown: string | null;
   toolPermissions: AgentToolPermissions;
+  docs: AgentDoc[];
   createdAt: string;
   updatedAt: string;
 };

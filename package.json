@@ -22,6 +22,7 @@
     "expo": "~57.0.2",
     "expo-ai-kit": "0.11.1",
     "expo-auth-session": "^57.0.1",
+    "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.5",
     "expo-clipboard": "~57.0.0",
     "expo-constants": "~57.0.3",

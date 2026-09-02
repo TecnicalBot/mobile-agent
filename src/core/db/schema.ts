@@ -283,6 +283,23 @@ export const agents = sqliteTable(
   ],
 );
 
+export const agentDocs = sqliteTable(
+  "agent_docs",
+  {
+    id: text("id").primaryKey().notNull(),
+    agentId: text("agent_id").notNull(),
+    name: text("name").notNull(),
+    content: text("content").notNull(),
+    mimeType: text("mime_type"),
+    size: integer("size"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_docs_agent_id").on(table.agentId),
+  ],
+);
+
 export const savedPrompts = sqliteTable(
   "saved_prompts",
   {
@@ -370,6 +387,7 @@ export const appSettings = sqliteTable("app_settings", {
 });
 
 export const schema = {
+  agentDocs,
   agentRuns,
   agents,
   appSettings,

@@ -50,6 +50,7 @@ export interface AgentRepository {
     sourceMarkdown?: string | null;
     temperature?: number | null;
     toolPermissions?: AgentConfig["toolPermissions"];
+    docs?: Omit<AgentConfig["docs"][number], "createdAt" | "updatedAt" | "id">[];
   }): Promise<AgentConfig>;
   delete(id: string): Promise<void>;
   getById(id: string): Promise<AgentConfig | null>;
@@ -69,6 +70,7 @@ export interface AgentRepository {
       sourceMarkdown?: string | null;
       temperature?: number | null;
       toolPermissions?: AgentConfig["toolPermissions"];
+      docs?: Omit<AgentConfig["docs"][number], "createdAt" | "updatedAt" | "id">[];
     },
   ): Promise<void>;
 }

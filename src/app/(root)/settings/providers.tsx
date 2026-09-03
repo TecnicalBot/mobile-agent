@@ -60,7 +60,6 @@ export default function SettingsProvidersScreen() {
     activeProviderIds,
     activeProviderAccountIds,
     availableModels,
-    clearProviderApiKey,
     connectOpenAIOAuth,
     createModelPreset,
     createProvider,
@@ -73,7 +72,6 @@ export default function SettingsProvidersScreen() {
     providerAccounts,
     providerModelDiscovery,
     refresh,
-    saveProviderApiKey,
     selectModel,
     suggestedModelsByProvider,
     switchProviderAccount,
@@ -84,12 +82,11 @@ export default function SettingsProvidersScreen() {
   const [customProviderName, setCustomProviderName] = useState("");
   const [customProviderBaseUrl, setCustomProviderBaseUrl] = useState("");
   const [customProviderApiKey, setCustomProviderApiKey] = useState("");
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [baseUrlInput, setBaseUrlInput] = useState("");
-  const [customModelId, setCustomModelId] = useState("");
-  const [modelQuery, setModelQuery] = useState("");
   const [addingAccount, setAddingAccount] = useState(false);
   const [accountManagerOpen, setAccountManagerOpen] = useState(false);
+  const [customModelId, setCustomModelId] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
+  const [baseUrlInput, setBaseUrlInput] = useState("");
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [newAccountLabel, setNewAccountLabel] = useState("");
   const [newAccountApiKey, setNewAccountApiKey] = useState("");
@@ -670,7 +667,6 @@ export default function SettingsProvidersScreen() {
                 chevronColor={theme.textSecondary}
                 label={provider.label}
                 onPress={() => {
-                  setApiKeyInput("");
                   setBaseUrlInput(provider.provider.baseUrl ?? "");
                   setCustomModelId("");
                   setModelQuery("");
@@ -762,7 +758,6 @@ export default function SettingsProvidersScreen() {
         onOpenChange={(open) => {
           if (!open) {
             setSelectedItemKey(null);
-            setApiKeyInput("");
             setBaseUrlInput("");
             setCustomModelId("");
             setModelQuery("");
@@ -811,11 +806,12 @@ export default function SettingsProvidersScreen() {
                   ) : null}
                 </View>
 
-                {selectedProvider.authType === "oauth" ||
-                selectedProvider.authType === "apiKey" ? (
+                {selectedProvider.authType === "apiKey" ? (
                   <View className="gap-sp-2">
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      Active account
+                      {selectedProviderActive
+                        ? "Active account"
+                        : "Account"}
                     </Text>
                     <Pressable
                       onPress={() => {
@@ -831,17 +827,26 @@ export default function SettingsProvidersScreen() {
                       className="flex-row items-center justify-between overflow-hidden rounded-card border border-border px-sp-4 py-sp-3 dark:border-border-dark"
                     >
                       <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                        {selectedProviderActiveAccount?.label ?? "None"}
+                        {selectedProviderActive
+                          ? (selectedProviderActiveAccount?.label ?? "None")
+                          : "Add account"}
                       </Text>
-                      <View className="flex-row items-center gap-sp-1">
-                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                          Switch
-                        </Text>
+                      {selectedProviderActive ? (
+                        <View className="flex-row items-center gap-sp-1">
+                          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                            Switch
+                          </Text>
+                          <ChevronRight
+                            color={theme.textSecondary}
+                            size={18}
+                          />
+                        </View>
+                      ) : (
                         <ChevronRight
                           color={theme.textSecondary}
                           size={18}
                         />
-                      </View>
+                      )}
                     </Pressable>
                   </View>
                 ) : null}
@@ -920,27 +925,15 @@ export default function SettingsProvidersScreen() {
                       </Button>
                     </View>
                   </View>
-                ) : selectedProvider.authType === "none" ? (
+                ) : selectedProvider.family === "ollama" ? (
                   <View className="gap-sp-3">
                     <Input
                       autoCapitalize="none"
                       autoCorrect={false}
                       keyboardType="url"
                       onChangeText={setBaseUrlInput}
-                      placeholder={
-                        selectedProvider.family === "ollama"
-                          ? "Ollama server URL"
-                          : "Base URL"
-                      }
+                      placeholder="Ollama server URL"
                       value={baseUrlInput}
-                    />
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={setApiKeyInput}
-                      placeholder="API key (optional)"
-                      secureTextEntry
-                      value={apiKeyInput}
                     />
                     <View className="flex-row gap-sp-2">
                       <Button
@@ -951,13 +944,6 @@ export default function SettingsProvidersScreen() {
                           runAction(
                             `connect:${selectedProvider.id}`,
                             async () => {
-                              if (apiKeyInput.trim()) {
-                                await saveProviderApiKey(
-                                  selectedProvider.id,
-                                  apiKeyInput.trim(),
-                                );
-                                setApiKeyInput("");
-                              }
                               await updateProvider(selectedProvider.id, {
                                 baseUrl: baseUrlInput.trim(),
                                 enabled: true,
@@ -971,9 +957,6 @@ export default function SettingsProvidersScreen() {
                       </Button>
                       <Button
                         className="flex-1"
-                        loading={
-                          busyKey === `disconnect:${selectedProvider.id}`
-                        }
                         onPress={() => {
                           runAction(
                             `disconnect:${selectedProvider.id}`,
@@ -989,30 +972,9 @@ export default function SettingsProvidersScreen() {
                         Disconnect
                       </Button>
                     </View>
-                    <Button
-                      loading={busyKey === `clear:${selectedProvider.id}`}
-                      onPress={() => {
-                        runAction(`clear:${selectedProvider.id}`, async () => {
-                          await clearProviderApiKey(selectedProvider.id);
-                          setApiKeyInput("");
-                        }).catch(console.error);
-                      }}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Clear saved API key
-                    </Button>
                   </View>
                 ) : (
                   <View className="gap-sp-3">
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={setApiKeyInput}
-                      placeholder="API key"
-                      secureTextEntry
-                      value={apiKeyInput}
-                    />
                     <Input
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -1029,8 +991,7 @@ export default function SettingsProvidersScreen() {
                       <Button
                         className="flex-1"
                         disabled={
-                          !apiKeyInput.trim() ||
-                          (selectedProviderNeedsBaseUrl && !baseUrlInput.trim())
+                          selectedProviderNeedsBaseUrl && !baseUrlInput.trim()
                         }
                         loading={busyKey === `save:${selectedProvider.id}`}
                         onPress={() => {
@@ -1045,12 +1006,6 @@ export default function SettingsProvidersScreen() {
                               enabled: true,
                               label: selectedItem.label,
                             });
-
-                            await saveProviderApiKey(
-                              selectedProvider.id,
-                              apiKeyInput.trim(),
-                            );
-                            setApiKeyInput("");
                           }).catch(console.error);
                         }}
                         variant="secondary"
@@ -1059,19 +1014,19 @@ export default function SettingsProvidersScreen() {
                       </Button>
                       <Button
                         className="flex-1"
-                        loading={busyKey === `clear:${selectedProvider.id}`}
                         onPress={() => {
                           runAction(
-                            `clear:${selectedProvider.id}`,
+                            `disable:${selectedProvider.id}`,
                             async () => {
-                              await clearProviderApiKey(selectedProvider.id);
-                              setApiKeyInput("");
+                              await updateProvider(selectedProvider.id, {
+                                enabled: false,
+                              });
                             },
                           ).catch(console.error);
                         }}
                         variant="outline"
                       >
-                        Clear
+                        Disable
                       </Button>
                     </View>
                   </View>
@@ -1377,7 +1332,6 @@ export default function SettingsProvidersScreen() {
         onOpenChange={(open) => {
           setAccountManagerOpen(open);
           if (!open) {
-            setAddingAccount(false);
             setNewAccountLabel("");
             setNewAccountApiKey("");
             setSelectedAccountIds([]);
@@ -1392,44 +1346,13 @@ export default function SettingsProvidersScreen() {
             </DrawerHeader>
             <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
               <AccountManager
-                accounts={selectedProviderAccounts}
-                activeAccountId={selectedProviderActiveAccountId}
-                adding={addingAccount}
-                busy={busyKey !== null}
-                credentialKind={
-                  selectedProvider.authType === "oauth" ? "oauth" : "apiKey"
+                accounts={
+                  selectedProviderActive ? selectedProviderAccounts : []
                 }
-                newAccountApiKey={newAccountApiKey}
-                newAccountLabel={newAccountLabel}
-                onCancelAdd={() => {
-                  setAddingAccount(false);
-                  setNewAccountLabel("");
-                  setNewAccountApiKey("");
-                }}
-                onChangeNewAccountApiKey={setNewAccountApiKey}
-                onChangeNewAccountLabel={setNewAccountLabel}
-                onConfirmAdd={(label, apiKey) => {
-                  void runAction(
-                    `add-account:${selectedProvider.id}`,
-                    async () => {
-                      await createProviderAccount({
-                        apiKey: apiKey?.trim() || undefined,
-                        label: label.trim() || "Account",
-                        providerId: selectedProvider.id,
-                      });
-                      setAddingAccount(false);
-                      setNewAccountLabel("");
-                      setNewAccountApiKey("");
-                    },
-                  ).catch((error) => {
-                    Alert.alert(
-                      "Account could not be added",
-                      error instanceof Error
-                        ? error.message
-                        : "Please try again.",
-                    );
-                  });
-                }}
+                activeAccountId={
+                  selectedProviderActive ? selectedProviderActiveAccountId : null
+                }
+                busy={busyKey !== null}
                 onEnterSelectionMode={(accountId) => {
                   setSelectedAccountIds([accountId]);
                 }}
@@ -1506,13 +1429,86 @@ export default function SettingsProvidersScreen() {
                     : "Delete account"}
                 </Button>
               </DrawerFooter>
-            ) : !addingAccount ? (
+            ) : (
               <DrawerFooter>
-                <Button onPress={() => setAddingAccount(true)}>
+                <Button
+                  onPress={() => {
+                    setNewAccountLabel("");
+                    setNewAccountApiKey("");
+                    setAddingAccount(true);
+                  }}
+                >
                   Add account
                 </Button>
               </DrawerFooter>
-            ) : null}
+            )}
+          </DrawerContent>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        onOpenChange={(open) => {
+          setAddingAccount(open);
+          if (!open) {
+            setNewAccountLabel("");
+            setNewAccountApiKey("");
+          }
+        }}
+        open={addingAccount}
+      >
+        {selectedProvider ? (
+          <DrawerContent showCloseButton showHandle>
+            <DrawerHeader>
+              <DrawerTitle>Add account</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+              <Input
+                autoCapitalize="words"
+                onChangeText={setNewAccountLabel}
+                placeholder="Account label"
+                value={newAccountLabel}
+              />
+              <Input
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setNewAccountApiKey}
+                placeholder="API key"
+                secureTextEntry
+                value={newAccountApiKey}
+              />
+            </DrawerBody>
+            <DrawerFooter>
+              <Button
+                disabled={!newAccountLabel.trim() || !newAccountApiKey.trim()}
+                loading={busyKey !== null}
+                onPress={() => {
+                  const label = newAccountLabel.trim() || "Account";
+                  const apiKey = newAccountApiKey.trim();
+                  void runAction(
+                    `add-account:${selectedProvider.id}`,
+                    async () => {
+                      await createProviderAccount({
+                        apiKey,
+                        label,
+                        providerId: selectedProvider.id,
+                      });
+                      setAddingAccount(false);
+                      setNewAccountLabel("");
+                      setNewAccountApiKey("");
+                    },
+                  ).catch((error) => {
+                    Alert.alert(
+                      "Account could not be added",
+                      error instanceof Error
+                        ? error.message
+                        : "Please try again.",
+                    );
+                  });
+                }}
+              >
+                Add account
+              </Button>
+            </DrawerFooter>
           </DrawerContent>
         ) : null}
       </Drawer>
@@ -1577,30 +1573,14 @@ function AccountSelectRow({
 function AccountManager({
   accounts,
   activeAccountId,
-  adding,
   busy,
-  credentialKind,
-  newAccountApiKey,
-  newAccountLabel,
-  onCancelAdd,
-  onChangeNewAccountApiKey,
-  onChangeNewAccountLabel,
-  onConfirmAdd,
   onEnterSelectionMode,
   onPress,
   selectedAccountIds,
 }: {
   accounts: ProviderAccount[];
   activeAccountId: string | null;
-  adding: boolean;
   busy: boolean;
-  credentialKind: "apiKey" | "oauth";
-  newAccountApiKey: string;
-  newAccountLabel: string;
-  onCancelAdd: () => void;
-  onChangeNewAccountApiKey: (value: string) => void;
-  onChangeNewAccountLabel: (value: string) => void;
-  onConfirmAdd: (label: string, apiKey: string) => void;
   onEnterSelectionMode: (accountId: string) => void;
   onPress: (accountId: string) => void;
   selectedAccountIds: string[];
@@ -1619,12 +1599,12 @@ function AccountManager({
             active={account.id === activeAccountId}
             key={account.id}
             onLongPress={() => {
-              if (!busy && !adding) {
+              if (!busy) {
                 onEnterSelectionMode(account.id);
               }
             }}
             onPress={() => {
-              if (!busy && !adding) {
+              if (!busy) {
                 onPress(account.id);
               }
             }}
@@ -1634,48 +1614,6 @@ function AccountManager({
           />
         ))
       )}
-
-      {adding ? (
-        <View className="gap-sp-2">
-          <Input
-            autoCapitalize="words"
-            onChangeText={onChangeNewAccountLabel}
-            placeholder="Account label"
-            value={newAccountLabel}
-          />
-          {credentialKind === "apiKey" ? (
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={onChangeNewAccountApiKey}
-              placeholder="API key"
-              secureTextEntry
-              value={newAccountApiKey}
-            />
-          ) : null}
-          <View className="flex-row gap-sp-2">
-            <Button
-              className="flex-1"
-              onPress={onCancelAdd}
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              className="flex-1"
-              disabled={
-                credentialKind === "apiKey"
-                  ? !newAccountLabel.trim() || !newAccountApiKey.trim()
-                  : !newAccountLabel.trim()
-              }
-              loading={busy}
-              onPress={() => onConfirmAdd(newAccountLabel, newAccountApiKey)}
-            >
-              Add
-            </Button>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }

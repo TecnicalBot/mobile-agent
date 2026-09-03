@@ -1710,17 +1710,49 @@ Your output must be:
             throw new Error("Provider accounts are not available.");
         }
 
-        const account =
-            await repositoriesRef.current.providerAccountRepository.create({
-                credentialKind: input.apiKey ? "apiKey" : "oauth",
-                providerId: input.providerId,
-                label: input.label,
-            });
+        const existingAccounts = input.apiKey
+            ? await repositoriesRef.current.providerAccountRepository.listByProvider(
+                  input.providerId,
+              )
+            : [];
+        const placeholder = (await Promise.all(
+            existingAccounts.map(async (account) => ({
+                account,
+                hasApiKey:
+                    Boolean(
+                        await secureSecretStore.getProviderAccountApiKey(
+                            account.id,
+                        ),
+                    ),
+            })),
+        )).find(
+            (entry) =>
+                entry.account.credentialKind === "apiKey" &&
+                !entry.hasApiKey,
+        );
+
+        const account = placeholder
+            ? placeholder.account
+            : await repositoriesRef.current.providerAccountRepository.create({
+                  credentialKind: input.apiKey ? "apiKey" : "oauth",
+                  providerId: input.providerId,
+                  label: input.label,
+              });
 
         if (input.apiKey) {
             await secureSecretStore.setProviderAccountApiKey(
                 account.id,
                 input.apiKey.trim(),
+            );
+            if (placeholder) {
+                await repositoriesRef.current.providerAccountRepository.updateLabel(
+                    account.id,
+                    input.label,
+                );
+            }
+            await repositoriesRef.current.configRepository.updateProvider(
+                input.providerId,
+                { enabled: true },
             );
         }
 

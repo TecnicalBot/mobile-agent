@@ -28,6 +28,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { DrawerPager, DrawerPagerPage } from "@/components/ui/drawer-pager";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -49,8 +50,14 @@ import { cn } from "@/core/utils";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-import { buildScheduleExpression, describeExpression } from "@/modules/scheduler";
-import { hasExactAlarmPermission, openExactAlarmSettings } from "scheduler-alarm";
+import {
+  buildScheduleExpression,
+  describeExpression,
+} from "@/modules/scheduler";
+import {
+  hasExactAlarmPermission,
+  openExactAlarmSettings,
+} from "scheduler-alarm";
 
 const FREQUENCIES: { label: string; value: ScheduleFrequency }[] = [
   { label: "Hourly", value: "hourly" },
@@ -99,8 +106,7 @@ export default function SettingsJobsScreen() {
   } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [customDrawerOpen, setCustomDrawerOpen] = useState(false);
-  const [frequencyDrawerOpen, setFrequencyDrawerOpen] = useState(false);
+  const [editorPage, setEditorPage] = useState(0);
   const [exactAlarmGranted, setExactAlarmGranted] = useState<boolean | null>(
     null,
   );
@@ -111,7 +117,15 @@ export default function SettingsJobsScreen() {
   const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
   const [time, setTime] = useState("09:00");
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [weekdays, setWeekdays] = useState<boolean[]>([true, false, false, false, false, false, false]);
+  const [weekdays, setWeekdays] = useState<boolean[]>([
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
   const [dayOfMonth, setDayOfMonth] = useState("1");
   const [customExpression, setCustomExpression] = useState("0 9 * * *");
   const [customAdvanced, setCustomAdvanced] = useState(false);
@@ -135,7 +149,9 @@ export default function SettingsJobsScreen() {
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
-    hasExactAlarmPermission().then(setExactAlarmGranted).catch(() => {});
+    hasExactAlarmPermission()
+      .then(setExactAlarmGranted)
+      .catch(() => {});
   }, [schedulingEnabled]);
 
   const targetRef = useMemo(() => {
@@ -171,8 +187,7 @@ export default function SettingsJobsScreen() {
     setFolderSession(null);
     setPromptContentHeight(0);
     setFormError(null);
-    setCustomDrawerOpen(false);
-    setFrequencyDrawerOpen(false);
+    setEditorPage(0);
     setEditorOpen(true);
   };
 
@@ -197,8 +212,7 @@ export default function SettingsJobsScreen() {
     setFolderSession(schedule.externalFolderSession);
     setPromptContentHeight(0);
     setFormError(null);
-    setCustomDrawerOpen(false);
-    setFrequencyDrawerOpen(false);
+    setEditorPage(0);
     setEditorOpen(true);
   };
 
@@ -367,15 +381,17 @@ export default function SettingsJobsScreen() {
         </Pressable>
       </Card>
 
-      {schedulingEnabled && Platform.OS === "android" && exactAlarmGranted === false ? (
+      {schedulingEnabled &&
+      Platform.OS === "android" &&
+      exactAlarmGranted === false ? (
         <Card className="gap-sp-3 px-sp-4 py-sp-4">
           <View className="gap-1">
             <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
               Exact alarm permission
             </Text>
             <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              Android 12+ requires this for jobs to fire on time. Without
-              it the agent falls back to approximate timing.
+              Android 12+ requires this for jobs to fire on time. Without it the
+              agent falls back to approximate timing.
             </Text>
           </View>
           <Button
@@ -392,8 +408,8 @@ export default function SettingsJobsScreen() {
       <Card className="overflow-hidden">
         {sorted.length === 0 ? (
           <Text className="px-sp-4 py-sp-4 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            No jobs yet. Ask the agent to “run this every day at 9am”, or
-            create one manually.
+            No jobs yet. Ask the agent to “run this every day at 9am”, or create
+            one manually.
           </Text>
         ) : (
           sorted.map((schedule, index) => (
@@ -484,397 +500,415 @@ export default function SettingsJobsScreen() {
       <Drawer
         onOpenChange={(open) => {
           setEditorOpen(open);
-          if (!open) setCustomDrawerOpen(false);
+          if (!open) setEditorPage(0);
         }}
         open={editorOpen}
       >
-        <DrawerContent showCloseButton>
-          <DrawerHeader>
-            <DrawerTitle>{editingId ? "Edit job" : "New job"}</DrawerTitle>
-          </DrawerHeader>
-          <DrawerBody contentContainerClassName="gap-sp-3">
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Title
-              </Text>
-              <Input
-                disabled={busyKey !== null}
-                onChangeText={setTitle}
-                placeholder="Daily standup"
-                value={title}
-              />
-            </View>
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Prompt
-              </Text>
-                <TextInputWrapper style={{ height: promptHeight }}>
-                  <Textarea
-                    className="min-h-0"
-                  disabled={busyKey !== null}
-                  onChangeText={setPrompt}
-                  onContentSizeChange={(event) => {
-                    setPromptContentHeight(
-                      event.nativeEvent.contentSize.height,
-                    );
-                  }}
-                  placeholder="Summarize yesterday's changes and list today's tasks."
-                  scrollEnabled={promptScrollEnabled}
-                  style={{ height: promptHeight }}
-                  value={prompt}
-                />
-              </TextInputWrapper>
-            </View>
-            {Platform.OS === "android" ? (
-              <View>
-                <Button
-                  className="justify-between bg-input dark:bg-input-dark"
-                  disabled={busyKey !== null}
-                  onPress={() => {
-                    runAction("pick-folder", pickFolder).catch(console.error);
-                  }}
-                  variant="outline"
-                >
-                  <View className="min-w-0 flex-1 flex-row items-center gap-sp-3">
-                    <Folder color={theme.textSecondary} size={18} />
-                    <Text
-                      className={cn(
-                        "flex-1 font-sans text-base",
-                        folderSession
-                          ? "text-foreground dark:text-foreground-dark"
-                          : "text-muted-foreground dark:text-muted-foreground-dark",
-                      )}
-                      numberOfLines={1}
-                    >
-                      {folderSession
-                        ? folderSession.displayName
-                        : "Select folder (optional)"}
-                    </Text>
-                  </View>
-                  {folderSession ? (
-                    <Pressable
-                      accessibilityLabel="Clear target folder"
-                      accessibilityRole="button"
-                      hitSlop={12}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        setFolderSession(null);
+        <DrawerContent contentClassName="overflow-hidden" showCloseButton>
+          <DrawerPager onPageChange={setEditorPage} page={editorPage}>
+            <DrawerPagerPage>
+              <DrawerHeader>
+                <DrawerTitle>{editingId ? "Edit job" : "New job"}</DrawerTitle>
+              </DrawerHeader>
+              <DrawerBody contentContainerClassName="gap-sp-3">
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Title
+                  </Text>
+                  <Input
+                    disabled={busyKey !== null}
+                    onChangeText={setTitle}
+                    placeholder="Daily standup"
+                    value={title}
+                  />
+                </View>
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Prompt
+                  </Text>
+                  <TextInputWrapper style={{ height: promptHeight }}>
+                    <Textarea
+                      className="min-h-0"
+                      disabled={busyKey !== null}
+                      onChangeText={setPrompt}
+                      onContentSizeChange={(event) => {
+                        setPromptContentHeight(
+                          event.nativeEvent.contentSize.height,
+                        );
                       }}
-                      style={({ pressed }) =>
-                        pressed ? { opacity: 0.7 } : null
-                      }
-                    >
-                      <X color={theme.textSecondary} size={18} />
-                    </Pressable>
-                  ) : (
-                    <ChevronDown color={theme.textSecondary} size={18} />
-                  )}
-                </Button>
-              </View>
-            ) : null}
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Frequency
-              </Text>
-              <Pressable
-                accessibilityLabel={`Frequency ${frequency}`}
-                accessibilityRole="button"
-                className="min-h-12 flex-row items-center justify-between rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
-                onPress={() => setFrequencyDrawerOpen(true)}
-              >
-                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                  {FREQUENCIES.find(
-                    (option) => option.value === frequency,
-                  )?.label ?? "Custom"}
-                </Text>
-                <ChevronDown color={theme.textSecondary} size={20} />
-              </Pressable>
-            </View>
-            {frequency === "hourly" ? (
-              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                Runs at the top of every hour.
-              </Text>
-            ) : null}
-            {frequency === "daily" || frequency === "weekly" || frequency === "monthly" ? (
-              <View className="gap-sp-1">
-                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                  Time
-                </Text>
-                {Platform.OS === "ios" ? (
-                  <View className="min-h-12 justify-center rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark">
-                    <DateTimePicker
-                      display="compact"
-                      mode="time"
-                      onValueChange={(_, selectedDate) =>
-                        setTime(formatTime(selectedDate))
-                      }
-                      themeVariant={colorScheme}
-                      value={timeToDate(time)}
+                      placeholder="Summarize yesterday's changes and list today's tasks."
+                      scrollEnabled={promptScrollEnabled}
+                      style={{ height: promptHeight }}
+                      value={prompt}
                     />
+                  </TextInputWrapper>
+                </View>
+                {Platform.OS === "android" ? (
+                  <View>
+                    <Button
+                      className="justify-between bg-input dark:bg-input-dark"
+                      disabled={busyKey !== null}
+                      onPress={() => {
+                        runAction("pick-folder", pickFolder).catch(
+                          console.error,
+                        );
+                      }}
+                      variant="outline"
+                    >
+                      <View className="min-w-0 flex-1 flex-row items-center gap-sp-3">
+                        <Folder color={theme.textSecondary} size={18} />
+                        <Text
+                          className={cn(
+                            "flex-1 font-sans text-base",
+                            folderSession
+                              ? "text-foreground dark:text-foreground-dark"
+                              : "text-muted-foreground dark:text-muted-foreground-dark",
+                          )}
+                          numberOfLines={1}
+                        >
+                          {folderSession
+                            ? folderSession.displayName
+                            : "Select folder (optional)"}
+                        </Text>
+                      </View>
+                      {folderSession ? (
+                        <Pressable
+                          accessibilityLabel="Clear target folder"
+                          accessibilityRole="button"
+                          hitSlop={12}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            setFolderSession(null);
+                          }}
+                          style={({ pressed }) =>
+                            pressed ? { opacity: 0.7 } : null
+                          }
+                        >
+                          <X color={theme.textSecondary} size={18} />
+                        </Pressable>
+                      ) : (
+                        <ChevronDown color={theme.textSecondary} size={18} />
+                      )}
+                    </Button>
                   </View>
-                ) : (
+                ) : null}
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Frequency
+                  </Text>
                   <Pressable
-                    accessibilityLabel={`Time ${time}`}
+                    accessibilityLabel={`Frequency ${frequency}`}
                     accessibilityRole="button"
                     className="min-h-12 flex-row items-center justify-between rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
-                    onPress={() => setShowTimePicker(true)}
+                    onPress={() => setEditorPage(1)}
                   >
                     <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                      {time}
+                      {FREQUENCIES.find((option) => option.value === frequency)
+                        ?.label ?? "Custom"}
                     </Text>
                     <ChevronDown color={theme.textSecondary} size={20} />
                   </Pressable>
-                )}
-                {Platform.OS === "android" && showTimePicker ? (
-                  <DateTimePicker
-                    display="default"
-                    is24Hour
-                    mode="time"
-                    onDismiss={() => setShowTimePicker(false)}
-                    onValueChange={(_, selectedDate) => {
-                      setTime(formatTime(selectedDate));
-                      setShowTimePicker(false);
-                    }}
-                    presentation="dialog"
-                    value={timeToDate(time)}
-                  />
-                ) : null}
-              </View>
-            ) : null}
-            {frequency === "weekly" ? (
-              <View className="gap-sp-1">
-                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                  Days
-                </Text>
-                <View className="flex-row gap-sp-1">
-                  {WEEKDAYS.map((day, index) => {
-                    const selected = weekdays[index];
-                    return (
-                      <Button
-                        key={day.name}
-                        accessibilityLabel={day.title}
-                        className="flex-1 px-0"
-                        onPress={() =>
-                          setWeekdays((current) => {
-                            const next = [...current];
-                            next[index] = !next[index];
-                            return next;
-                          })
-                        }
-                        size="sm"
-                        variant={selected ? "default" : "outline"}
-                      >
-                        {day.label}
-                      </Button>
-                    );
-                  })}
                 </View>
-              </View>
-            ) : null}
-            {frequency === "monthly" ? (
-              <View className="gap-sp-1">
-                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                  Day of month
-                </Text>
-                <Input
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  disabled={busyKey !== null}
-                  keyboardType="number-pad"
-                  onChangeText={setDayOfMonth}
-                  placeholder="1"
-                  value={dayOfMonth}
-                />
-              </View>
-            ) : null}
-            <View className="flex-row items-center justify-between">
-              <View className="min-w-0 flex-1">
-                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                  Auto-approve
-                </Text>
-                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                  Let the agent use tools without asking.
-                </Text>
-              </View>
-              <Checkbox
-                checked={autoApprove}
-                onCheckedChange={setAutoApprove}
-              />
-            </View>
-            {formError ? (
-              <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-                {formError}
-              </Text>
-            ) : null}
-          </DrawerBody>
-          <DrawerFooter>
-            <Button
-              loading={busyKey === "save"}
-              onPress={() => {
-                runAction("save", save).catch(() => {});
-              }}
-            >
-              {editingId ? "Save changes" : "Create job"}
-            </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer onOpenChange={setCustomDrawerOpen} open={customDrawerOpen}>
-        <DrawerContent showCloseButton>
-          <DrawerHeader>
-            <DrawerTitle>Custom schedule</DrawerTitle>
-          </DrawerHeader>
-          <DrawerBody contentContainerClassName="gap-sp-3">
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Repeat every
-              </Text>
-              <View className="flex-row gap-sp-2">
-                <Input
-                  className="w-24"
-                  disabled={busyKey !== null}
-                  keyboardType="number-pad"
-                  onChangeText={(value) => {
-                    setCustomInterval(value);
-                    setCustomAdvanced(false);
-                    syncCustomExpression(
-                      value,
-                      customIntervalUnit,
-                      customWeekdays,
-                    );
+                {frequency === "hourly" ? (
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    Runs at the top of every hour.
+                  </Text>
+                ) : null}
+                {frequency === "daily" ||
+                frequency === "weekly" ||
+                frequency === "monthly" ? (
+                  <View className="gap-sp-1">
+                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      Time
+                    </Text>
+                    {Platform.OS === "ios" ? (
+                      <View className="min-h-12 justify-center rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark">
+                        <DateTimePicker
+                          display="compact"
+                          mode="time"
+                          onValueChange={(_, selectedDate) =>
+                            setTime(formatTime(selectedDate))
+                          }
+                          themeVariant={colorScheme}
+                          value={timeToDate(time)}
+                        />
+                      </View>
+                    ) : (
+                      <Pressable
+                        accessibilityLabel={`Time ${time}`}
+                        accessibilityRole="button"
+                        className="min-h-12 flex-row items-center justify-between rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
+                        onPress={() => setShowTimePicker(true)}
+                      >
+                        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                          {time}
+                        </Text>
+                        <ChevronDown color={theme.textSecondary} size={20} />
+                      </Pressable>
+                    )}
+                    {Platform.OS === "android" && showTimePicker ? (
+                      <DateTimePicker
+                        display="default"
+                        is24Hour
+                        mode="time"
+                        onDismiss={() => setShowTimePicker(false)}
+                        onValueChange={(_, selectedDate) => {
+                          setTime(formatTime(selectedDate));
+                          setShowTimePicker(false);
+                        }}
+                        presentation="dialog"
+                        value={timeToDate(time)}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+                {frequency === "weekly" ? (
+                  <View className="gap-sp-1">
+                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      Days
+                    </Text>
+                    <View className="flex-row gap-sp-1">
+                      {WEEKDAYS.map((day, index) => {
+                        const selected = weekdays[index];
+                        return (
+                          <Button
+                            key={day.name}
+                            accessibilityLabel={day.title}
+                            className="flex-1 px-0"
+                            onPress={() =>
+                              setWeekdays((current) => {
+                                const next = [...current];
+                                next[index] = !next[index];
+                                return next;
+                              })
+                            }
+                            size="sm"
+                            variant={selected ? "default" : "outline"}
+                          >
+                            {day.label}
+                          </Button>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {frequency === "monthly" ? (
+                  <View className="gap-sp-1">
+                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      Day of month
+                    </Text>
+                    <Input
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      disabled={busyKey !== null}
+                      keyboardType="number-pad"
+                      onChangeText={setDayOfMonth}
+                      placeholder="1"
+                      value={dayOfMonth}
+                    />
+                  </View>
+                ) : null}
+                <View className="flex-row items-center justify-between">
+                  <View className="min-w-0 flex-1">
+                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                      Auto-approve
+                    </Text>
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      Let the agent use tools without asking.
+                    </Text>
+                  </View>
+                  <Checkbox
+                    checked={autoApprove}
+                    onCheckedChange={setAutoApprove}
+                  />
+                </View>
+                {formError ? (
+                  <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                    {formError}
+                  </Text>
+                ) : null}
+              </DrawerBody>
+              <DrawerFooter>
+                <Button
+                  loading={busyKey === "save"}
+                  onPress={() => {
+                    runAction("save", save).catch(() => {});
                   }}
-                  placeholder="2"
-                  value={customInterval}
-                />
-                <Select
-                  disabled={busyKey !== null}
-                  onValueChange={(value) => {
-                    const unit = value as CustomIntervalUnit;
-                    setCustomIntervalUnit(unit);
-                    setCustomAdvanced(false);
-                    syncCustomExpression(customInterval, unit, customWeekdays);
-                  }}
-                  value={customIntervalUnit}
                 >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue>
-                      {customIntervalUnit === "minutes"
-                        ? "Minutes"
-                        : "Hours"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem label="Minutes" value="minutes">
-                        Minutes
-                      </SelectItem>
-                      <SelectItem label="Hours" value="hours">
-                        Hours
-                      </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </View>
-            </View>
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Days
-              </Text>
-              <View className="flex-row gap-sp-1">
-                {WEEKDAYS.map((day, index) => {
-                  const selected = customWeekdays[index];
+                  {editingId ? "Save changes" : "Create job"}
+                </Button>
+              </DrawerFooter>
+            </DrawerPagerPage>
+
+            <DrawerPagerPage>
+              <DrawerHeader className="flex-row items-center gap-sp-2">
+                <Pressable
+                  accessibilityLabel="Back to job"
+                  className="h-9 w-9 items-center justify-center rounded-full"
+                  onPress={() => setEditorPage(0)}
+                >
+                  <ChevronLeft color={theme.text} size={22} />
+                </Pressable>
+                <DrawerTitle>Frequency</DrawerTitle>
+              </DrawerHeader>
+              <DrawerBody>
+                {FREQUENCIES.map((option) => {
+                  const selected = frequency === option.value;
                   return (
-                    <Button
-                      key={day.name}
-                      accessibilityLabel={day.title}
-                      className="flex-1 px-0"
+                    <DrawerOptionRow
+                      key={option.value}
+                      label={option.label}
                       onPress={() => {
-                        const next = [...customWeekdays];
-                        next[index] = !next[index];
-                        setCustomWeekdays(next);
+                        setFrequency(option.value);
+                        setEditorPage(option.value === "custom" ? 2 : 0);
+                      }}
+                      selected={selected}
+                      showChevron={option.value === "custom"}
+                      subtitle={FREQUENCY_DESCRIPTIONS[option.value]}
+                    />
+                  );
+                })}
+              </DrawerBody>
+            </DrawerPagerPage>
+
+            <DrawerPagerPage>
+              <DrawerHeader className="flex-row items-center gap-sp-2">
+                <Pressable
+                  accessibilityLabel="Back to frequency"
+                  className="h-9 w-9 items-center justify-center rounded-full"
+                  onPress={() => setEditorPage(1)}
+                >
+                  <ChevronLeft color={theme.text} size={22} />
+                </Pressable>
+                <DrawerTitle>Custom schedule</DrawerTitle>
+              </DrawerHeader>
+              <DrawerBody contentContainerClassName="gap-sp-3">
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Repeat every
+                  </Text>
+                  <View className="flex-row gap-sp-2">
+                    <Input
+                      className="w-24"
+                      disabled={busyKey !== null}
+                      keyboardType="number-pad"
+                      onChangeText={(value) => {
+                        setCustomInterval(value);
+                        setCustomAdvanced(false);
+                        syncCustomExpression(
+                          value,
+                          customIntervalUnit,
+                          customWeekdays,
+                        );
+                      }}
+                      placeholder="2"
+                      value={customInterval}
+                    />
+                    <Select
+                      disabled={busyKey !== null}
+                      onValueChange={(value) => {
+                        const unit = value as CustomIntervalUnit;
+                        setCustomIntervalUnit(unit);
                         setCustomAdvanced(false);
                         syncCustomExpression(
                           customInterval,
-                          customIntervalUnit,
-                          next,
+                          unit,
+                          customWeekdays,
                         );
                       }}
-                      size="sm"
-                      variant={selected ? "default" : "outline"}
+                      value={customIntervalUnit}
                     >
-                      {day.label}
-                    </Button>
-                  );
-                })}
-              </View>
-            </View>
-            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              {describeCustomInterval({
-                interval: customInterval,
-                unit: customIntervalUnit,
-                weekdays: customWeekdays,
-              })}
-            </Text>
-            <View className="flex-row items-center gap-sp-3">
-              <View className="h-px flex-1 bg-border dark:bg-border-dark" />
-              <Text className="font-sans text-xs uppercase tracking-wide text-muted-foreground dark:text-muted-foreground-dark">
-                Or
-              </Text>
-              <View className="h-px flex-1 bg-border dark:bg-border-dark" />
-            </View>
-            <View className="gap-sp-1">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Cron expression
-              </Text>
-              <Input
-                autoCapitalize="none"
-                autoCorrect={false}
-                disabled={busyKey !== null}
-                onChangeText={(value) => {
-                  setCustomExpression(value);
-                  setCustomAdvanced(true);
-                }}
-                placeholder="0 9 * * 1"
-                value={customExpression}
-              />
-              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                Five fields: minute hour day month weekday.
-              </Text>
-            </View>
-          </DrawerBody>
-          <DrawerFooter>
-            <Button onPress={() => setCustomDrawerOpen(false)}>Done</Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer onOpenChange={setFrequencyDrawerOpen} open={frequencyDrawerOpen}>
-        <DrawerContent showCloseButton>
-          <DrawerHeader>
-            <DrawerTitle>Frequency</DrawerTitle>
-          </DrawerHeader>
-          <DrawerBody>
-            {FREQUENCIES.map((option) => {
-              const selected = frequency === option.value;
-              return (
-                <DrawerOptionRow
-                  key={option.value}
-                  label={option.label}
-                  onPress={() => {
-                    setFrequency(option.value);
-                    setFrequencyDrawerOpen(false);
-                    if (option.value === "custom") {
-                      setCustomDrawerOpen(true);
-                    }
-                  }}
-                  selected={selected}
-                  showChevron={option.value === "custom"}
-                  subtitle={FREQUENCY_DESCRIPTIONS[option.value]}
-                />
-              );
-            })}
-          </DrawerBody>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue>
+                          {customIntervalUnit === "minutes"
+                            ? "Minutes"
+                            : "Hours"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem label="Minutes" value="minutes">
+                            Minutes
+                          </SelectItem>
+                          <SelectItem label="Hours" value="hours">
+                            Hours
+                          </SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </View>
+                </View>
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Days
+                  </Text>
+                  <View className="flex-row gap-sp-1">
+                    {WEEKDAYS.map((day, index) => {
+                      const selected = customWeekdays[index];
+                      return (
+                        <Button
+                          key={day.name}
+                          accessibilityLabel={day.title}
+                          className="flex-1 px-0"
+                          onPress={() => {
+                            const next = [...customWeekdays];
+                            next[index] = !next[index];
+                            setCustomWeekdays(next);
+                            setCustomAdvanced(false);
+                            syncCustomExpression(
+                              customInterval,
+                              customIntervalUnit,
+                              next,
+                            );
+                          }}
+                          size="sm"
+                          variant={selected ? "default" : "outline"}
+                        >
+                          {day.label}
+                        </Button>
+                      );
+                    })}
+                  </View>
+                </View>
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  {describeCustomInterval({
+                    interval: customInterval,
+                    unit: customIntervalUnit,
+                    weekdays: customWeekdays,
+                  })}
+                </Text>
+                <View className="flex-row items-center gap-sp-3">
+                  <View className="h-px flex-1 bg-border dark:bg-border-dark" />
+                  <Text className="font-sans text-xs uppercase tracking-wide text-muted-foreground dark:text-muted-foreground-dark">
+                    Or
+                  </Text>
+                  <View className="h-px flex-1 bg-border dark:bg-border-dark" />
+                </View>
+                <View className="gap-sp-1">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Cron expression
+                  </Text>
+                  <Input
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    disabled={busyKey !== null}
+                    onChangeText={(value) => {
+                      setCustomExpression(value);
+                      setCustomAdvanced(true);
+                    }}
+                    placeholder="0 9 * * 1"
+                    value={customExpression}
+                  />
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    Five fields: minute hour day month weekday.
+                  </Text>
+                </View>
+              </DrawerBody>
+              <DrawerFooter>
+                <Button onPress={() => setEditorPage(0)}>Done</Button>
+              </DrawerFooter>
+            </DrawerPagerPage>
+          </DrawerPager>
         </DrawerContent>
       </Drawer>
     </Container>
@@ -1033,8 +1067,7 @@ function parseCronWeekdays(field: string) {
 function parseCronWeekday(value: string) {
   const normalized = value.trim().toLowerCase();
   const named = WEEKDAYS.find(
-    (day) =>
-      normalized === day.name || normalized === day.name.slice(0, 3),
+    (day) => normalized === day.name || normalized === day.name.slice(0, 3),
   );
   if (named) return named.cron;
 

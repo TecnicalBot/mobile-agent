@@ -5,13 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Easing,
   Platform,
   Pressable,
   Text,
   View,
-  useWindowDimensions,
 } from "react-native";
 import type { DownloadableModel } from "expo-ai-kit";
 
@@ -26,6 +23,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { DrawerPager, DrawerPagerPage } from "@/components/ui/drawer-pager";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -107,9 +105,6 @@ export default function SettingsProvidersScreen() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [newAccountLabel, setNewAccountLabel] = useState("");
   const [newAccountApiKey, setNewAccountApiKey] = useState("");
-  const accountPageProgress = useRef(new Animated.Value(0)).current;
-  const { width: windowWidth } = useWindowDimensions();
-  const accountPagerWidth = windowWidth - 40;
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [onDeviceModels, setOnDeviceModels] = useState<DownloadableModel[]>([]);
   const [onDeviceError, setOnDeviceError] = useState<string | null>(null);
@@ -1372,7 +1367,6 @@ export default function SettingsProvidersScreen() {
         onOpenChange={(open) => {
           setAccountManagerOpen(open);
           if (!open) {
-            accountPageProgress.setValue(0);
             setAddingAccount(false);
             setAccountProviderId(null);
             setNewAccountLabel("");
@@ -1388,21 +1382,11 @@ export default function SettingsProvidersScreen() {
             showCloseButton
             showHandle
           >
-            <View className="min-h-0 flex-1 overflow-hidden">
-              <Animated.View
-                className="absolute inset-0 gap-sp-4"
-                pointerEvents={addingAccount ? "none" : "auto"}
-                style={{
-                  transform: [
-                    {
-                      translateX: accountPageProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -accountPagerWidth],
-                      }),
-                    },
-                  ],
-                }}
-              >
+            <DrawerPager
+              onPageChange={(page) => setAddingAccount(page === 1)}
+              page={addingAccount ? 1 : 0}
+            >
+              <DrawerPagerPage>
                 <DrawerHeader>
                   <DrawerTitle>Accounts</DrawerTitle>
                 </DrawerHeader>
@@ -1497,52 +1481,24 @@ export default function SettingsProvidersScreen() {
                         setNewAccountLabel("");
                         setNewAccountApiKey("");
                         setAddingAccount(true);
-                        Animated.timing(accountPageProgress, {
-                          toValue: 1,
-                          duration: 220,
-                          easing: Easing.out(Easing.cubic),
-                          useNativeDriver: true,
-                        }).start();
                       }}
                     >
                       Add account
                     </Button>
                   </DrawerFooter>
                 )}
-              </Animated.View>
+              </DrawerPagerPage>
 
-              <Animated.View
-                className="absolute inset-0 gap-sp-4"
-                pointerEvents={addingAccount ? "auto" : "none"}
-                style={{
-                  transform: [
-                    {
-                      translateX: accountPageProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [accountPagerWidth, 0],
-                      }),
-                    },
-                  ],
-                }}
-              >
+              <DrawerPagerPage>
                 <DrawerHeader className="flex-row items-center gap-sp-2">
                   <Pressable
                     accessibilityLabel="Back to accounts"
                     className="h-9 w-9 items-center justify-center rounded-full"
                     disabled={busyKey !== null}
                     onPress={() => {
-                      Animated.timing(accountPageProgress, {
-                        toValue: 0,
-                        duration: 220,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                      }).start(({ finished }) => {
-                        if (finished) {
-                          setAddingAccount(false);
-                          setNewAccountLabel("");
-                          setNewAccountApiKey("");
-                        }
-                      });
+                      setAddingAccount(false);
+                      setNewAccountLabel("");
+                      setNewAccountApiKey("");
                     }}
                   >
                     <ChevronLeft color={theme.text} size={22} />
@@ -1584,18 +1540,9 @@ export default function SettingsProvidersScreen() {
                             label,
                             providerId: accountProvider.id,
                           });
-                          Animated.timing(accountPageProgress, {
-                            toValue: 0,
-                            duration: 220,
-                            easing: Easing.out(Easing.cubic),
-                            useNativeDriver: true,
-                          }).start(({ finished }) => {
-                            if (finished) {
-                              setAddingAccount(false);
-                              setNewAccountLabel("");
-                              setNewAccountApiKey("");
-                            }
-                          });
+                          setAddingAccount(false);
+                          setNewAccountLabel("");
+                          setNewAccountApiKey("");
                         },
                       ).catch((error) => {
                         Alert.alert(
@@ -1610,8 +1557,8 @@ export default function SettingsProvidersScreen() {
                     Add account
                   </Button>
                 </DrawerFooter>
-              </Animated.View>
-            </View>
+              </DrawerPagerPage>
+            </DrawerPager>
           </DrawerContent>
         ) : null}
       </Drawer>

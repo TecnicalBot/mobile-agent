@@ -1,9 +1,10 @@
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
+import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,6 +69,7 @@ export default function SettingsScreen() {
   } = useConfig();
   const { release, installing, installUpdate } = useUpdate();
   const [databaseUrlInput, setDatabaseUrlInput] = useState("");
+  const [modelSearch, setModelSearch] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState<DrawerKey>(null);
   const [agentActive, setAgentActive] = useState(false);
@@ -94,6 +96,18 @@ export default function SettingsScreen() {
     (server) => server.enabled,
   ).length;
   const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
+  const modelSearchQuery = modelSearch.trim().toLowerCase();
+  const filteredModels = useMemo(() => {
+    if (!modelSearchQuery) {
+      return activeModels;
+    }
+
+    return activeModels.filter(
+      (model) =>
+        model.label.toLowerCase().includes(modelSearchQuery) ||
+        model.providerLabel.toLowerCase().includes(modelSearchQuery),
+    );
+  }, [activeModels, modelSearchQuery]);
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
@@ -332,29 +346,35 @@ export default function SettingsScreen() {
             />
           </DrawerTrigger>
           <DrawerContent showCloseButton>
-            <DrawerHeader>
-              <DrawerTitle>Current model</DrawerTitle>
-            </DrawerHeader>
             <DrawerBody>
+              <SearchBox
+                onChangeText={setModelSearch}
+                placeholder="Search models"
+                value={modelSearch}
+              />
               {activeModels.length > 0 ? (
-                activeModels.map((model) => {
-                  const selected = currentModel?.ref === model.ref;
+                filteredModels.length > 0 ? (
+                  filteredModels.map((model) => {
+                    const selected = currentModel?.ref === model.ref;
 
-                  return (
-                    <DrawerOptionRow
-                      key={model.ref}
-                      label={model.label}
-                      onPress={() => {
-                        runAction(`model:${model.ref}`, async () => {
-                          await selectModel(model.ref as ModelRef);
-                          setOpenDrawer(null);
-                        }).catch(console.error);
-                      }}
-                      selected={selected}
-                      subtitle={model.providerLabel}
-                    />
-                  );
-                })
+                    return (
+                      <DrawerOptionRow
+                        key={model.ref}
+                        label={model.label}
+                        onPress={() => {
+                          runAction(`model:${model.ref}`, async () => {
+                            await selectModel(model.ref as ModelRef);
+                            setOpenDrawer(null);
+                          }).catch(console.error);
+                        }}
+                        selected={selected}
+                        subtitle={model.providerLabel}
+                      />
+                    );
+                  })
+                ) : (
+                  <EmptyStateText>No models match “{modelSearch}”.</EmptyStateText>
+                )
               ) : (
                 <EmptyStateText>No active models</EmptyStateText>
               )}

@@ -47,7 +47,7 @@ import {
 } from "react-native-keyboard-controller";
 
 import { Container } from "@/components/shared/container";
-import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
+import { SearchBox } from "@/components/shared/search-box";import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
 import {
   Attachment,
   AttachmentAction,
@@ -958,6 +958,10 @@ const ChatInput = memo(function ChatInput({
     selectedFileIds: string[];
   }>(null);
   const primaryAgents = useMemo(() => listPrimaryAgents(agents), [agents]);
+  const [filesSearch, setFilesSearch] = useState("");
+  const [modelsSearch, setModelsSearch] = useState("");
+  const [skillsSearch, setSkillsSearch] = useState("");
+  const [mcpSearch, setMcpSearch] = useState("");
 
   useEffect(() => {
     if (editDraft !== null) {
@@ -1015,6 +1019,65 @@ const ChatInput = memo(function ChatInput({
     Math.max(420, 380 + mergedWorkspaceFiles.length * 52),
   );
 
+  const fileSearchQuery = filesSearch.trim().toLowerCase();
+  const filteredWorkspaceFiles = useMemo(() => {
+    if (!fileSearchQuery) {
+      return mergedWorkspaceFiles;
+    }
+
+    return mergedWorkspaceFiles.filter(
+      (file) =>
+        file.displayName.toLowerCase().includes(fileSearchQuery) ||
+        (file.mimeType ?? "").toLowerCase().includes(fileSearchQuery),
+    );
+  }, [fileSearchQuery, mergedWorkspaceFiles]);
+
+  const modelSearchQuery = modelsSearch.trim().toLowerCase();
+  const filteredModelGroups = useMemo(() => {
+    if (!modelSearchQuery) {
+      return modelGroups;
+    }
+
+    return modelGroups
+      .map(([providerLabel, models]) => [
+        providerLabel,
+        models.filter(
+          (model) =>
+            model.label.toLowerCase().includes(modelSearchQuery) ||
+            providerLabel.toLowerCase().includes(modelSearchQuery),
+        ),
+      ] as [string, typeof activeModels])
+      .filter(([, models]) => models.length > 0);
+  }, [modelSearchQuery, modelGroups]);
+
+  const enabledSkills = skills.filter((skill) => skill.enabled);
+  const skillSearchQuery = skillsSearch.trim().toLowerCase();
+  const filteredEnabledSkills = useMemo(() => {
+    if (!skillSearchQuery) {
+      return enabledSkills;
+    }
+
+    return enabledSkills.filter(
+      (skill) =>
+        skill.title.toLowerCase().includes(skillSearchQuery) ||
+        (skill.description ?? "").toLowerCase().includes(skillSearchQuery),
+    );
+  }, [enabledSkills, skillSearchQuery]);
+
+  const enabledMcpServers = mcpServers.filter((server) => server.enabled);
+  const mcpSearchQuery = mcpSearch.trim().toLowerCase();
+  const filteredMcpServers = useMemo(() => {
+    if (!mcpSearchQuery) {
+      return enabledMcpServers;
+    }
+
+    return enabledMcpServers.filter(
+      (server) =>
+        server.label.toLowerCase().includes(mcpSearchQuery) ||
+        server.url.toLowerCase().includes(mcpSearchQuery),
+    );
+  }, [enabledMcpServers, mcpSearchQuery]);
+
   useEffect(() => {
     setLocalWorkspaceFiles((current) =>
       current.filter(
@@ -1048,11 +1111,9 @@ const ChatInput = memo(function ChatInput({
     [selectedFiles],
   );
   const activeFolderLabel = currentExternalFolderSession?.displayName ?? null;
-  const enabledSkills = skills.filter((skill) => skill.enabled);
   const selectedSkills = enabledSkills.filter((skill) =>
     selectedSkillIds.includes(skill.id),
   );
-  const enabledMcpServers = mcpServers.filter((server) => server.enabled);
   const activeMcpServerIds = new Set(
     selectedMcpServerIds === null
       ? enabledMcpServers.map((server) => server.id)
@@ -1831,66 +1892,69 @@ const ChatInput = memo(function ChatInput({
 
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
         <DrawerContent showCloseButton showHandle size={filesDrawerSize}>
-          <DrawerHeader>
-            <DrawerTitle>Select file</DrawerTitle>
-            <DrawerDescription>
-              {mergedWorkspaceFiles.length} file
-              {mergedWorkspaceFiles.length === 1 ? "" : "s"} available
-            </DrawerDescription>
-          </DrawerHeader>
-
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            <SearchBox
+              onChangeText={setFilesSearch}
+              placeholder="Search files"
+              value={filesSearch}
+            />
             {mergedWorkspaceFiles.length > 0 ? (
-              mergedWorkspaceFiles.map((file) => {
-                const selected = selectedFileIds.includes(file.id);
-                const { binaryFiles, imageFiles } = partitionSelectedFiles([
-                  file,
-                ]);
-                const supported =
-                  (imageFiles.length === 0 || supportsImageInput) &&
-                  (binaryFiles.length === 0 || supportsTools);
+              filteredWorkspaceFiles.length > 0 ? (
+                filteredWorkspaceFiles.map((file) => {
+                  const selected = selectedFileIds.includes(file.id);
+                  const { binaryFiles, imageFiles } = partitionSelectedFiles([
+                    file,
+                  ]);
+                  const supported =
+                    (imageFiles.length === 0 || supportsImageInput) &&
+                    (binaryFiles.length === 0 || supportsTools);
 
-                return (
-                  <DrawerSelectRow
-                    disabled={!supported && !selected}
-                    key={file.id}
-                    leading={
-                      file.mimeType?.startsWith("image/") ? (
-                        <Image
-                          contentFit="cover"
-                          source={{
-                            uri: resolveWorkspaceFile(file.relativePath).uri,
-                          }}
-                          style={{
-                            borderRadius: 10,
-                            height: 48,
-                            width: 48,
-                          }}
-                        />
-                      ) : null
-                    }
-                    onPress={() => {
-                      setFilesDrawerOpen(false);
-                      setSelectedFileIds(
-                        selectedFileIds.includes(file.id)
-                          ? selectedFileIds.filter((id) => id !== file.id)
-                          : [...selectedFileIds, file.id],
-                      ).catch(console.error);
-                    }}
-                    deleting={deletingFileId === file.id}
-                    onDelete={() => {
-                      handleDeleteUploadedFile(file);
-                    }}
-                    selected={selected}
-                    subtitle={
-                      supported
-                        ? (file.mimeType ?? "Unknown type")
-                        : "Not supported with current model"
-                    }
-                    title={file.displayName}
-                  />
-                );
-              })
+                  return (
+                    <DrawerSelectRow
+                      disabled={!supported && !selected}
+                      key={file.id}
+                      leading={
+                        file.mimeType?.startsWith("image/") ? (
+                          <Image
+                            contentFit="cover"
+                            source={{
+                              uri: resolveWorkspaceFile(file.relativePath).uri,
+                            }}
+                            style={{
+                              borderRadius: 10,
+                              height: 48,
+                              width: 48,
+                            }}
+                          />
+                        ) : null
+                      }
+                      onPress={() => {
+                        setFilesDrawerOpen(false);
+                        setSelectedFileIds(
+                          selectedFileIds.includes(file.id)
+                            ? selectedFileIds.filter((id) => id !== file.id)
+                            : [...selectedFileIds, file.id],
+                        ).catch(console.error);
+                      }}
+                      deleting={deletingFileId === file.id}
+                      onDelete={() => {
+                        handleDeleteUploadedFile(file);
+                      }}
+                      selected={selected}
+                      subtitle={
+                        supported
+                          ? (file.mimeType ?? "Unknown type")
+                          : "Not supported with current model"
+                      }
+                      title={file.displayName}
+                    />
+                  );
+                })
+              ) : (
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  No files match “{filesSearch}”.
+                </Text>
+              )
             ) : (
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                 No files in the workspace yet. Upload one below to attach it.
@@ -2036,35 +2100,40 @@ const ChatInput = memo(function ChatInput({
 
       <Drawer onOpenChange={setModelsDrawerOpen} open={modelsDrawerOpen}>
         <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>Select model</DrawerTitle>
-            <DrawerDescription>
-              Switch the current model for this chat.
-            </DrawerDescription>
-          </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            <SearchBox
+              onChangeText={setModelsSearch}
+              placeholder="Search models"
+              value={modelsSearch}
+            />
             {activeModels.length > 0 ? (
-              modelGroups.map(([providerLabel, models]) => (
-                <View className="gap-sp-2" key={providerLabel}>
-                  <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                    {providerLabel}
-                  </Text>
-                  {models.map((model) => (
-                    <DrawerSelectRow
-                      key={model.ref}
-                      onPress={() => {
-                        selectModel(model.ref)
-                          .then(() => {
-                            setModelsDrawerOpen(false);
-                          })
-                          .catch(console.error);
-                      }}
-                      selected={currentModelRef === model.ref}
-                      title={model.label}
-                    />
-                  ))}
-                </View>
-              ))
+              filteredModelGroups.length > 0 ? (
+                filteredModelGroups.map(([providerLabel, models]) => (
+                  <View className="gap-sp-2" key={providerLabel}>
+                    <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                      {providerLabel}
+                    </Text>
+                    {models.map((model) => (
+                      <DrawerSelectRow
+                        key={model.ref}
+                        onPress={() => {
+                          selectModel(model.ref)
+                            .then(() => {
+                              setModelsDrawerOpen(false);
+                            })
+                            .catch(console.error);
+                        }}
+                        selected={currentModelRef === model.ref}
+                        title={model.label}
+                      />
+                    ))}
+                  </View>
+                ))
+              ) : (
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  No models match “{modelsSearch}”.
+                </Text>
+              )
             ) : (
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                 No active models
@@ -2087,39 +2156,44 @@ const ChatInput = memo(function ChatInput({
 
       <Drawer onOpenChange={setSkillsDrawerOpen} open={skillsDrawerOpen}>
         <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>Skills</DrawerTitle>
-            <DrawerDescription>
-              {selectedSkills.length} selected for this chat.
-            </DrawerDescription>
-          </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            <SearchBox
+              onChangeText={setSkillsSearch}
+              placeholder="Search skills"
+              value={skillsSearch}
+            />
             {enabledSkills.length > 0 ? (
-              enabledSkills.map((skill) => {
-                const selected = selectedSkillIds.includes(skill.id);
+              filteredEnabledSkills.length > 0 ? (
+                filteredEnabledSkills.map((skill) => {
+                  const selected = selectedSkillIds.includes(skill.id);
 
-                return (
-                  <DrawerSelectRow
-                    key={skill.id}
-                    onPress={() => {
-                      setSelectedSkillIds(
-                        selected
-                          ? selectedSkillIds.filter((id) => id !== skill.id)
-                          : [...selectedSkillIds, skill.id],
-                      ).catch(console.error);
-                    }}
-                    selected={selected}
-                    subtitle={
-                      skill.autoMatch
-                        ? skill.description
-                          ? `Auto · ${skill.description}`
-                          : "Auto"
-                        : (skill.description ?? undefined)
-                    }
-                    title={skill.title}
-                  />
-                );
-              })
+                  return (
+                    <DrawerSelectRow
+                      key={skill.id}
+                      onPress={() => {
+                        setSelectedSkillIds(
+                          selected
+                            ? selectedSkillIds.filter((id) => id !== skill.id)
+                            : [...selectedSkillIds, skill.id],
+                        ).catch(console.error);
+                      }}
+                      selected={selected}
+                      subtitle={
+                        skill.autoMatch
+                          ? skill.description
+                            ? `Auto · ${skill.description}`
+                            : "Auto"
+                          : (skill.description ?? undefined)
+                      }
+                      title={skill.title}
+                    />
+                  );
+                })
+              ) : (
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  No skills match “{skillsSearch}”.
+                </Text>
+              )
             ) : (
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                 No enabled skills
@@ -2159,25 +2233,30 @@ const ChatInput = memo(function ChatInput({
         open={mcpServersDrawerOpen}
       >
         <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>MCP servers</DrawerTitle>
-            <DrawerDescription>
-              {activeMcpServerIds.size} used in this chat.
-            </DrawerDescription>
-          </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            <SearchBox
+              onChangeText={setMcpSearch}
+              placeholder="Search MCP servers"
+              value={mcpSearch}
+            />
             {enabledMcpServers.length > 0 ? (
-              enabledMcpServers.map((server) => (
-                <DrawerSelectRow
-                  key={server.id}
-                  onPress={() => {
-                    toggleMcpServer(server.id).catch(console.error);
-                  }}
-                  selected={activeMcpServerIds.has(server.id)}
-                  subtitle={server.url}
-                  title={server.label}
-                />
-              ))
+              filteredMcpServers.length > 0 ? (
+                filteredMcpServers.map((server) => (
+                  <DrawerSelectRow
+                    key={server.id}
+                    onPress={() => {
+                      toggleMcpServer(server.id).catch(console.error);
+                    }}
+                    selected={activeMcpServerIds.has(server.id)}
+                    subtitle={server.url}
+                    title={server.label}
+                  />
+                ))
+              ) : (
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  No MCP servers match “{mcpSearch}”.
+                </Text>
+              )
             ) : (
               <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                 No enabled MCP servers. Enable one in MCP servers settings.

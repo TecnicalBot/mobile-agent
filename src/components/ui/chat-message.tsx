@@ -1,5 +1,6 @@
 import { useRecyclingState } from "@shopify/flash-list";
 import * as Clipboard from "expo-clipboard";
+import { useRouter } from "expo-router";
 import { Directory, File, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
@@ -1036,6 +1037,9 @@ export const ChatMessage = memo(function ChatMessage({
       event.kind !== "prompt" &&
       !(event.kind === "run" && event.status === "pending"),
   );
+  const termuxRuns = (message.metadata?.toolExecutions ?? []).filter(
+    (execution) => Boolean(execution.termux),
+  );
   const generatedImages = message.metadata?.generatedImages ?? [];
   const attachedFiles = (message.metadata?.selectedFileIds ?? [])
     .map((fileId) => workspaceFiles.find((file) => file.id === fileId))
@@ -1257,6 +1261,19 @@ export const ChatMessage = memo(function ChatMessage({
                     </View>
                   ) : null}
 
+                  {termuxRuns.length > 0 ? (
+                    <View className="gap-sp-2">
+                      {termuxRuns.map((run) => (
+                        <TermuxRunCard
+                          command={run.termux!.command}
+                          running={run.status === "running"}
+                          key={run.createdAt + (run.termux!.taskId ?? "sync")}
+                          output={run.termux!.output}
+                          taskId={run.termux!.taskId}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                   {message.content.trim() ? (
                     <MarkdownContent
                       content={message.content}
@@ -2003,4 +2020,69 @@ async function openMarkdownLink(url: string) {
       error instanceof Error ? error.message : "No app could open this link.",
     );
   }
+}
+
+function TermuxRunCard({
+  command,
+  running,
+  output,
+  taskId,
+}: {
+  command: string;
+  running: boolean;
+  output: string | null;
+  taskId: string | null;
+}) {
+  const theme = useTheme();
+  const router = useRouter();
+  const [dotCount, setDotCount] = useState(1);
+  const singleLine = command.replace(/\s+/g, " ").trim();
+
+  useEffect(() => {
+    if (!running) {
+      setDotCount(1);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setDotCount((current) => (current % 3) + 1);
+    }, 420);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  return (
+    <Pressable
+      accessibilityHint="Opens a read-only view of the command output"
+      accessibilityRole="button"
+      className="flex-row items-center gap-sp-2 self-start rounded-full border border-border bg-card px-sp-3 py-sp-2 dark:border-border-dark dark:bg-card-dark"
+      onPress={() => {
+        router.push({
+          pathname: "/terminal",
+          params: {
+            command: singleLine,
+            ...(output !== null ? { output } : {}),
+            ...(taskId ? { taskId } : {}),
+            ...(!taskId ? { pending: "true" } : {}),
+          },
+        });
+      }}
+      style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
+    >
+      <Text className="font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        $
+      </Text>
+      <Text
+        className="max-w-[75%] font-mono text-sm text-foreground dark:text-foreground-dark"
+        numberOfLines={1}
+      >
+        {singleLine || "(command)"}
+      </Text>
+      {running ? (
+        <Text className="w-5 font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          {".".repeat(dotCount)}
+        </Text>
+      ) : null}
+      <ChevronRight color={theme.textSecondary} size={16} />
+    </Pressable>
+  );
 }

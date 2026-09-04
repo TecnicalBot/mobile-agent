@@ -8,18 +8,22 @@ export function summarizeValue(value: unknown) {
 }
 
 export function createRecord(input: {
+  id?: string;
   error?: string | null;
   inputSummary: string;
   outputSummary?: string | null;
   status: ToolExecutionRecord["status"];
   toolName: string;
+  termux?: ToolExecutionRecord["termux"];
 }) {
   return {
+    ...(input.id ? { id: input.id } : {}),
     toolName: input.toolName,
     status: input.status,
     inputSummary: input.inputSummary,
     outputSummary: input.outputSummary ?? null,
     error: input.error ?? null,
     createdAt: new Date().toISOString(),
+    ...(input.termux ? { termux: input.termux } : {}),
   } satisfies ToolExecutionRecord;
 }

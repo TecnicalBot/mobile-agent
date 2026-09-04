@@ -420,7 +420,6 @@ export interface ConfigRepository {
   setSchedulingEnabled(enabled: boolean): Promise<void>;
   setThemeMode(mode: ThemeMode): Promise<void>;
   setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
-  setMaxToolSteps(maxToolSteps: number): Promise<void>;
   setNotificationSettings(input: Partial<NotificationSettings>): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;
   updateProvider(

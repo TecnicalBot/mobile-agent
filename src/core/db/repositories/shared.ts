@@ -22,7 +22,6 @@ export function createDrizzleDb(sqliteDb: SQLiteDatabase) {
 
 export function buildSettings(rows: AppSettingRow[]): AppSettings {
   const settingsMap = new Map(rows.map((row) => [row.key, row.value]));
-  const parsedMaxToolSteps = Number(settingsMap.get("max_tool_steps"));
   const storedThemeMode = settingsMap.get("theme_mode");
 
   const parsedNotificationSettings = (() => {
@@ -70,10 +69,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       (settingsMap.get("database_mode") as DatabaseMode | null) ?? "local",
     databaseUrl: settingsMap.get("database_url") ?? null,
     memoryEnabled: settingsMap.get("memory_enabled") !== "false",
-    maxToolSteps:
-      Number.isInteger(parsedMaxToolSteps) && parsedMaxToolSteps >= 1
-        ? Math.min(parsedMaxToolSteps, 100)
-        : 50,
     schedulingEnabled: settingsMap.get("scheduling_enabled") !== "false",
     themeMode: (["system", "light", "dark"] as const).includes(
       storedThemeMode as ThemeMode,

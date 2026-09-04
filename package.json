@@ -35,6 +35,7 @@
     "expo-glass-effect": "~57.0.0",
     "expo-image": "~57.0.0",
     "expo-intent-launcher": "~57.0.0",
+    "expo-libghostty": "^0.8.1",
     "expo-linking": "~57.0.1",
     "expo-media-library": "^57.0.1",
     "expo-notifications": "~57.0.3",

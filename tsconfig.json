@@ -11,7 +11,8 @@
       "scheduler-alarm": ["./modules/scheduler-alarm/index.ts"],
       "process-text": ["./modules/process-text/index.ts"],
       "device-automation": ["./modules/device-automation/index.ts"],
-      "saf-file-operations": ["./modules/saf-file-operations/index.ts"]
+      "saf-file-operations": ["./modules/saf-file-operations/index.ts"],
+      "termux-stream": ["./modules/termux-stream/index.ts"]
     }
   },
   "include": [

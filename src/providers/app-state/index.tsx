@@ -427,7 +427,6 @@ type AppStateContextValue = {
         conversationId: string,
         mode: ToolApprovalMode,
     ) => void;
-    updateMaxToolSteps: (maxToolSteps: number) => Promise<void>;
     updateThemeMode: (mode: AppSettings["themeMode"]) => Promise<void>;
     updateProvider: (
         providerId: string,
@@ -2539,13 +2538,6 @@ Your output must be:
         [],
     );
 
-    async function updateMaxToolSteps(maxToolSteps: number) {
-        await repositoriesRef.current.configRepository.setMaxToolSteps(
-            maxToolSteps,
-        );
-        await hydrate();
-    }
-
     async function updateThemeMode(mode: AppSettings["themeMode"]) {
         await repositoriesRef.current.configRepository.setThemeMode(mode);
         await hydrate();
@@ -4069,7 +4061,6 @@ Your output must be:
                 updateToolApprovalMode,
                 setConversationApprovalMode,
                 updateThemeMode,
-                updateMaxToolSteps,
                 updateProvider,
                 workspaceFiles: snapshot.workspaceFiles,
             }}
@@ -4186,8 +4177,6 @@ export function useConfig() {
         updateThemeMode: context.updateThemeMode,
         notificationSettings: context.settings.notificationSettings,
         updateNotificationSettings: context.updateNotificationSettings,
-        updateMaxToolSteps: context.updateMaxToolSteps,
-        maxToolSteps: context.settings.maxToolSteps,
         updateProvider: context.updateProvider,
     };
 }

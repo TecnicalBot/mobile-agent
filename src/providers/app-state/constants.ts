@@ -55,7 +55,6 @@ export const EMPTY_SETTINGS: AppSettings = {
     databaseMode: "local",
     databaseUrl: null,
     memoryEnabled: true,
-    maxToolSteps: 9999,
     schedulingEnabled: true,
     themeMode: "system",
     toolApprovalMode: "ask",

@@ -3,3 +3,6 @@ packages:
 
 patchedDependencies:
   "@ai-sdk/mcp@2.0.7": patches/@ai-sdk__mcp@2.0.7.patch
+
+allowBuilds:
+  - expo-libghostty

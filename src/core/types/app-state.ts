@@ -212,12 +212,19 @@ export type GeneratedImageAttachment = {
 };
 
 export type ToolExecutionRecord = {
+  id?: string;
   toolName: string;
-  status: "completed" | "failed";
+  status: "running" | "completed" | "failed";
   inputSummary: string;
   outputSummary: string | null;
   error: string | null;
   createdAt: string;
+  /** Captured Termux command details for the read-only command output UI. */
+  termux?: {
+    command: string;
+    output: string | null;
+    taskId: string | null;
+  };
 };
 
 export type PromptArtifact = {
@@ -463,7 +470,6 @@ export type AppSettings = {
   databaseMode: DatabaseMode;
   databaseUrl: string | null;
   memoryEnabled: boolean;
-  maxToolSteps: number;
   schedulingEnabled: boolean;
   themeMode: ThemeMode;
   toolApprovalMode: ToolApprovalMode;

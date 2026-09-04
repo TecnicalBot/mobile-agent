@@ -832,7 +832,19 @@ export async function executeClaimedAgentRun(
   };
 
   const handleToolExecutionRecord = (record: ToolExecutionRecord) => {
-    toolExecutions.push(record);
+    const existingIndex = record.id
+      ? toolExecutions.findIndex((existing) => existing.id === record.id)
+      : -1;
+    if (existingIndex >= 0) {
+      toolExecutions[existingIndex] = record;
+    } else {
+      toolExecutions.push(record);
+    }
+    if (record.status === "running") {
+      markActivity();
+      refreshAssistantState?.();
+      return;
+    }
     pushTimelineEvent(
       createExecutionTimelineEvent({
         detail:
@@ -1433,7 +1445,7 @@ export async function executeClaimedAgentRun(
 
     const runtimeResultPromise = modelRuntime.generateTextStream({
       abortSignal: abortController.signal,
-      maxToolSteps: snapshotRef.current.settings.maxToolSteps,
+      maxToolSteps: 9999,
       messages: runtimeMessages,
       model: resolvedModel,
       onDelta: (delta) => {
@@ -1590,7 +1602,7 @@ export async function executeClaimedAgentRun(
 
     if (!assistantText.trim()) {
       assistantText = runtimeResult.stepLimitReached
-        ? `Stopped after ${snapshotRef.current.settings.maxToolSteps} tool steps. You can raise the limit in Tool settings or ask me to continue.`
+        ? "Stopped after reaching the tool-step safety limit. Ask me to continue."
         : toolExecutions.length > 0
           ? "The requested tool actions completed, but the model did not provide a final response. Please ask me to continue."
           : "The model completed without returning text.";

@@ -1,10 +1,18 @@
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import { Plus, Save, Sparkles, X } from "lucide-react-native";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Save,
+  Sparkles,
+  X,
+} from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Drawer,
@@ -15,6 +23,10 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  DrawerPager,
+  DrawerPagerPage,
+} from "@/components/ui/drawer-pager";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
@@ -123,6 +135,7 @@ export function AgentEditorDrawer({
     updateAgent,
   } = useConfig();
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [page, setPage] = useState(0);
   const [busy, setBusy] = useState<null | "generate" | "save" | "docs">(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,8 +143,10 @@ export function AgentEditorDrawer({
     if (open && agent) {
       setDraft(draftFromAgent(agent));
       setError(null);
+      setPage(0);
     } else if (!open) {
       setDraft(null);
+      setPage(0);
     }
   }, [agent, open]);
 
@@ -315,121 +330,191 @@ export function AgentEditorDrawer({
 
   return (
     <Drawer onOpenChange={onOpenChange} open={open}>
-      <DrawerContent showCloseButton showHandle>
-        <DrawerHeader className="pr-12">
-          <DrawerTitle>Edit agent</DrawerTitle>
-          <DrawerDescription>
-            {current.name || "Agent"}
-          </DrawerDescription>
-        </DrawerHeader>
-        <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-          <View className="gap-sp-2">
-            <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-              Title
-            </Text>
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={(name) => updateDraft({ name })}
-              placeholder="code-reviewer"
-              value={current.name}
-            />
-          </View>
-          <View className="gap-sp-2">
-            <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-              Description
-            </Text>
-            <Textarea
-              className="min-h-24"
-              onChangeText={(description) => updateDraft({ description })}
-              placeholder="When should this agent be used?"
-              value={current.description}
-            />
-          </View>
+      <DrawerContent contentClassName="overflow-hidden" showCloseButton showHandle>
+        <DrawerPager onPageChange={setPage} page={page}>
+          <DrawerPagerPage>
+            <DrawerHeader className="pr-12">
+              <DrawerTitle>Edit agent</DrawerTitle>
+              <DrawerDescription>
+                {current.name || "Agent"}
+              </DrawerDescription>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+              <View className="gap-sp-2">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Title
+                </Text>
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={(name) => updateDraft({ name })}
+                  placeholder="code-reviewer"
+                  value={current.name}
+                />
+              </View>
+              <View className="gap-sp-2">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Description
+                </Text>
+                <Textarea
+                  className="min-h-24"
+                  onChangeText={(description) => updateDraft({ description })}
+                  placeholder="When should this agent be used?"
+                  value={current.description}
+                />
+              </View>
 
-          <ModePicker draft={current} onChange={updateDraft} />
+              <ModePicker draft={current} onChange={updateDraft} />
 
-          <View className="gap-sp-2">
-            <View className="flex-row items-center justify-between">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                Temperature
-              </Text>
-              <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
-                {current.temperature.toFixed(2)}
-              </Text>
-            </View>
-            <Slider
-              accessibilityLabel="Temperature"
-              maximumValue={1}
-              minimumValue={0}
-              onValueChange={(temperature) =>
-                updateDraft({ temperature })
-              }
-              step={0.01}
-              value={current.temperature}
-            />
-            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              Lower values make responses more focused and deterministic;
-              higher values make them more creative and varied.
-            </Text>
-          </View>
+              <View className="gap-sp-2">
+                <View className="flex-row items-center justify-between">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Temperature
+                  </Text>
+                  <Text className="font-sans text-sm font-semibold text-foreground dark:text-foreground-dark">
+                    {current.temperature.toFixed(2)}
+                  </Text>
+                </View>
+                <Slider
+                  accessibilityLabel="Temperature"
+                  maximumValue={1}
+                  minimumValue={0}
+                  onValueChange={(temperature) =>
+                    updateDraft({ temperature })
+                  }
+                  step={0.01}
+                  value={current.temperature}
+                />
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  Lower values make responses more focused and deterministic;
+                  higher values make them more creative and varied.
+                </Text>
+              </View>
 
-          <DocsCard
-            busy={busy === "docs"}
-            docs={current.docs}
-            onPick={handlePickDocs}
-            onRemove={removeDoc}
-          />
+              <EditorOptionRow
+                label="Reference docs"
+                onPress={() => setPage(3)}
+              />
 
-          <View className="gap-sp-2">
-            <View className="flex-row items-center justify-between gap-sp-2">
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                System prompt
-              </Text>
+              <EditorOptionRow
+                label="System prompt"
+                onPress={() => setPage(1)}
+              />
+
+              <EditorOptionRow
+                label="Tool access"
+                onPress={() => setPage(2)}
+              />
+
+              {error ? (
+                <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                  {error}
+                </Text>
+              ) : null}
+            </DrawerBody>
+            <DrawerFooter>
               <Button
-                leftIcon={<Sparkles color={theme.text} size={14} />}
-                loading={busy === "generate"}
-                onPress={handleGenerate}
-                size="sm"
-                variant="outline"
+                leftIcon={<Save color={theme.background} size={16} />}
+                loading={busy === "save"}
+                onPress={handleSave}
               >
-                Generate with AI
+                Save changes
               </Button>
-            </View>
-            <Textarea
-              className="min-h-36"
-              onChangeText={(prompt) => updateDraft({ prompt })}
-              placeholder={DEFAULT_AGENT_SYSTEM_PROMPT_PLACEHOLDER}
-              value={current.prompt}
-            />
-            {!current.prompt.trim() ? (
-              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                Empty uses the default Mobile Agent system prompt.
-              </Text>
-            ) : null}
-          </View>
+            </DrawerFooter>
+          </DrawerPagerPage>
 
-          <ToolPermissionsCard
-            draft={current}
-            mcpServerIds={mcpServers.map((server) => server.id)}
-            onChange={updateDraft}
-          />
+          <DrawerPagerPage>
+            <DrawerHeader className="flex-row items-center gap-sp-2">
+              <Pressable
+                accessibilityLabel="Back to basics"
+                className="h-9 w-9 items-center justify-center rounded-full"
+                onPress={() => setPage(0)}
+              >
+                <ChevronLeft color={theme.text} size={22} />
+              </Pressable>
+              <DrawerTitle>System prompt</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-3">
+              <View className="gap-sp-2">
+                <View className="flex-row items-center justify-between gap-sp-2">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Instructions
+                  </Text>
+                  <Button
+                    leftIcon={<Sparkles color={theme.text} size={14} />}
+                    loading={busy === "generate"}
+                    onPress={handleGenerate}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Generate with AI
+                  </Button>
+                </View>
+                <Textarea
+                  className="min-h-36"
+                  onChangeText={(prompt) => updateDraft({ prompt })}
+                  placeholder={DEFAULT_AGENT_SYSTEM_PROMPT_PLACEHOLDER}
+                  value={current.prompt}
+                />
+                {!current.prompt.trim() ? (
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    Empty uses the default Mobile Agent system prompt.
+                  </Text>
+                ) : null}
+              </View>
+            </DrawerBody>
+            <DrawerFooter>
+              <Button onPress={() => setPage(0)}>Done</Button>
+            </DrawerFooter>
+          </DrawerPagerPage>
 
-          {error ? (
-            <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-              {error}
-            </Text>
-          ) : null}
-        </DrawerBody>
-        <DrawerFooter>
-          <Button
-            leftIcon={<Save color={theme.background} size={16} />}
-            loading={busy === "save"}
-            onPress={handleSave}
-          >
-            Save changes
-          </Button>
-        </DrawerFooter>
+          <DrawerPagerPage>
+            <DrawerHeader className="flex-row items-center gap-sp-2">
+              <Pressable
+                accessibilityLabel="Back to basics"
+                className="h-9 w-9 items-center justify-center rounded-full"
+                onPress={() => setPage(0)}
+              >
+                <ChevronLeft color={theme.text} size={22} />
+              </Pressable>
+              <DrawerTitle>Tool access</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-3">
+              <ToolPermissionsCard
+                draft={current}
+                mcpServerIds={mcpServers.map((server) => server.id)}
+                onChange={updateDraft}
+              />
+            </DrawerBody>
+            <DrawerFooter>
+              <Button onPress={() => setPage(0)}>Done</Button>
+            </DrawerFooter>
+          </DrawerPagerPage>
+
+          <DrawerPagerPage>
+            <DrawerHeader className="flex-row items-center gap-sp-2">
+              <Pressable
+                accessibilityLabel="Back to basics"
+                className="h-9 w-9 items-center justify-center rounded-full"
+                onPress={() => setPage(0)}
+              >
+                <ChevronLeft color={theme.text} size={22} />
+              </Pressable>
+              <DrawerTitle>Reference docs</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-3">
+              <DocsCard
+                busy={busy === "docs"}
+                docs={current.docs}
+                onPick={handlePickDocs}
+                onRemove={removeDoc}
+              />
+            </DrawerBody>
+            <DrawerFooter>
+              <Button onPress={() => setPage(0)}>Done</Button>
+            </DrawerFooter>
+          </DrawerPagerPage>
+        </DrawerPager>
       </DrawerContent>
     </Drawer>
   );
@@ -473,6 +558,30 @@ function ModePicker({
   );
 }
 
+function EditorOptionRow({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      className="min-h-12 flex-row items-center justify-between gap-sp-3 rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.86 } : null)}
+    >
+      <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+        {label}
+      </Text>
+      <ChevronRight color={theme.textSecondary} size={18} />
+    </Pressable>
+  );
+}
+
 function DocsCard({
   busy,
   docs,
@@ -487,37 +596,29 @@ function DocsCard({
   const theme = useTheme();
 
   return (
-    <View className="gap-sp-2">
-      <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-        Reference docs
-      </Text>
-      <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-        Attach text files (like Claude Projects) that the agent should treat
-        as reference material. Their contents are included in its prompt.
-      </Text>
-      <Button
-        leftIcon={<Plus color={theme.text} size={16} />}
-        loading={busy}
-        onPress={onPick}
-        size="sm"
-        variant="outline"
-      >
-        Attach docs
-      </Button>
+    <View className="gap-sp-3">
       {docs.length > 0 ? (
-        <View className="gap-sp-2">
+        <Card className="overflow-hidden">
           {docs.map((doc, index) => (
             <View key={`${doc.name}-${index}`}>
-              <View className="flex-row items-center gap-sp-2">
-                <Text
-                  className="flex-1 font-sans text-sm text-foreground dark:text-foreground-dark"
-                  numberOfLines={1}
-                >
-                  {doc.name}
-                </Text>
+              <View className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3">
+                <View className="min-w-0 flex-1">
+                  <Text
+                    className="font-sans text-base font-medium text-foreground dark:text-foreground-dark"
+                    numberOfLines={1}
+                  >
+                    {doc.name}
+                  </Text>
+                  {doc.size !== null && doc.size !== undefined ? (
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {(doc.size / 1024).toFixed(1)} KB
+                    </Text>
+                  ) : null}
+                </View>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${doc.name}`}
+                  className="h-9 w-9 items-center justify-center rounded-full"
                   onPress={() => onRemove(index)}
                   hitSlop={8}
                 >
@@ -527,8 +628,23 @@ function DocsCard({
               {index < docs.length - 1 ? <Separator /> : null}
             </View>
           ))}
-        </View>
-      ) : null}
+        </Card>
+      ) : (
+        <Card className="px-sp-4 py-sp-5">
+          <Text className="text-center font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            No reference docs attached yet.
+          </Text>
+        </Card>
+      )}
+
+      <Button
+        leftIcon={<Plus color={theme.text} size={16} />}
+        loading={busy}
+        onPress={onPick}
+        variant="outline"
+      >
+        Attach docs
+      </Button>
     </View>
   );
 }

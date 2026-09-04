@@ -216,7 +216,7 @@ type AppStateContextValue = {
         label: string;
         oauthAccountEmail?: string | null;
     }) => Promise<ProviderConfig>;
-    createConversation: () => Promise<void>;
+    createConversation: (input?: { agentId?: string | null }) => Promise<void>;
     deleteProvider: (providerId: string) => Promise<void>;
     deleteConversation: (conversationId: string) => Promise<void>;
     createWorkspaceFile: (input: {
@@ -2640,11 +2640,11 @@ Your output must be:
         await hydrate().catch(() => { });
     }
 
-    const createConversation = useCallback(async () => {
+    const createConversation = useCallback(async (input?: { agentId?: string | null }) => {
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
         const now = new Date().toISOString();
         const conversation: Conversation = {
-            agentId: null,
+            agentId: input?.agentId ?? null,
             agentMode: "build",
             archivedAt: null,
             createdAt: now,
@@ -2666,6 +2666,7 @@ Your output must be:
             title: conversation.title,
             providerId: conversation.providerId,
             modelId: conversation.modelId,
+            agentId: conversation.agentId,
         });
         await repositoriesRef.current.configRepository.setSetting(
             "active_conversation_id",

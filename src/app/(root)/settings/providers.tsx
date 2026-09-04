@@ -94,11 +94,7 @@ export default function SettingsProvidersScreen() {
   const [customProviderName, setCustomProviderName] = useState("");
   const [customProviderBaseUrl, setCustomProviderBaseUrl] = useState("");
   const [customProviderApiKey, setCustomProviderApiKey] = useState("");
-  const [addingAccount, setAddingAccount] = useState(false);
-  const [accountManagerOpen, setAccountManagerOpen] = useState(false);
-  const [accountProviderId, setAccountProviderId] = useState<string | null>(
-    null,
-  );
+  const [providerPage, setProviderPage] = useState(0);
   const [customModelId, setCustomModelId] = useState("");
   const [modelQuery, setModelQuery] = useState("");
   const [baseUrlInput, setBaseUrlInput] = useState("");
@@ -203,23 +199,20 @@ export default function SettingsProvidersScreen() {
     selectedProviderAccounts.find(
       (account) => account.id === selectedProviderActiveAccountId,
     ) ?? null;
-  const accountProvider = accountProviderId
-    ? (providers.find((provider) => provider.id === accountProviderId) ?? null)
-    : null;
   const accountProviderAccounts = useMemo(
     () =>
-      accountProviderId
+      selectedProvider
         ? providerAccounts.filter(
-            (account) => account.providerId === accountProviderId,
+            (account) => account.providerId === selectedProvider.id,
           )
         : [],
-    [accountProviderId, providerAccounts],
+    [selectedProvider, providerAccounts],
   );
-  const accountProviderActive = accountProviderId
-    ? activeProviderIds.includes(accountProviderId)
+  const accountProviderActive = selectedProvider
+    ? activeProviderIds.includes(selectedProvider.id)
     : false;
-  const accountProviderActiveAccountId = accountProviderId
-    ? (activeProviderAccountIds[accountProviderId] ?? null)
+  const accountProviderActiveAccountId = selectedProvider
+    ? (activeProviderAccountIds[selectedProvider.id] ?? null)
     : null;
   useEffect(() => {
     if (selectedProvider?.family !== "on-device") {
@@ -800,21 +793,23 @@ export default function SettingsProvidersScreen() {
             setBaseUrlInput("");
             setCustomModelId("");
             setModelQuery("");
-            setAddingAccount(false);
+            setProviderPage(0);
+            setSelectedAccountIds([]);
             setNewAccountLabel("");
             setNewAccountApiKey("");
           }
         }}
         open={selectedItemKey !== null}
       >
-        <DrawerContent showCloseButton showHandle size={720}>
+        <DrawerContent contentClassName="overflow-hidden" showCloseButton showHandle size={720}>
           {selectedItem && selectedProvider ? (
-            <>
-              <DrawerHeader>
-                <DrawerTitle>{selectedItem.label}</DrawerTitle>
-              </DrawerHeader>
+            <DrawerPager onPageChange={setProviderPage} page={providerPage}>
+              <DrawerPagerPage>
+                <DrawerHeader>
+                  <DrawerTitle>{selectedItem.label}</DrawerTitle>
+                </DrawerHeader>
 
-              <DrawerBody contentContainerClassName="pb-sp-4">
+                <DrawerBody contentContainerClassName="pb-sp-4">
                 <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
                   <StatusRow
                     label="Status"
@@ -852,15 +847,8 @@ export default function SettingsProvidersScreen() {
                     </Text>
                     <Pressable
                       onPress={() => {
-                        setNewAccountLabel("");
-                        setNewAccountApiKey("");
-                        setAddingAccount(false);
                         setSelectedAccountIds([]);
-                        setAccountProviderId(selectedProvider.id);
-                        setSelectedItemKey(null);
-                        setTimeout(() => {
-                          setAccountManagerOpen(true);
-                        }, 180);
+                        setProviderPage(1);
                       }}
                       style={({ pressed }) =>
                         pressed ? { opacity: 0.82 } : null
@@ -1358,36 +1346,17 @@ export default function SettingsProvidersScreen() {
                   </Text>
                 )}
               </DrawerFooter>
-            </>
-          ) : null}
-        </DrawerContent>
-      </Drawer>
+              </DrawerPagerPage>
 
-      <Drawer
-        onOpenChange={(open) => {
-          setAccountManagerOpen(open);
-          if (!open) {
-            setAddingAccount(false);
-            setAccountProviderId(null);
-            setNewAccountLabel("");
-            setNewAccountApiKey("");
-            setSelectedAccountIds([]);
-          }
-        }}
-        open={accountManagerOpen}
-      >
-        {accountProvider ? (
-          <DrawerContent
-            contentClassName="overflow-hidden"
-            showCloseButton
-            showHandle
-          >
-            <DrawerPager
-              onPageChange={(page) => setAddingAccount(page === 1)}
-              page={addingAccount ? 1 : 0}
-            >
               <DrawerPagerPage>
-                <DrawerHeader>
+                <DrawerHeader className="flex-row items-center gap-sp-2">
+                  <Pressable
+                    accessibilityLabel="Back to provider"
+                    className="h-9 w-9 items-center justify-center rounded-full"
+                    onPress={() => setProviderPage(0)}
+                  >
+                    <ChevronLeft color={theme.text} size={22} />
+                  </Pressable>
                   <DrawerTitle>Accounts</DrawerTitle>
                 </DrawerHeader>
                 <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
@@ -1420,7 +1389,7 @@ export default function SettingsProvidersScreen() {
                           void runAction(`switch:${account.id}`, async () => {
                             await switchProviderAccount({
                               accountId: account.id,
-                              providerId: accountProvider.id,
+                              providerId: selectedProvider.id,
                             });
                           }).catch(console.error);
                         }
@@ -1449,7 +1418,7 @@ export default function SettingsProvidersScreen() {
                                   for (const accountId of selectedAccountIds) {
                                     await deleteProviderAccount({
                                       accountId,
-                                      providerId: accountProvider.id,
+                                      providerId: selectedProvider.id,
                                     });
                                   }
                                   setSelectedAccountIds([]);
@@ -1480,7 +1449,7 @@ export default function SettingsProvidersScreen() {
                       onPress={() => {
                         setNewAccountLabel("");
                         setNewAccountApiKey("");
-                        setAddingAccount(true);
+                        setProviderPage(2);
                       }}
                     >
                       Add account
@@ -1496,7 +1465,7 @@ export default function SettingsProvidersScreen() {
                     className="h-9 w-9 items-center justify-center rounded-full"
                     disabled={busyKey !== null}
                     onPress={() => {
-                      setAddingAccount(false);
+                      setProviderPage(1);
                       setNewAccountLabel("");
                       setNewAccountApiKey("");
                     }}
@@ -1524,7 +1493,6 @@ export default function SettingsProvidersScreen() {
                 <DrawerFooter>
                   <Button
                     disabled={
-                      !addingAccount ||
                       !newAccountLabel.trim() ||
                       !newAccountApiKey.trim()
                     }
@@ -1533,14 +1501,14 @@ export default function SettingsProvidersScreen() {
                       const label = newAccountLabel.trim() || "Account";
                       const apiKey = newAccountApiKey.trim();
                       void runAction(
-                        `add-account:${accountProvider.id}`,
+                        `add-account:${selectedProvider.id}`,
                         async () => {
                           await createProviderAccount({
                             apiKey,
                             label,
-                            providerId: accountProvider.id,
+                            providerId: selectedProvider.id,
                           });
-                          setAddingAccount(false);
+                          setProviderPage(1);
                           setNewAccountLabel("");
                           setNewAccountApiKey("");
                         },
@@ -1559,8 +1527,8 @@ export default function SettingsProvidersScreen() {
                 </DrawerFooter>
               </DrawerPagerPage>
             </DrawerPager>
-          </DrawerContent>
-        ) : null}
+          ) : null}
+        </DrawerContent>
       </Drawer>
     </Container>
   );

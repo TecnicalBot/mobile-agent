@@ -1,13 +1,21 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
 
+import { cn } from "@/core/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DrawerBody, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import {
+  DrawerPager,
+  DrawerPagerPage,
+} from "@/components/ui/drawer-pager";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
+import { useTheme } from "@/hooks/use-theme";
 import {
   fetchMcpServerCatalogCached,
   type McpServerPreset,
@@ -47,6 +55,32 @@ const EMPTY_DRAFT: Draft = {
   transport: "http",
   url: "",
 };
+
+const AUTH_OPTIONS: {
+  label: string;
+  value: McpServerAuthMode;
+  subtitle?: string;
+}[] = [
+  {
+    label: "None",
+    subtitle: "No authentication required",
+    value: "none",
+  },
+  {
+    label: "Headers",
+    subtitle: "Send custom headers with each request",
+    value: "headers",
+  },
+  {
+    label: "OAuth",
+    subtitle: "Authenticate using the OAuth flow",
+    value: "oauth",
+  },
+];
+
+function authModeLabel(mode: McpServerAuthMode): string {
+  return AUTH_OPTIONS.find((option) => option.value === mode)?.label ?? mode;
+}
 
 function draftFromServer(server: McpServerConfig): Draft {
   return {
@@ -102,13 +136,16 @@ export function McpServerForm({
   onSaved,
   presetId,
   serverId,
+  title,
 }: {
   onSaved: () => void;
   presetId?: string;
   serverId?: string;
+  title: string;
 }) {
   const { ready } = useAppState();
   const { createMcpServer, mcpServers, updateMcpServer } = useConfig();
+  const theme = useTheme();
   const targetServer = serverId
     ? mcpServers.find((server) => server.id === serverId)
     : null;
@@ -117,7 +154,7 @@ export function McpServerForm({
     !serverId && !presetId ? EMPTY_DRAFT : null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [showAdvancedOAuth, setShowAdvancedOAuth] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     if (serverId) {
@@ -129,15 +166,7 @@ export function McpServerForm({
       }
 
       setDraft(draftFromServer(targetServer));
-      setShowAdvancedOAuth(
-        Boolean(
-          targetServer.oauthAllowedAuthOrigin ||
-          targetServer.oauthAuthorizationUrl ||
-          targetServer.oauthClientId ||
-          targetServer.oauthScopes ||
-          targetServer.oauthTokenUrl,
-        ),
-      );
+      setPage(0);
       return;
     }
 
@@ -221,222 +250,289 @@ export function McpServerForm({
   };
 
   return (
-    <View className="gap-sp-4">
-      {draft ? (
-        <Card className="gap-sp-3 px-sp-4 py-sp-4">
-          <Field label="Label">
-            <Input
-              onChangeText={(label) =>
-                setDraft((current) =>
-                  current ? { ...current, label } : current,
-                )
-              }
-              placeholder="Linear"
-              value={draft.label}
-            />
-          </Field>
-          <Field label="URL">
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              onChangeText={(url) =>
-                setDraft((current) => (current ? { ...current, url } : current))
-              }
-              placeholder="https://example.com/mcp"
-              value={draft.url}
-            />
-          </Field>
-          <View className="flex-row gap-sp-2">
-            <SegmentButton
-              active={draft.transport === "http"}
-              label="HTTP"
-              onPress={() =>
-                setDraft((current) =>
-                  current ? { ...current, transport: "http" } : current,
-                )
-              }
-            />
-            <SegmentButton
-              active={draft.transport === "sse"}
-              label="SSE"
-              onPress={() =>
-                setDraft((current) =>
-                  current ? { ...current, transport: "sse" } : current,
-                )
-              }
-            />
-          </View>
-          <View className="flex-row gap-sp-2">
-            {(["none", "headers", "oauth"] as const).map((authMode) => (
-              <SegmentButton
-                key={authMode}
-                active={draft.authMode === authMode}
-                label={
-                  authMode === "none"
-                    ? "None"
-                    : authMode === "headers"
-                      ? "Headers"
-                      : "OAuth"
-                }
+    <DrawerPager onPageChange={setPage} page={page}>
+      <DrawerPagerPage>
+        <DrawerHeader>
+          <DrawerTitle>{title}</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody contentContainerClassName="pb-sp-4">
+          <View className="gap-sp-4">
+            {draft ? (
+            <View className="gap-sp-3">
+              <Field label="Label">
+                <Input
+                  onChangeText={(label) =>
+                    setDraft((current) =>
+                      current ? { ...current, label } : current,
+                    )
+                  }
+                  placeholder="Linear"
+                  value={draft.label}
+                />
+              </Field>
+              <Field label="URL">
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  onChangeText={(url) =>
+                    setDraft((current) =>
+                      current ? { ...current, url } : current,
+                    )
+                  }
+                  placeholder="https://example.com/mcp"
+                  value={draft.url}
+                />
+              </Field>
+              <View className="flex-row gap-sp-2">
+                <SegmentButton
+                  active={draft.transport === "http"}
+                  label="HTTP"
+                  onPress={() =>
+                    setDraft((current) =>
+                      current ? { ...current, transport: "http" } : current,
+                    )
+                  }
+                />
+                <SegmentButton
+                  active={draft.transport === "sse"}
+                  label="SSE"
+                  onPress={() =>
+                    setDraft((current) =>
+                      current ? { ...current, transport: "sse" } : current,
+                    )
+                  }
+                />
+              </View>
+              <View className="gap-sp-1">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Authentication
+                </Text>
+                <Pressable
+                  accessibilityLabel={`Authentication ${authModeLabel(draft.authMode)}`}
+                  accessibilityRole="button"
+                  className="min-h-12 flex-row items-center justify-between rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
+                  onPress={() => setPage(1)}
+                >
+                  <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                    {authModeLabel(draft.authMode)}
+                  </Text>
+                  <ChevronRight color={theme.textSecondary} size={20} />
+                </Pressable>
+              </View>
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: draft.enabled }}
+                className="min-h-12 flex-row items-center justify-between gap-sp-3"
                 onPress={() =>
                   setDraft((current) =>
-                    current ? { ...current, authMode } : current,
+                    current ? { ...current, enabled: !current.enabled } : current,
                   )
                 }
-              />
-            ))}
-          </View>
-          {draft.authMode === "headers" ? (
-            <Field
-              label={
-                targetServer?.headerNames.length
-                  ? `Headers (${targetServer.headerNames.join(", ")})`
-                  : "Headers"
-              }
-            >
-              <Textarea
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={(headerText) =>
-                  setDraft((current) =>
-                    current ? { ...current, headerText } : current,
-                  )
-                }
-                placeholder={
-                  draft.headerPlaceholder || "Authorization: Bearer token"
-                }
-                value={draft.headerText}
-              />
-            </Field>
-          ) : null}
-          {draft.authMode === "oauth" ? (
-            <>
-              <Button
-                onPress={() => setShowAdvancedOAuth((current) => !current)}
-                size="sm"
-                variant="outline"
               >
-                {showAdvancedOAuth
-                  ? "Hide advanced OAuth"
-                  : "Show advanced OAuth"}
-              </Button>
-              {showAdvancedOAuth ? (
-                <>
-                  <OptionalInput
-                    label="Client ID"
-                    onChangeText={(oauthClientId) =>
-                      setDraft((current) =>
-                        current ? { ...current, oauthClientId } : current,
-                      )
-                    }
-                    placeholder="Use this if the server requires a pre-registered app"
-                    value={draft.oauthClientId}
-                  />
-                  <OptionalInput
-                    keyboardType="url"
-                    label="Authorization URL"
-                    onChangeText={(oauthAuthorizationUrl) =>
-                      setDraft((current) =>
-                        current
-                          ? { ...current, oauthAuthorizationUrl }
-                          : current,
-                      )
-                    }
-                    placeholder="Override discovery only when needed"
-                    value={draft.oauthAuthorizationUrl}
-                  />
-                  <OptionalInput
-                    keyboardType="url"
-                    label="Token URL"
-                    onChangeText={(oauthTokenUrl) =>
-                      setDraft((current) =>
-                        current ? { ...current, oauthTokenUrl } : current,
-                      )
-                    }
-                    placeholder="Override discovery only when needed"
-                    value={draft.oauthTokenUrl}
-                  />
-                  <OptionalInput
-                    label="Scopes"
-                    onChangeText={(oauthScopes) =>
-                      setDraft((current) =>
-                        current ? { ...current, oauthScopes } : current,
-                      )
-                    }
-                    placeholder="openid profile offline_access"
-                    value={draft.oauthScopes}
-                  />
-                  <OptionalInput
-                    keyboardType="url"
-                    label="Allowed auth origin"
-                    onChangeText={(oauthAllowedAuthOrigin) =>
-                      setDraft((current) =>
-                        current
-                          ? { ...current, oauthAllowedAuthOrigin }
-                          : current,
-                      )
-                    }
-                    placeholder="Restrict discovery to this auth origin"
-                    value={draft.oauthAllowedAuthOrigin}
-                  />
-                </>
-              ) : null}
-            </>
-          ) : null}
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityState={{ checked: draft.enabled }}
-            className="min-h-12 flex-row items-center justify-between gap-sp-3"
-            onPress={() =>
-              setDraft((current) =>
-                current ? { ...current, enabled: !current.enabled } : current,
-              )
-            }
-          >
-            <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-              Enabled
-            </Text>
-            <View pointerEvents="none">
-              <Checkbox checked={draft.enabled} onCheckedChange={() => {}} />
+                <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                  Enabled
+                </Text>
+                <View pointerEvents="none">
+                  <Checkbox checked={draft.enabled} onCheckedChange={() => {}} />
+                </View>
+              </Pressable>
             </View>
+          ) : !error ? (
+            <Card className="px-sp-4 py-sp-4">
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                Loading server configuration…
+              </Text>
+            </Card>
+          ) : null}
+
+          {error ? (
+            <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+              {error}
+            </Text>
+          ) : null}
+
+          {draft ? (
+            <Button
+              loading={busy}
+              onPress={() => {
+                setBusy(true);
+                setError(null);
+                save()
+                  .catch((saveError) => {
+                    setError(
+                      saveError instanceof Error
+                        ? saveError.message
+                        : "Could not save the MCP server.",
+                    );
+                  })
+                  .finally(() => setBusy(false));
+              }}
+            >
+              Save
+            </Button>
+          ) : null}
+            </View>
+          </DrawerBody>
+      </DrawerPagerPage>
+
+      <DrawerPagerPage>
+        <DrawerHeader className="flex-row items-center gap-sp-2">
+          <Pressable
+            accessibilityLabel="Back to server"
+            className="h-9 w-9 items-center justify-center rounded-full"
+            onPress={() => setPage(0)}
+          >
+            <ChevronLeft color={theme.text} size={22} />
           </Pressable>
-        </Card>
-      ) : !error ? (
-        <Card className="px-sp-4 py-sp-4">
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            Loading server configuration…
-          </Text>
-        </Card>
-      ) : null}
-
-      {error ? (
-        <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-          {error}
-        </Text>
-      ) : null}
-
-      {draft ? (
-        <Button
-          loading={busy}
-          onPress={() => {
-            setBusy(true);
-            setError(null);
-            save()
-              .catch((saveError) => {
-                setError(
-                  saveError instanceof Error
-                    ? saveError.message
-                    : "Could not save the MCP server.",
+          <DrawerTitle>Authentication</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody contentContainerClassName="pb-sp-4">
+        <View className="gap-sp-4">
+          {draft ? (
+            <View className="gap-sp-3">
+              {AUTH_OPTIONS.map((option) => {
+                const selected = draft.authMode === option.value;
+                return (
+                  <DrawerOptionRow
+                    key={option.value}
+                    label={option.label}
+                    onPress={() =>
+                      setDraft((current) =>
+                        current ? { ...current, authMode: option.value } : current,
+                      )
+                    }
+                    selected={selected}
+                    subtitle={option.subtitle}
+                  />
                 );
-              })
-              .finally(() => setBusy(false));
-          }}
-        >
-          Save
-        </Button>
-      ) : null}
-    </View>
+              })}
+              {draft.authMode === "headers" ? (
+                <Field
+                  label={
+                    targetServer?.headerNames.length
+                      ? `Headers (${targetServer.headerNames.join(", ")})`
+                      : "Headers"
+                  }
+                >
+                  <Textarea
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onChangeText={(headerText) =>
+                      setDraft((current) =>
+                        current ? { ...current, headerText } : current,
+                      )
+                    }
+                    placeholder={
+                      draft.headerPlaceholder || "Authorization: Bearer token"
+                    }
+                    value={draft.headerText}
+                  />
+                </Field>
+              ) : null}
+              {draft.authMode === "oauth" ? (
+                <AdvancedOauthRow onPress={() => setPage(2)} />
+              ) : null}
+            </View>
+          ) : null}
+          <Button onPress={() => setPage(0)}>Done</Button>
+        </View>
+        </DrawerBody>
+      </DrawerPagerPage>
+
+      <DrawerPagerPage>
+        <DrawerHeader className="flex-row items-center gap-sp-2">
+          <Pressable
+            accessibilityLabel="Back to authentication"
+            className="h-9 w-9 items-center justify-center rounded-full"
+            onPress={() => setPage(1)}
+          >
+            <ChevronLeft color={theme.text} size={22} />
+          </Pressable>
+          <DrawerTitle>Advanced OAuth</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody contentContainerClassName="pb-sp-4">
+        <View className="gap-sp-4">
+          {draft ? (
+            <View className="gap-sp-3">
+              <OptionalInput
+                label="Client ID"
+                onChangeText={(oauthClientId) =>
+                  setDraft((current) =>
+                    current ? { ...current, oauthClientId } : current,
+                  )
+                }
+                placeholder="Use this if the server requires a pre-registered app"
+                value={draft.oauthClientId}
+              />
+              <OptionalInput
+                keyboardType="url"
+                label="Authorization URL"
+                onChangeText={(oauthAuthorizationUrl) =>
+                  setDraft((current) =>
+                    current ? { ...current, oauthAuthorizationUrl } : current,
+                  )
+                }
+                placeholder="Override discovery only when needed"
+                value={draft.oauthAuthorizationUrl}
+              />
+              <OptionalInput
+                keyboardType="url"
+                label="Token URL"
+                onChangeText={(oauthTokenUrl) =>
+                  setDraft((current) =>
+                    current ? { ...current, oauthTokenUrl } : current,
+                  )
+                }
+                placeholder="Override discovery only when needed"
+                value={draft.oauthTokenUrl}
+              />
+              <OptionalInput
+                label="Scopes"
+                onChangeText={(oauthScopes) =>
+                  setDraft((current) =>
+                    current ? { ...current, oauthScopes } : current,
+                  )
+                }
+                placeholder="openid profile offline_access"
+                value={draft.oauthScopes}
+              />
+              <OptionalInput
+                keyboardType="url"
+                label="Allowed auth origin"
+                onChangeText={(oauthAllowedAuthOrigin) =>
+                  setDraft((current) =>
+                    current ? { ...current, oauthAllowedAuthOrigin } : current,
+                  )
+                }
+                placeholder="Restrict discovery to this auth origin"
+                value={draft.oauthAllowedAuthOrigin}
+              />
+            </View>
+          ) : null}
+          <Button onPress={() => setPage(1)}>Done</Button>
+        </View>
+        </DrawerBody>
+      </DrawerPagerPage>
+    </DrawerPager>
+  );
+}
+
+function AdvancedOauthRow({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      className="min-h-12 flex-row items-center justify-between gap-sp-3 rounded-ui border border-border bg-input px-sp-3 dark:border-border-dark dark:bg-input-dark"
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.86 } : null)}
+    >
+      <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+        Advanced OAuth
+      </Text>
+      <ChevronRight color={theme.textSecondary} size={18} />
+    </Pressable>
   );
 }
 
@@ -495,5 +591,45 @@ function OptionalInput({
         value={value}
       />
     </Field>
+  );
+}
+
+function DrawerOptionRow({
+  label,
+  onPress,
+  selected = false,
+  subtitle,
+}: {
+  label: string;
+  onPress: () => void;
+  selected?: boolean;
+  subtitle?: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      className={cn(
+        "min-h-14 flex-row items-center gap-sp-3 rounded-ui border px-sp-4 py-sp-3",
+        selected
+          ? "border-foreground bg-secondary dark:border-foreground-dark dark:bg-secondary-dark"
+          : "border-border bg-background dark:border-border-dark dark:bg-background-dark",
+      )}
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.86 } : null)}
+    >
+      <View className="flex-1 gap-1">
+        <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+          {label}
+        </Text>
+        {subtitle ? (
+          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {selected ? <Check color={theme.text} size={18} /> : null}
+    </Pressable>
   );
 }

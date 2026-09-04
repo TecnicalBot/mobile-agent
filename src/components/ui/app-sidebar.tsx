@@ -40,6 +40,7 @@ import {
   PinOff,
   Settings2,
   Trash2,
+  Users,
 } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -54,6 +55,7 @@ export function AppSidebar() {
   const router = useRouter();
   const settingsActive =
     pathname === "/settings" || pathname.startsWith("/settings/");
+  const agentsActive = pathname === "/settings/agents";
   const { hydrating } = useAppState();
   const {
     conversations,
@@ -187,12 +189,11 @@ export function AppSidebar() {
           </SidebarClose>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup className="pb-sp-2">
-            <SidebarMenu className="gap-0">
+          <SidebarGroup>
+            <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarClose asChild>
                   <SidebarMenuButton
-                    className="min-h-10 rounded-lg !px-0 !py-sp-1"
                     isActive={pathname === "/library"}
                     leftIcon={
                       <Library
@@ -201,24 +202,34 @@ export function AppSidebar() {
                             ? theme.background
                             : theme.text
                         }
-                        size={24}
-                        strokeWidth={2.25}
+                        size={20}
                       />
                     }
                     onPress={() => {
                       router.push("/library");
                     }}
                   >
-                    <Text
-                      className={cn(
-                        "font-sans text-lg font-semibold",
-                        pathname === "/library"
-                          ? "text-background dark:text-background-dark"
-                          : "text-foreground dark:text-foreground-dark",
-                      )}
-                    >
-                      Library
-                    </Text>
+                    Library
+                  </SidebarMenuButton>
+                </SidebarClose>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarClose asChild>
+                  <SidebarMenuButton
+                    isActive={agentsActive}
+                    leftIcon={
+                      <Users
+                        color={
+                          agentsActive ? theme.background : theme.text
+                        }
+                        size={20}
+                      />
+                    }
+                    onPress={() => {
+                      router.push("/settings/agents");
+                    }}
+                  >
+                    Agents
                   </SidebarMenuButton>
                 </SidebarClose>
               </SidebarMenuItem>
@@ -263,14 +274,14 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
-          <View className="border-t border-border pt-sp-3 dark:border-border-dark">
+          <View className="rounded-2xl bg-secondary px-sp-1 py-sp-1 dark:bg-secondary-dark">
             <SidebarClose asChild>
               <SidebarMenuButton
                 isActive={settingsActive}
                 leftIcon={
                   <Settings2
                     color={settingsActive ? theme.background : theme.text}
-                    size={16}
+                    size={20}
                   />
                 }
                 onPress={() => {

@@ -9,14 +9,7 @@ import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
@@ -216,24 +209,16 @@ export default function McpCatalogScreen() {
       ) : null}
 
       <Drawer onOpenChange={setSetupDrawerOpen} open={setupDrawerOpen}>
-        <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>Set up MCP server</DrawerTitle>
-            <DrawerDescription>
-              Review the connection and authentication settings before adding
-              this server.
-            </DrawerDescription>
-          </DrawerHeader>
-          <DrawerBody contentContainerClassName="pb-sp-4">
-            <McpServerForm
-              key={setupPresetId ?? "custom"}
-              onSaved={() => {
-                setSetupDrawerOpen(false);
-                router.replace("/settings/mcp/connected" as never);
-              }}
-              presetId={setupPresetId ?? undefined}
-            />
-          </DrawerBody>
+        <DrawerContent contentClassName="overflow-hidden" showCloseButton showHandle>
+          <McpServerForm
+            key={setupPresetId ?? "custom"}
+            onSaved={() => {
+              setSetupDrawerOpen(false);
+              router.replace("/settings/mcp/connected" as never);
+            }}
+            presetId={setupPresetId ?? undefined}
+            title="Set up MCP server"
+          />
         </DrawerContent>
       </Drawer>
     </Container>

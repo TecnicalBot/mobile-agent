@@ -403,7 +403,7 @@ export default function Screen() {
               <SidebarTrigger accessibilityLabel="Open sidebar" />
               <Button
                 accessibilityLabel="New chat"
-                onPress={createConversation}
+                onPress={() => { createConversation().catch(console.error); }}
                 size="icon"
                 variant="ghost"
               >

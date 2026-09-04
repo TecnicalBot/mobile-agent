@@ -9,14 +9,7 @@ import { McpServerForm } from "@/components/settings/mcp/mcp-server-form";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppState } from "@/hooks/use-app-state";
@@ -167,21 +160,12 @@ export default function ConnectedMcpServersScreen() {
 
       <Drawer onOpenChange={setSetupDrawerOpen} open={setupDrawerOpen}>
         <DrawerContent showCloseButton showHandle>
-          <DrawerHeader>
-            <DrawerTitle>
-              {editServerId ? "Edit MCP server" : "Add MCP server"}
-            </DrawerTitle>
-            <DrawerDescription>
-              Review the connection and authentication settings before saving.
-            </DrawerDescription>
-          </DrawerHeader>
-          <DrawerBody contentContainerClassName="pb-sp-4">
-            <McpServerForm
-              key={editServerId ?? "custom"}
-              onSaved={() => setSetupDrawerOpen(false)}
-              serverId={editServerId ?? undefined}
-            />
-          </DrawerBody>
+          <McpServerForm
+            key={editServerId ?? "custom"}
+            onSaved={() => setSetupDrawerOpen(false)}
+            serverId={editServerId ?? undefined}
+            title={editServerId ? "Edit MCP server" : "Add MCP server"}
+          />
         </DrawerContent>
       </Drawer>
     </Container>

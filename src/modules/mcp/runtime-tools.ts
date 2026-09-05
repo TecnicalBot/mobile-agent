@@ -157,29 +157,6 @@ function alternateTransport(
 }
 
 const MCP_CONNECTION_TIMEOUT_MS = 10_000;
-const TERMUX_AUTO_AWAIT_TIMEOUT_MS = 60_000;
-const TERMUX_AUTO_AWAIT_POLL_MS = 1_000;
-
-const TERMINAL_STATES = new Set([
-  "finished",
-  "failed",
-  "stopped",
-  "interrupted",
-]);
-
-const sleep = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal?.reason ?? new Error("Aborted"));
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-  });
 
 function waitForMcpOperation<T>(
   operation: Promise<T>,
@@ -418,88 +395,6 @@ function extractTaskId(output: unknown): string {
   return visit(output) || visit(mcpTextOutput(output));
 }
 
-type AwaitTaskOutput = {
-  log: string;
-  state: string | null;
-  timedOut: boolean;
-};
-
-function parseMcpJson(output: unknown): Record<string, unknown> | null {
-  const text = mcpTextOutput(output);
-  if (!text.trim()) return null;
-
-  try {
-    const value = JSON.parse(text) as unknown;
-    return value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function awaitTermuxTaskOutput(
-  client: MCPClient,
-  taskId: string,
-  signal?: AbortSignal,
-): Promise<AwaitTaskOutput> {
-  const deadline = Date.now() + TERMUX_AUTO_AWAIT_TIMEOUT_MS;
-
-  const status = async (): Promise<Record<string, unknown> | null> => {
-    try {
-      const result = await client.callTool({
-        name: "task_status",
-        arguments: { id: taskId },
-      });
-      console.info("[TermuxTask] status raw", taskId, JSON.stringify(result));
-      if (result?.isError) return null;
-      const parsed = parseMcpJson(result);
-      if (!parsed) console.info("[TermuxTask] status parse FAILED", taskId);
-      return parsed;
-    } catch (error) {
-      console.info("[TermuxTask] status ERROR", taskId, String(error));
-      return null;
-    }
-  };
-
-  let info = await status();
-  let state = info && typeof info.state === "string" ? info.state : null;
-  console.info("[TermuxTask] awaiting", taskId, state);
-
-  let polls = 0;
-  while (
-    !signal?.aborted &&
-    Date.now() < deadline &&
-    (!state || !TERMINAL_STATES.has(state))
-  ) {
-    await sleep(TERMUX_AUTO_AWAIT_POLL_MS, signal);
-    info = await status();
-    polls += 1;
-    state = info && typeof info.state === "string" ? info.state : state;
-  }
-
-  let log = "";
-  try {
-    const result = await client.callTool({
-      name: "task_log",
-      arguments: { id: taskId, stream: "all" },
-    });
-    console.info("[TermuxTask] log raw", taskId, JSON.stringify(result));
-    if (!result?.isError) log = mcpTextOutput(result);
-  } catch (error) {
-    console.info("[TermuxTask] log ERROR", taskId, String(error));
-  }
-
-  const timedOut = !state || !TERMINAL_STATES.has(state);
-  console.info("[TermuxTask] settled", taskId, state, {
-    polls,
-    logLength: log.length,
-    timedOut,
-  });
-
-  return { log, state: state ?? null, timedOut };
-}
-
 async function runWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -601,6 +496,7 @@ export async function createMcpRuntimeTools(params: {
         ]),
       );
       const prefix = createToolPrefix(server);
+      let isTermuxServer = false;
 
       for (const [toolName, toolDefinition] of Object.entries(mcpTools)) {
         if (
@@ -620,6 +516,7 @@ export async function createMcpRuntimeTools(params: {
 
         const isTermux =
           /termux/i.test(server.label) || toolName === "execute_command";
+        if (isTermux) isTermuxServer = true;
         displayNames.set(prefixedName, displayName);
 
         toolEntries.push([
@@ -656,68 +553,21 @@ export async function createMcpRuntimeTools(params: {
                   console.info("[TermuxTask] started", toolName, taskId);
                 }
 
-                if (termux && taskId) {
-                  params.onRecord?.(
-                    createRecord({
-                      id: executionId,
-                      toolName: displayName,
-                      status: "running",
-                      inputSummary,
-                      outputSummary: summarizeMcpOutput(output),
-                      termux: { ...termux, taskId },
-                    }),
-                  );
-                }
-
-                let awaited: AwaitTaskOutput | null = null;
-                if (taskId && client) {
-                  awaited = await awaitTermuxTaskOutput(
-                    client,
-                    taskId,
-                    params.signal,
-                  );
-                }
-
                 const termuxResult = termux
                   ? {
                       ...termux,
-                      output: awaited?.log ?? null,
+                      output: null,
                       taskId: taskId || null,
                     }
                   : null;
-
-                const initialTask = parseMcpJson(output) ?? {};
-                const finalOutput =
-                  termux && awaited
-                    ? {
-                        content: [
-                          {
-                            type: "text" as const,
-                            text: JSON.stringify({
-                              ...initialTask,
-                              id: taskId,
-                              state: awaited.state ?? initialTask.state,
-                              output: awaited.log,
-                              ...(awaited.timedOut
-                                ? {
-                                    note: `Task is still running after ${Math.round(
-                                      TERMUX_AUTO_AWAIT_TIMEOUT_MS / 1000,
-                                    )}s.`,
-                                  }
-                                : {}),
-                            }),
-                          },
-                        ],
-                      }
-                    : output;
 
                 params.onRecord?.(
                   createRecord({
                     id: executionId,
                     toolName: displayName,
-                    status: termuxResult && awaited?.timedOut ? "running" : "completed",
+                    status: termux ? "running" : "completed",
                     inputSummary,
-                    outputSummary: summarizeMcpOutput(finalOutput),
+                    outputSummary: summarizeMcpOutput(output),
                     termux: termuxResult ?? undefined,
                   }),
                 );
@@ -726,12 +576,10 @@ export async function createMcpRuntimeTools(params: {
                   console.info(
                     "[TermuxTask] returning to model",
                     taskId,
-                    awaited?.state,
-                    awaited?.log.length ?? 0,
                   );
                 }
 
-                return finalOutput;
+                return output;
               } catch (error) {
                 params.onRecord?.(
                   createRecord({
@@ -756,6 +604,18 @@ export async function createMcpRuntimeTools(params: {
           [`MCP server: ${server.label}`, client.instructions.trim()].join(
             "\n",
           ),
+        );
+      }
+
+      if (isTermuxServer) {
+        instructions.push(
+          `MCP server: ${server.label} — Background commands:\n` +
+          `- execute_command returns a task id immediately. The task runs in the background.\n` +
+          `- Use task_status to check if the task is still running, finished, or failed.\n` +
+          `- Use task_log to retrieve the task's combined output.\n` +
+          `- Keep polling task_status and task_log until the task reaches a terminal state (finished/failed/stopped/interrupted), then report the result to the user.\n` +
+          `- stop_task terminates a running task; task_delete removes a task record.\n` +
+          `- Tasks require root access if using su commands.`,
         );
       }
 

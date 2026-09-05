@@ -1266,7 +1266,10 @@ export const ChatMessage = memo(function ChatMessage({
                       {termuxRuns.map((run) => (
                         <TermuxRunCard
                           command={run.termux!.command}
-                          running={run.status === "running"}
+                          running={
+                            run.status === "running" &&
+                            message.status === "streaming"
+                          }
                           key={run.createdAt + (run.termux!.taskId ?? "sync")}
                           output={run.termux!.output}
                           taskId={run.termux!.taskId}

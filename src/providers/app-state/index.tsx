@@ -533,8 +533,11 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
     const coldStartRef = useRef(true);
+    const pendingAgentRunIdsRef = useRef<string[]>([]);
     const executeAgentRunRef = useRef<(runId: string) => Promise<void>>(
-        async () => {},
+        async (runId) => {
+            pendingAgentRunIdsRef.current.push(runId);
+        },
     );
     const schedulerEngineRef = useRef<ReturnType<typeof createSchedulerEngine> | null>(
         null,
@@ -3195,10 +3198,50 @@ Your output must be:
         [hydrate],
     );
 
-    async function executeAgentRun(runId: string) {
-        if (!runRegistryRef.current.claim(runId)) {
+    async function failOrphanedStreamingMessage(
+        runId: string,
+        errorMessage: string,
+    ) {
+        const run =
+            await repositoriesRef.current.agentRunRepository.getById(runId);
+        if (!run) {
             return;
         }
+        console.error("[failOrphanedStreamingMessage] failing orphaned stream", {
+            runId,
+            assistantMessageId: run.assistantMessageId,
+        });
+        await repositoriesRef.current.messageRepository.updateContent({
+            id: run.assistantMessageId,
+            content: "",
+            error: errorMessage,
+            status: "failed",
+        });
+        setSnapshot((current) => ({
+            ...current,
+            messages:
+                current.currentConversation?.id === run.conversationId
+                    ? current.messages.map((message) =>
+                          message.id === run.assistantMessageId &&
+                          message.status === "streaming"
+                              ? {
+                                    ...message,
+                                    content: "",
+                                    error: errorMessage,
+                                    status: "failed" as const,
+                                }
+                              : message,
+                      )
+                    : current.messages,
+        }));
+    }
+
+    async function executeAgentRun(runId: string) {
+        if (!runRegistryRef.current.claim(runId)) {
+            console.log("[executeAgentRun] claim refused", { runId });
+            return;
+        }
+        console.log("[executeAgentRun] claimed", { runId });
 
         try {
             const ui = createRunUiPublisher({
@@ -3237,12 +3280,29 @@ Your output must be:
             };
 
             await executeClaimedAgentRun(runId, deps);
+            console.log("[executeAgentRun] run finished (no throw)", { runId });
         } catch (error) {
+            console.error("[executeAgentRun] run threw", { runId, error });
             runRegistryRef.current.clear(runId);
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : "The run terminated unexpectedly. Send again to retry.";
+            await failOrphanedStreamingMessage(runId, errorMessage).catch(
+                () => {},
+            );
             throw error;
         }
     }
     executeAgentRunRef.current = executeAgentRun;
+
+    useEffect(() => {
+        const pendingRunIds = pendingAgentRunIdsRef.current;
+        pendingAgentRunIdsRef.current = [];
+        for (const pendingRunId of pendingRunIds) {
+            void executeAgentRunRef.current(pendingRunId).catch(() => {});
+        }
+    });
 
     async function retryRun(runId: string) {
         const run = snapshotRef.current.agentRuns.find((r) => r.id === runId);
@@ -3901,6 +3961,10 @@ Your output must be:
         );
 
         void executeAgentRunRef.current(agentRun.id).catch((runError) => {
+            console.error("[sendMessage] run dispatch failed", {
+                runId: agentRun.id,
+                error: runError,
+            });
             setError(
                 runError instanceof Error ? runError.message : "Failed to start run.",
             );

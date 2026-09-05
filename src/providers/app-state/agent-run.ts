@@ -255,6 +255,13 @@ export async function executeClaimedAgentRun(
     return;
   }
 
+  console.log("[agent-run] started", {
+    runId: run.id,
+    status: run.status,
+    providerId: run.providerId,
+    modelId: run.modelId,
+  });
+
   const reportProjectionFailure = (context: string, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : null;
@@ -281,6 +288,70 @@ export async function executeClaimedAgentRun(
     }
   };
 
+  const failAssistantMessage = async (
+    message: StoredMessage,
+    error: string,
+  ) => {
+    try {
+      console.error("[agent-run] failing assistant message", {
+        runId: run.id,
+        assistantMessageId: message.id,
+        error,
+      });
+      await repositories.messageRepository.updateContent({
+        id: message.id,
+        content: message.content,
+        error,
+        metadata: message.metadata,
+        status: "failed",
+      });
+      ui.publishSnapshot(
+        (current) => ({
+          ...current,
+          messages:
+            current.currentConversation?.id === run.conversationId
+              ? upsertMessages(current.messages, [
+                  {
+                    ...message,
+                    error,
+                    status: "failed",
+                  },
+                ])
+              : current.messages,
+        }),
+        { force: true },
+      );
+      ui.publishError(error);
+    } catch (messageError) {
+      console.warn("Failed to mark assistant message as failed.", messageError);
+    }
+  };
+
+  const failAssistantMessageForRun = async (
+    run2: AgentRun,
+    error: string,
+  ) => {
+    try {
+      const persistedMessages =
+        await repositories.messageRepository.listByConversation(
+          run2.conversationId,
+        );
+      const orphaned = persistedMessages.find(
+        (message) =>
+          message.id === run2.assistantMessageId ||
+          message.status === "streaming",
+      );
+      if (orphaned) {
+        await failAssistantMessage(orphaned, error);
+      }
+    } catch (lookupError) {
+      console.warn(
+        "Failed to locate assistant message for cleanup.",
+        lookupError,
+      );
+    }
+  };
+
   const conversation =
     snapshotRef.current.conversations.find(
       (item) => item.id === run.conversationId,
@@ -288,6 +359,7 @@ export async function executeClaimedAgentRun(
     (await repositories.conversationRepository.getById(run.conversationId));
 
   if (!conversation) {
+    await failAssistantMessageForRun(run, "Chat not found.");
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: "Chat not found.",
@@ -309,6 +381,10 @@ export async function executeClaimedAgentRun(
   );
 
   if (!provider) {
+    await failAssistantMessageForRun(
+      run,
+      `Provider ${run.providerId} is unavailable.`,
+    );
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: `Provider ${run.providerId} is unavailable.`,
@@ -333,6 +409,10 @@ export async function executeClaimedAgentRun(
     });
 
   if (!resolvedModel) {
+    await failAssistantMessageForRun(
+      run,
+      `Model ${run.modelId} is unavailable for ${provider.label}.`,
+    );
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: `Model ${run.modelId} is unavailable for ${provider.label}.`,
@@ -393,6 +473,12 @@ export async function executeClaimedAgentRun(
   );
 
   if (!assistantMessage) {
+    const orphanedMessage = persistedMessages.find(
+      (message) => message.status === "streaming",
+    );
+    if (orphanedMessage) {
+      await failAssistantMessage(orphanedMessage, "Assistant message not found.");
+    }
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
       lastError: "Assistant message not found.",
@@ -409,6 +495,11 @@ export async function executeClaimedAgentRun(
   };
   const startingAssistantText =
     run.status === "resumable" ? "" : assistantMessage.content;
+
+  console.log("[agent-run] setting message to streaming", {
+    runId: run.id,
+    assistantMessageId: assistantMessage.id,
+  });
 
   await repositories.messageRepository.updateContent({
     id: assistantMessage.id,
@@ -441,12 +532,17 @@ export async function executeClaimedAgentRun(
       ),
     ),
   );
-  const selectedWorkspaceFiles =
-    referencedWorkspaceFileIds.length > 0
-      ? await repositories.workspaceRepository.getByIds(
+  let selectedWorkspaceFiles: WorkspaceFile[] = [];
+  if (referencedWorkspaceFileIds.length > 0) {
+    try {
+      selectedWorkspaceFiles =
+        await repositories.workspaceRepository.getByIds(
           referencedWorkspaceFileIds,
-        )
-      : [];
+        );
+    } catch (workspaceError) {
+      console.warn("Failed to load workspace files for run.", workspaceError);
+    }
+  }
   const workspaceFilesById = new Map(
     selectedWorkspaceFiles.map((file) => [file.id, file]),
   );
@@ -456,14 +552,26 @@ export async function executeClaimedAgentRun(
   const { binaryFiles, imageFiles } = partitionSelectedFiles(
     currentRunWorkspaceFiles,
   );
-  const onDevicePolicy = await resolveOnDeviceRuntimePolicy(resolvedModel);
+  const onDevicePolicy = await resolveOnDeviceRuntimePolicy(resolvedModel).catch(
+    (policyError) => {
+      console.warn("Failed to resolve on-device runtime policy.", policyError);
+      return {
+        contextWindow: null,
+        memoryConstrained: false,
+        toolsEnabled: false,
+        toolsMode: "auto" as const,
+      };
+    },
+  );
   const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
+    const errorMessage =
+      "The current model does not support image input. Switch to a vision-capable model to send images.";
+    await failAssistantMessage(assistantMessage, errorMessage);
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
-      lastError:
-        "The current model does not support image input. Switch to a vision-capable model to send images.",
+      lastError: errorMessage,
       status: "failed",
     });
     runRegistry.clear(runId);
@@ -471,31 +579,54 @@ export async function executeClaimedAgentRun(
   }
 
   if (binaryFiles.length > 0 && !runtimeSupportsTools) {
+    const errorMessage =
+      onDevicePolicy.memoryConstrained && onDevicePolicy.toolsMode === "auto"
+        ? "Tools are off in memory-safe mode. Enable tools for this model, then try the attachment again."
+        : "Binary file attachments require a tool-capable model for this chat.";
+    await failAssistantMessage(assistantMessage, errorMessage);
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
-      lastError:
-        onDevicePolicy.memoryConstrained && onDevicePolicy.toolsMode === "auto"
-          ? "Tools are off in memory-safe mode. Enable tools for this model, then try the attachment again."
-          : "Binary file attachments require a tool-capable model for this chat.",
+      lastError: errorMessage,
       status: "failed",
     });
     runRegistry.clear(runId);
     return;
   }
 
-  const runtimeMessageResult = await convertStoredMessagesToModelMessages({
-    messages: persistedMessages.filter(
-      (message) => message.id !== assistantMessage.id,
-    ),
-    supportsImageInput: resolvedModel.supportsImageInput,
-    workspaceFilesById,
-  });
-
-  if (runtimeMessageResult.unsupportedImageAttachments.length > 0) {
+  let runtimeMessageResult: Awaited<
+    ReturnType<typeof convertStoredMessagesToModelMessages>
+  >;
+  try {
+    runtimeMessageResult = await convertStoredMessagesToModelMessages({
+      messages: persistedMessages.filter(
+        (message) => message.id !== assistantMessage.id,
+      ),
+      supportsImageInput: resolvedModel.supportsImageInput,
+      workspaceFilesById,
+    });
+  } catch (conversionError) {
+    const errorMessage =
+      conversionError instanceof Error
+        ? conversionError.message
+        : "Unable to prepare your conversation for the model.";
+    console.warn("Failed to convert stored messages for the model.", conversionError);
+    await failAssistantMessage(assistantMessage, errorMessage);
     await safeUpdateRunRecord(run.id, {
       completedAt: new Date().toISOString(),
-      lastError:
-        "This conversation includes image attachments, but the current model cannot read images.",
+      lastError: errorMessage,
+      status: "failed",
+    });
+    runRegistry.clear(runId);
+    return;
+  }
+
+  if (runtimeMessageResult.unsupportedImageAttachments.length > 0) {
+    const errorMessage =
+      "This conversation includes image attachments, but the current model cannot read images.";
+    await failAssistantMessage(assistantMessage, errorMessage);
+    await safeUpdateRunRecord(run.id, {
+      completedAt: new Date().toISOString(),
+      lastError: errorMessage,
       status: "failed",
     });
     runRegistry.clear(runId);
@@ -1392,6 +1523,13 @@ export async function executeClaimedAgentRun(
             return result.text;
           };
 
+    console.log("[agent-run] preparing messages for LLM", {
+      runId: run.id,
+      messageCount: runtimeMessages.length,
+      providerId: run.providerId,
+      modelId: run.modelId,
+    });
+
     const contextResult = await prepareMessagesForLLMWithSummary({
       contextWindow: contextWindowFromCatalog,
       messages: runtimeMessages,
@@ -1442,6 +1580,12 @@ export async function executeClaimedAgentRun(
         createdAt: resumedRun?.startedAt ?? run.startedAt,
       }),
     );
+
+    console.log("[agent-run] starting model stream", {
+      runId: run.id,
+      providerId: run.providerId,
+      modelId: run.modelId,
+    });
 
     const runtimeResultPromise = modelRuntime.generateTextStream({
       abortSignal: abortController.signal,
@@ -1704,6 +1848,12 @@ export async function executeClaimedAgentRun(
       title: conversation.title,
     }).catch(() => {});
   } catch (sendError) {
+    console.error("[agent-run] executeClaimedAgentRun caught", {
+      runId: run.id,
+      providerId: run.providerId,
+      modelId: run.modelId,
+      error: sendError,
+    });
     await Promise.allSettled(pendingArtifactWrites);
     const requestAborted = abortController.signal.aborted;
     const errorMessage = requestAborted

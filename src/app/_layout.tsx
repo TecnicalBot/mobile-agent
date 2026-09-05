@@ -11,7 +11,14 @@ import {
   TOOL_APPROVAL_APPROVE_ACTION_ID,
   TOOL_APPROVAL_REJECT_ACTION_ID,
 } from "@/modules/notifications/run-notifications";
+import {
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from "@expo-google-fonts/geist";
 import * as Notifications from "expo-notifications";
+import { useFonts } from "expo-font";
 import {
   DarkTheme,
   DefaultTheme,
@@ -247,16 +254,34 @@ function ReleaseUpdateBanner() {
   );
 }
 
-function SplashScreenController() {
+function SplashScreenController({
+  ready,
+}: {
+  ready: boolean;
+}) {
   useEffect(() => {
-    SplashScreen.hide();
-  }, []);
+    if (ready) {
+      SplashScreen.hide();
+    }
+  }, [ready]);
 
   return null;
 }
 
 export default function MainLayout() {
   const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts({
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    Geist_700Bold,
+  });
+  const fontsReady = fontsLoaded || !!fontError;
+
+  if (!fontsReady) {
+    return null;
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
@@ -268,7 +293,7 @@ export default function MainLayout() {
             >
               <AppStateProvider>
                 <UpdateProvider>
-                  <SplashScreenController />
+                  <SplashScreenController ready={fontsReady} />
                   <NotificationObserver />
                   <InAppNotificationBanner />
                   <ReleaseUpdateBanner />

@@ -28,6 +28,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     max_retries INTEGER NOT NULL DEFAULT 3,
     last_retry_at TEXT,
     agent_mode TEXT NOT NULL DEFAULT 'build',
+    agent_id TEXT,
     auto_approve INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
   );
@@ -46,6 +47,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     timezone TEXT NOT NULL,
     provider_id TEXT NOT NULL,
     model_id TEXT NOT NULL,
+    agent_id TEXT,
     auto_approve INTEGER NOT NULL DEFAULT 1,
     enabled INTEGER NOT NULL DEFAULT 1,
     conversation_id TEXT,
@@ -136,6 +138,29 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
   let currentVersion = versionRow?.user_version ?? 0;
 
   await db.execAsync(CORE_SCHEMA_REPAIR_SQL);
+
+  const ensureAgentIdColumns = async () => {
+    const runColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(agent_runs)",
+    );
+    if (!runColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE agent_runs
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+
+    const scheduleColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(schedules)",
+    );
+    if (!scheduleColumns.some((column) => column.name === "agent_id")) {
+      await db.execAsync(`
+        ALTER TABLE schedules
+        ADD COLUMN agent_id TEXT;
+      `);
+    }
+  };
+  await ensureAgentIdColumns();
 
   if (currentVersion >= DATABASE_VERSION) {
     const conversationColumns = await db.getAllAsync<{ name: string }>(

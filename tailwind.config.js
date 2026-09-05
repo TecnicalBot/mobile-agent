@@ -47,7 +47,7 @@ module.exports = {
         "destructive-foreground-dark": Colors.dark.destructiveForeground,
       },
       fontFamily: {
-        sans: ["system-ui"],
+        sans: ["Geist_400Regular", "system-ui", "sans-serif"],
         serif: ["ui-serif"],
         rounded: ["ui-rounded"],
         mono: ["ui-monospace"],

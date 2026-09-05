@@ -8,6 +8,14 @@
             "android": {
                 "buildType": "apk"
             }
+        },
+        "development": {
+            "developmentClient": false,
+            "distribution": "internal",
+            "android": {
+                "buildType": "apk",
+                "gradleCommand": ":app:assembleDebug"
+            }
         }
     }
 }

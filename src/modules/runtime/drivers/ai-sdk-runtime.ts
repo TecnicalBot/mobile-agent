@@ -197,6 +197,8 @@ async function generateViaAISDKWithContinuation(
       void promise.catch(() => {});
     }
 
+    drainAllResultPromises(result);
+
     try {
       for await (const delta of result.textStream) {
         finalText += delta;
@@ -354,4 +356,49 @@ export async function generateViaAISDKNonStreaming(
       result.steps.length >= params.maxToolSteps &&
       result.steps.at(-1)?.finishReason === "tool-calls",
   };
+}
+
+// When the AI SDK stream fails it rejects every promise returned by the
+// `streamText` result getters. Attaching a no-op handler to each getter's
+// derived promise marks it handled so React Native doesn't surface these
+// secondary rejections as unhandled promise errors.
+function drainAllResultPromises(
+  result: unknown,
+) {
+  const promiseGetters = [
+    "rawFinishReason",
+    "reasoning",
+    "reasoningText",
+    "finalStep",
+    "content",
+    "providerMetadata",
+    "warnings",
+    "request",
+    "sources",
+    "toolCalls",
+    "staticToolCalls",
+    "dynamicToolCalls",
+    "staticToolResults",
+    "dynamicToolResults",
+    "response",
+    "finishReason",
+    "totalUsage",
+  ] as const;
+
+  const record = result as Record<string, unknown>;
+
+  for (const getterName of promiseGetters) {
+    try {
+      const value = record[getterName];
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        typeof (value as Promise<unknown>).catch === "function"
+      ) {
+        void (value as Promise<unknown>).catch(() => {});
+      }
+    } catch {
+      // Ignore getters that throw when the stream is already torn down.
+    }
+  }
 }

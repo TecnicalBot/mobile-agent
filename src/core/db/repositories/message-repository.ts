@@ -71,6 +71,7 @@ export function createMessageRepository(db: AppDatabase): MessageRepository {
           updatedAt: nowIso(),
         })
         .where(eq(messages.status, "streaming"));
+      console.warn("[message-repository] recoverInterruptedStreams applied");
     },
     async updateContent(input) {
       await db

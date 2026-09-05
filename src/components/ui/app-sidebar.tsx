@@ -167,7 +167,7 @@ export function AppSidebar() {
   return (
     <>
       <Sidebar>
-        <SidebarHeader className="min-h-8 flex-row items-center justify-between">
+        <SidebarHeader className="min-h-8 flex-row items-center justify-between pb-0">
           <Text className="font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark">
             Mobile Agent
           </Text>
@@ -190,10 +190,11 @@ export function AppSidebar() {
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
-            <SidebarMenu>
+            <SidebarMenu className="gap-1">
               <SidebarMenuItem>
                 <SidebarClose asChild>
                   <SidebarMenuButton
+                    className="!min-h-10 !px-0 !py-sp-1"
                     isActive={pathname === "/library"}
                     leftIcon={
                       <Library
@@ -209,13 +210,23 @@ export function AppSidebar() {
                       router.push("/library");
                     }}
                   >
-                    Library
+                    <Text
+                      className={cn(
+                        "font-sans text-lg font-medium",
+                        pathname === "/library"
+                          ? "text-background dark:text-background-dark"
+                          : "text-foreground dark:text-foreground-dark",
+                      )}
+                    >
+                      Library
+                    </Text>
                   </SidebarMenuButton>
                 </SidebarClose>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarClose asChild>
                   <SidebarMenuButton
+                    className="!min-h-10 !px-0 !py-sp-1"
                     isActive={agentsActive}
                     leftIcon={
                       <Users
@@ -229,7 +240,16 @@ export function AppSidebar() {
                       router.push("/settings/agents");
                     }}
                   >
-                    Agents
+                    <Text
+                      className={cn(
+                        "font-sans text-lg font-medium",
+                        agentsActive
+                          ? "text-background dark:text-background-dark"
+                          : "text-foreground dark:text-foreground-dark",
+                      )}
+                    >
+                      Agents
+                    </Text>
                   </SidebarMenuButton>
                 </SidebarClose>
               </SidebarMenuItem>
@@ -274,14 +294,14 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
-          <View className="rounded-2xl bg-secondary px-sp-1 py-sp-1 dark:bg-secondary-dark">
+          <View className="border-t border-border pt-sp-3 dark:border-border-dark">
             <SidebarClose asChild>
               <SidebarMenuButton
                 isActive={settingsActive}
                 leftIcon={
                   <Settings2
                     color={settingsActive ? theme.background : theme.text}
-                    size={20}
+                    size={16}
                   />
                 }
                 onPress={() => {

@@ -10,6 +10,7 @@
     "@ai-sdk/openai": "^4.0.5",
     "@ai-sdk/openai-compatible": "^3.0.12",
     "@ai-sdk/xai": "^4.0.16",
+    "@expo-google-fonts/geist": "^0.4.2",
     "@expo/metro-runtime": "^57.0.3",
     "@expo/ui": "~57.0.3",
     "@shopify/flash-list": "2.3.2",

@@ -480,6 +480,7 @@ export function buildAssistantMetadata(input: {
   promptArtifacts?: PromptArtifact[];
   reasoning?: ReasoningBlock[];
   runId?: string | null;
+  termuxRunAnchors?: import("@/core/types/app-state").TermuxRunAnchor[];
   todoList?: import("@/core/types/app-state").TodoListItem[];
   toolExecutions: ToolExecutionRecord[];
   usage?: ModelUsageSnapshot | null;
@@ -516,6 +517,10 @@ export function buildAssistantMetadata(input: {
 
   if (input.todoList && input.todoList.length > 0) {
     metadata.todoList = input.todoList;
+  }
+
+  if (input.termuxRunAnchors && input.termuxRunAnchors.length > 0) {
+    metadata.termuxRunAnchors = input.termuxRunAnchors;
   }
 
   if (input.toolExecutions.length > 0) {

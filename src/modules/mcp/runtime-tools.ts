@@ -482,22 +482,14 @@ async function awaitTermuxTaskOutput(
       });
       if (result?.isError) return null;
       return parseMcpJson(result);
-    } catch (error) {
-      console.info("[TermuxTask] status ERROR", taskId, String(error));
+    } catch {
       return null;
     }
   };
 
   let info = await status();
   let state = info && typeof info.state === "string" ? info.state : null;
-  console.info(
-    "[TermuxTask] awaiting",
-    taskId,
-    state,
-    deadline ? `until ${new Date(deadline).toISOString()}` : "",
-  );
 
-  let polls = 0;
   while (
     !signal?.aborted &&
     Date.now() < deadline &&
@@ -505,7 +497,6 @@ async function awaitTermuxTaskOutput(
   ) {
     await sleep(TERMUX_AWAIT_POLL_MS, signal);
     info = await status();
-    polls += 1;
     state = info && typeof info.state === "string" ? info.state : state;
   }
 
@@ -516,18 +507,10 @@ async function awaitTermuxTaskOutput(
       arguments: { id: taskId, stream: "all" },
     });
     if (!result?.isError) log = mcpTextOutput(result);
-  } catch (error) {
-    console.info("[TermuxTask] log ERROR", taskId, String(error));
-  }
+  } catch {}
 
   const timedOut = !state || !TERMINAL_STATES.has(state);
   const sanitized = sanitizeTermuxOutput(log, TERMUX_OUTPUT_MAX_CHARS);
-  console.info("[TermuxTask] settled", taskId, state, {
-    polls,
-    logLength: log.length,
-    sanitizedLength: sanitized.length,
-    timedOut,
-  });
 
   return { log: sanitized, state: state ?? null, timedOut };
 }
@@ -548,8 +531,7 @@ async function readTermuxTaskStatus(
       state: typeof info.state === "string" ? info.state : null,
       exitCode: typeof info.exit_code === "number" ? info.exit_code : null,
     };
-  } catch (error) {
-    console.info("[TermuxWatch] status ERROR", taskId, String(error));
+  } catch {
     return null;
   }
 }
@@ -587,16 +569,9 @@ async function watchTermuxTaskToCompletion(params: {
         arguments: { id: params.taskId, stream: "all" },
       });
       if (!result?.isError) log = mcpTextOutput(result);
-    } catch (error) {
-      console.info("[TermuxWatch] log ERROR", params.taskId, String(error));
-    }
+    } catch {}
 
     const output = sanitizeTermuxOutput(log, TERMUX_OUTPUT_MAX_CHARS);
-    console.info("[TermuxWatch] completed", params.taskId, {
-      exitCode,
-      state: state ?? null,
-      logLength: log.length,
-    });
 
     params.onComplete({
       command: params.command,
@@ -607,9 +582,7 @@ async function watchTermuxTaskToCompletion(params: {
       taskId: params.taskId,
       toolName: params.toolName,
     });
-  } catch (error) {
-    console.info("[TermuxWatch] failed", params.taskId, String(error));
-  } finally {
+  } catch {} finally {
     watchedTermuxTasks.delete(params.taskId);
     await client?.close().catch(() => {});
   }
@@ -678,26 +651,6 @@ export async function createMcpRuntimeTools(params: {
         client.listTools(),
         controller.signal,
       );
-      console.info(
-        "[MCPTools] names",
-        server.label,
-        JSON.stringify(rawDefinitions.tools.map((t) => t.name)),
-      );
-      for (const t of rawDefinitions.tools) {
-        const findEnum = (s: Record<string, unknown>, path = ""): void => {
-          if (s.properties && typeof s.properties === "object") {
-            for (const [k, v] of Object.entries(
-              s.properties as Record<string, unknown>,
-            )) {
-              if (v && typeof v === "object")
-                findEnum(v as Record<string, unknown>, `${path}.${k}`);
-            }
-          }
-          if (s.items && typeof s.items === "object")
-            findEnum(s.items as Record<string, unknown>, `${path}[*]`);
-        };
-        findEnum(t.inputSchema as Record<string, unknown>, "");
-      }
       const sanitizedDefinitions = {
         ...rawDefinitions,
         tools: rawDefinitions.tools.map((tool) => ({
@@ -759,10 +712,6 @@ export async function createMcpRuntimeTools(params: {
                 const output = await execute(toolInput, options as never);
                 const isShellTask = toolName === "execute_command";
                 const taskId = termux && isShellTask ? extractTaskId(output) : null;
-                if (termux) {
-                  console.info("[TermuxTask] started", toolName, taskId);
-                }
-
                 // Emit running record with taskId immediately so the pill
                 // and terminal screen can start streaming without waiting
                 // for the bounded await to finish.
@@ -852,15 +801,6 @@ export async function createMcpRuntimeTools(params: {
                     termux: termuxResult ?? undefined,
                   }),
                 );
-
-                if (termux) {
-                  console.info(
-                    "[TermuxTask] returning to model",
-                    taskId,
-                    awaited?.state,
-                    awaited?.log.length ?? 0,
-                  );
-                }
 
                 return finalOutput;
               } catch (error) {

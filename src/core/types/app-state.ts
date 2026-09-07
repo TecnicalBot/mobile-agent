@@ -322,9 +322,15 @@ export type MessageMetadata = {
   reasoning?: ReasoningBlock[];
   runId?: string | null;
   selectedFileIds?: string[];
+  termuxRunAnchors?: TermuxRunAnchor[];
   todoList?: TodoListItem[];
   toolExecutions?: ToolExecutionRecord[];
   usage?: ModelUsageSnapshot | null;
+};
+
+export type TermuxRunAnchor = {
+  executionId: string;
+  textOffset: number;
 };
 
 export type AgentRun = {

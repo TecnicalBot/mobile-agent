@@ -1040,6 +1040,71 @@ export const ChatMessage = memo(function ChatMessage({
   const termuxRuns = (message.metadata?.toolExecutions ?? []).filter(
     (execution) => Boolean(execution.termux),
   );
+  const hasRunningTermuxRun = termuxRuns.some(
+    (run) => run.status === "running" && message.status === "streaming",
+  );
+  const termuxRunsById = new Map(
+    termuxRuns.flatMap((run) => (run.id ? ([[run.id, run]] as const) : [])),
+  );
+  const anchoredTermuxRuns = (message.metadata?.termuxRunAnchors ?? [])
+    .map((anchor) => ({ anchor, run: termuxRunsById.get(anchor.executionId) }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        anchor: (typeof entry)["anchor"];
+        run: NonNullable<(typeof entry)["run"]>;
+      } =>
+        Boolean(entry.run) &&
+        Number.isInteger(entry.anchor.textOffset) &&
+        entry.anchor.textOffset >= 0 &&
+        entry.anchor.textOffset <= message.content.length,
+    )
+    .sort((a, b) => a.anchor.textOffset - b.anchor.textOffset);
+  const anchoredTermuxRunIds = new Set(
+    anchoredTermuxRuns.map(({ anchor }) => anchor.executionId),
+  );
+  const unanchoredTermuxRuns = termuxRuns.filter(
+    (run) => !run.id || !anchoredTermuxRunIds.has(run.id),
+  );
+  const inlineTermuxContent: ReactNode[] = [];
+  let contentOffset = 0;
+  for (const { anchor, run } of anchoredTermuxRuns) {
+    const text = message.content.slice(contentOffset, anchor.textOffset);
+    if (text.trim()) {
+      inlineTermuxContent.push(
+        <MarkdownContent
+          content={text}
+          key={`text-${anchor.executionId}`}
+          onLinkPress={handleLinkPress}
+          styles={markdownStyles}
+        />,
+      );
+    }
+    inlineTermuxContent.push(
+      <TermuxRunCard
+        command={run.termux!.command}
+        key={`termux-${anchor.executionId}`}
+        output={run.termux!.output}
+        running={
+          run.status === "running" && message.status === "streaming"
+        }
+        taskId={run.termux!.taskId}
+      />,
+    );
+    contentOffset = anchor.textOffset;
+  }
+  const trailingContent = message.content.slice(contentOffset);
+  if (anchoredTermuxRuns.length > 0 && trailingContent.trim()) {
+    inlineTermuxContent.push(
+      <MarkdownContent
+        content={trailingContent}
+        key="text-trailing"
+        onLinkPress={handleLinkPress}
+        styles={markdownStyles}
+      />,
+    );
+  }
   const generatedImages = message.metadata?.generatedImages ?? [];
   const attachedFiles = (message.metadata?.selectedFileIds ?? [])
     .map((fileId) => workspaceFiles.find((file) => file.id === fileId))
@@ -1056,7 +1121,9 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const reasoningLabel = reasoningText
     ? message.status === "streaming" && reasoningInProgress
-      ? "Thinking…"
+      ? hasRunningTermuxRun
+        ? null
+        : "Thinking…"
       : `Thought for ${formatReasoningDuration(reasoningBlocks)}`
     : null;
   const memoryEventLabel =
@@ -1261,7 +1328,9 @@ export const ChatMessage = memo(function ChatMessage({
                     </View>
                   ) : null}
 
-                  {message.content.trim() ? (
+                  {anchoredTermuxRuns.length > 0 ? (
+                    <View className="gap-sp-3">{inlineTermuxContent}</View>
+                  ) : message.content.trim() ? (
                     <MarkdownContent
                       content={message.content}
                       onLinkPress={handleLinkPress}
@@ -1272,9 +1341,9 @@ export const ChatMessage = memo(function ChatMessage({
                       {memoryEventLabel}
                     </Text>
                   ) : null}
-                  {termuxRuns.length > 0 ? (
+                  {unanchoredTermuxRuns.length > 0 ? (
                     <View className="gap-sp-2">
-                      {termuxRuns.map((run) => (
+                      {unanchoredTermuxRuns.map((run) => (
                         <TermuxRunCard
                           command={run.termux!.command}
                           running={
@@ -1318,7 +1387,10 @@ export const ChatMessage = memo(function ChatMessage({
                       ))}
                     </View>
                   ) : null}
-                  {message.status === "streaming" ? <Loading /> : null}
+                  {message.status === "streaming" &&
+                  !hasRunningTermuxRun ? (
+                    <Loading />
+                  ) : null}
                 </View>
               ) : (
                 <DropdownMenu>
@@ -2038,54 +2110,74 @@ function TermuxRunCard({
 }) {
   const theme = useTheme();
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
+  const pulse = useSharedValue(1);
   const [dotCount, setDotCount] = useState(1);
   const singleLine = command.replace(/\s+/g, " ").trim();
 
   useEffect(() => {
     if (!running) {
       setDotCount(1);
+      pulse.value = 1;
       return;
     }
 
     const interval = setInterval(() => {
       setDotCount((current) => (current % 3) + 1);
     }, 420);
-    return () => clearInterval(interval);
-  }, [running]);
+    if (!reduceMotion) {
+      pulse.value = withRepeat(
+        withTiming(0.55, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true,
+      );
+    }
+
+    return () => {
+      clearInterval(interval);
+      cancelAnimation(pulse);
+    };
+  }, [pulse, reduceMotion, running]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulse.value,
+  }));
 
   return (
-    <Pressable
-      accessibilityHint="Opens a read-only view of the command output"
-      accessibilityRole="button"
-      className="flex-row items-center gap-sp-2 self-start rounded-full border border-border bg-card px-sp-3 py-sp-2 dark:border-border-dark dark:bg-card-dark"
-      onPress={() => {
-        router.push({
-          pathname: "/terminal",
-          params: {
-            command: singleLine,
-            ...(output !== null ? { output } : {}),
-            ...(taskId ? { taskId } : {}),
-            ...(!taskId ? { pending: "true" } : {}),
-          },
-        });
-      }}
-      style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
-    >
-      <Text className="font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
-        $
-      </Text>
-      <Text
-        className="max-w-[75%] font-mono text-sm text-foreground dark:text-foreground-dark"
-        numberOfLines={1}
+    <Animated.View style={running ? pulseStyle : undefined}>
+      <Pressable
+        accessibilityHint="Opens a read-only view of the command output"
+        accessibilityRole="button"
+        className="flex-row items-center gap-sp-2 self-start rounded-full border border-border bg-card px-sp-3 py-sp-2 dark:border-border-dark dark:bg-card-dark"
+        onPress={() => {
+          router.push({
+            pathname: "/terminal",
+            params: {
+              command: singleLine,
+              ...(output !== null ? { output } : {}),
+              ...(taskId ? { taskId } : {}),
+              ...(!taskId ? { pending: "true" } : {}),
+            },
+          });
+        }}
+        style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
       >
-        {singleLine || "(command)"}
-      </Text>
-      {running ? (
-        <Text className="w-5 font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
-          {".".repeat(dotCount)}
+        <Text className="font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          $
         </Text>
-      ) : null}
-      <ChevronRight color={theme.textSecondary} size={16} />
-    </Pressable>
+        <Text
+          className="max-w-[75%] font-mono text-sm text-foreground dark:text-foreground-dark"
+          numberOfLines={1}
+        >
+          {singleLine || "(command)"}
+        </Text>
+        {running ? (
+          <Text className="w-5 font-mono text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            {".".repeat(dotCount)}
+          </Text>
+        ) : null}
+        <ChevronRight color={theme.textSecondary} size={16} />
+      </Pressable>
+    </Animated.View>
   );
 }

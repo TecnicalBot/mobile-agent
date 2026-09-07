@@ -637,6 +637,12 @@ export async function executeClaimedAgentRun(
   const toolExecutions = [
     ...(assistantMessage.metadata?.toolExecutions ?? []),
   ] as ToolExecutionRecord[];
+  const termuxRunAnchors = new Map(
+    (assistantMessage.metadata?.termuxRunAnchors ?? []).map((anchor) => [
+      anchor.executionId,
+      anchor.textOffset,
+    ]),
+  );
   const memoryEvents = [
     ...(assistantMessage.metadata?.memoryEvents ?? []),
   ] as MemoryEvent[];
@@ -697,6 +703,10 @@ export async function executeClaimedAgentRun(
       promptArtifacts,
       reasoning,
       runId: run.id,
+      termuxRunAnchors: Array.from(
+        termuxRunAnchors,
+        ([executionId, textOffset]) => ({ executionId, textOffset }),
+      ),
       todoList,
       toolExecutions,
     });
@@ -963,6 +973,9 @@ export async function executeClaimedAgentRun(
   };
 
   const handleToolExecutionRecord = (record: ToolExecutionRecord) => {
+    if (record.termux && record.id && !termuxRunAnchors.has(record.id)) {
+      termuxRunAnchors.set(record.id, assistantText.length);
+    }
     const existingIndex = record.id
       ? toolExecutions.findIndex((existing) => existing.id === record.id)
       : -1;
@@ -1063,6 +1076,10 @@ export async function executeClaimedAgentRun(
       const nextMetadata: MessageMetadata = {
         ...storedMetadata,
         executionTimeline: [...storedTimeline, backgroundCompletionEvent],
+        termuxRunAnchors: Array.from(
+          termuxRunAnchors,
+          ([executionId, textOffset]) => ({ executionId, textOffset }),
+        ),
         toolExecutions: mergedExecutions,
       };
 
@@ -1094,12 +1111,7 @@ export async function executeClaimedAgentRun(
         pushTimelineEvent(backgroundCompletionEvent);
         markActivity();
       }
-    } catch (error) {
-      console.warn("[agent-run] background task completion failed", {
-        taskId: completion.taskId,
-        error,
-      });
-    }
+    } catch {}
   };
 
   try {
@@ -1897,6 +1909,10 @@ export async function executeClaimedAgentRun(
         completedAt: block.completedAt ?? new Date().toISOString(),
       })),
       runId: run.id,
+      termuxRunAnchors: Array.from(
+        termuxRunAnchors,
+        ([executionId, textOffset]) => ({ executionId, textOffset }),
+      ),
       todoList,
       toolExecutions,
       usage: assistantUsage,
@@ -2026,6 +2042,10 @@ export async function executeClaimedAgentRun(
           completedAt: block.completedAt ?? new Date().toISOString(),
         })),
         runId: run.id,
+        termuxRunAnchors: Array.from(
+          termuxRunAnchors,
+          ([executionId, textOffset]) => ({ executionId, textOffset }),
+        ),
         todoList,
         toolExecutions,
       });
@@ -2089,6 +2109,10 @@ export async function executeClaimedAgentRun(
         completedAt: block.completedAt ?? new Date().toISOString(),
       })),
       runId: run.id,
+      termuxRunAnchors: Array.from(
+        termuxRunAnchors,
+        ([executionId, textOffset]) => ({ executionId, textOffset }),
+      ),
       todoList,
       toolExecutions,
     });

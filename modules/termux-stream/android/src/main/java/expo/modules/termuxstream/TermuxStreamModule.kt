@@ -17,7 +17,9 @@ class TermuxStreamModule : Module() {
       client?.disconnect()
       val c = SseClient(host, port, token,
         onOutput = { data -> sendEvent("onOutput", mapOf("data" to data)) },
-        onDone = { exitCode, state -> sendEvent("onDone", mapOf("exit_code" to exitCode, "state" to state)) },
+        onDone = { exitCode, state, taskId ->
+          sendEvent("onDone", mapOf("exit_code" to exitCode, "state" to state, "task_id" to taskId))
+        },
         onError = { message -> sendEvent("onError", mapOf("message" to message)) },
         onConnectionChange = { connected -> sendEvent("onConnectionChange", mapOf("connected" to connected)) },
       )

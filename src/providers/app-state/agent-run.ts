@@ -57,7 +57,7 @@ import {
   createTaskTool,
   describeSubagentCatalog,
 } from "@/modules/tools/built-in/task-tool";
-import { summarizeValue } from "@/modules/tools/built-in/shared";
+import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import { createTodosTool } from "@/modules/tools/built-in/todos";
 import {
   buildExternalFolderSystemPrompt,
@@ -995,6 +995,113 @@ export async function executeClaimedAgentRun(
     void artifactWrite;
   };
 
+  const handleBackgroundTaskComplete = async (
+    completion: import("@/modules/mcp/runtime-tools").TermuxBackgroundCompletion,
+  ) => {
+    try {
+      const completedRecord = createRecord({
+        id: completion.executionId,
+        toolName: completion.toolName,
+        status: "completed",
+        inputSummary: summarizeValue({ command: completion.command }),
+        outputSummary: summarizeValue(completion.output),
+        termux: {
+          command: completion.command,
+          output: completion.output,
+          taskId: completion.taskId,
+        },
+      });
+      const backgroundCompletionEvent = createExecutionTimelineEvent({
+        detail:
+          completion.state === "failed"
+            ? `exit code ${completion.exitCode ?? "unknown"}`
+            : (completedRecord.outputSummary ?? completedRecord.inputSummary),
+        kind: "tool",
+        status: "completed",
+        title: `Background ${completion.toolName} completed`,
+        createdAt: new Date().toISOString(),
+      });
+
+      const existingIndex = toolExecutions.findIndex(
+        (existing) => existing.id === completion.executionId,
+      );
+      if (existingIndex >= 0) {
+        toolExecutions[existingIndex] = completedRecord;
+      } else {
+        toolExecutions.push(completedRecord);
+      }
+
+      const storedMessages =
+        await repositories.messageRepository.listByConversation(conversation.id);
+      const storedMessage = storedMessages.find(
+        (message) => message.id === assistantMessage.id,
+      );
+      if (!storedMessage) {
+        pushTimelineEvent(backgroundCompletionEvent);
+        markActivity();
+        if (runRegistry.owns(run.id)) {
+          refreshAssistantState?.();
+        }
+        return;
+      }
+
+      const storedMetadata = storedMessage.metadata ?? {};
+      const storedExecutions = (storedMetadata.toolExecutions ??
+        []) as ToolExecutionRecord[];
+      const mergedExecutions = [...storedExecutions];
+      const mergedIndex = mergedExecutions.findIndex(
+        (execution) => execution.id === completion.executionId,
+      );
+      if (mergedIndex >= 0) {
+        mergedExecutions[mergedIndex] = completedRecord;
+      } else {
+        mergedExecutions.push(completedRecord);
+      }
+
+      const storedTimeline = (storedMetadata.executionTimeline ??
+        []) as import("@/core/types/app-state").ExecutionTimelineEvent[];
+      const nextMetadata: MessageMetadata = {
+        ...storedMetadata,
+        executionTimeline: [...storedTimeline, backgroundCompletionEvent],
+        toolExecutions: mergedExecutions,
+      };
+
+      await repositories.messageRepository.updateContent({
+        id: storedMessage.id,
+        content: storedMessage.content,
+        error: storedMessage.error,
+        metadata: nextMetadata,
+        status: storedMessage.status,
+      });
+
+      ui.publishSnapshot(
+        (current) => ({
+          ...current,
+          messages:
+            current.currentConversation?.id === conversation.id
+              ? upsertMessages(current.messages, [
+                  {
+                    ...storedMessage,
+                    metadata: nextMetadata,
+                  },
+                ])
+              : current.messages,
+        }),
+        { force: true },
+      );
+
+      if (storedMessage.status === "streaming" && runRegistry.owns(run.id)) {
+        pushTimelineEvent(backgroundCompletionEvent);
+        markActivity();
+      }
+    } catch (error) {
+      console.warn("[agent-run] background task completion failed", {
+        taskId: completion.taskId,
+        error,
+      });
+    }
+  };
+
   try {
     if (Platform.OS === "android") {
       startBackgroundAgent();
@@ -1143,6 +1250,7 @@ export async function executeClaimedAgentRun(
          ? await createMcpRuntimeTools({
              servers: runMcpServers,
              onRecord: handleToolExecutionRecord,
+             onBackgroundTaskComplete: handleBackgroundTaskComplete,
              signal: abortController.signal,
              keepTool: isPlanMode
                ? (tool) => isMcpToolReadOnly(tool)
@@ -1848,11 +1956,20 @@ export async function executeClaimedAgentRun(
       title: conversation.title,
     }).catch(() => {});
   } catch (sendError) {
+    const serializedError =
+      sendError instanceof Error
+        ? {
+            message: sendError.message,
+            name: sendError.name,
+            stack: sendError.stack,
+          }
+        : { raw: sendError };
     console.error("[agent-run] executeClaimedAgentRun caught", {
       runId: run.id,
       providerId: run.providerId,
       modelId: run.modelId,
-      error: sendError,
+      requestAborted: abortController.signal.aborted,
+      error: serializedError,
     });
     await Promise.allSettled(pendingArtifactWrites);
     const requestAborted = abortController.signal.aborted;

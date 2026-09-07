@@ -3,6 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { secureSecretStore } from "@/core/services/secrets";
 import type { McpServerConfig } from "@/core/types/app-state";
 import {
+  subscribeLatestTermuxTask,
+  type LatestTermuxTask,
+} from "@/modules/termux/latest-task";
+import {
   connectTermuxStream,
   disconnectTermuxStream,
   isTermuxStreamConnected,
@@ -11,6 +15,10 @@ import {
   subscribeToTermuxStream,
   type TermuxStreamEvent,
 } from "termux-stream";
+
+export type { LatestTermuxTask };
+export { subscribeLatestTermuxTask };
+export { publishLatestTermuxTask } from "@/modules/termux/latest-task";
 
 export type TermuxStreamState = {
   connected: boolean;
@@ -133,7 +141,14 @@ export function useTermuxStream() {
           setConnected(event.connected);
           break;
         case "done":
-          setState((prev) => ({ ...prev, streamingTaskId: null }));
+          // Only clear when the done event matches the task this stream was
+          // started for, so a stale/late done can't kill another task's stream.
+          setState((prev) => {
+            if (prev.streamingTaskId !== null && prev.streamingTaskId !== event.taskId) {
+              return prev;
+            }
+            return { ...prev, streamingTaskId: null };
+          });
           break;
         case "error":
           setState((prev) => ({ ...prev, error: event.message }));

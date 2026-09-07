@@ -4,7 +4,7 @@ import { Platform } from "react-native";
 
 type TermuxStreamEvents = {
   onOutput(event: { data: string }): void;
-  onDone(event: { exit_code: number; state: string }): void;
+  onDone(event: { exit_code: number; state: string; task_id: string }): void;
   onError(event: { message: string }): void;
   onConnectionChange(event: { connected: boolean }): void;
 };
@@ -19,13 +19,13 @@ declare class TermuxStreamNativeModule extends NativeModule<TermuxStreamEvents> 
 }
 
 export type TermuxOutputEvent = { data: string };
-export type TermuxDoneEvent = { exit_code: number; state: string };
+export type TermuxDoneEvent = { exit_code: number; state: string; task_id: string };
 export type TermuxErrorEvent = { message: string };
 export type TermuxConnectionChangeEvent = { connected: boolean };
 
 export type TermuxStreamEvent =
   | { type: "output"; data: string }
-  | { type: "done"; exitCode: number; state: string }
+  | { type: "done"; exitCode: number; state: string; taskId: string }
   | { type: "error"; message: string }
   | { type: "connectionChange"; connected: boolean };
 
@@ -46,7 +46,12 @@ export function subscribeToTermuxStream(
       callback({ type: "output", data: event.data });
     }),
     TermuxStream.addListener("onDone", (event) => {
-      callback({ type: "done", exitCode: event.exit_code, state: event.state });
+      callback({
+        type: "done",
+        exitCode: event.exit_code,
+        state: event.state,
+        taskId: event.task_id,
+      });
     }),
     TermuxStream.addListener("onError", (event) => {
       callback({ type: "error", message: event.message });

@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/button";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { useTermuxStream } from "@/hooks/use-termux-stream";
+import { subscribeLatestTermuxTask } from "@/modules/termux/latest-task";
 import type { TermuxStreamEvent } from "termux-stream";
+
+const STREAM_SCROLL_RETENTION_PX = 96;
 
 export default function TerminalScreen() {
   const theme = useTheme();
@@ -27,18 +30,34 @@ export default function TerminalScreen() {
   const [transcript, setTranscript] = useState(() =>
     typeof output === "string" ? output : "",
   );
+  const scrollRef = useRef<ScrollView>(null);
+  const nearBottomRef = useRef(true);
+  const [resolvedTaskId, setResolvedTaskId] = useState<string | null>(null);
+  const [fallbackCommand, setFallbackCommand] = useState<string>("");
 
-  // Connect to termux-mcp whenever the configured MCP server list changes,
-  // then stream the requested task.
+  // When the screen was opened before a task id existed (pending snapshot),
+  // resolve it from the latest termux run published by the MCP runtime.
   useEffect(() => {
-    if (!taskId) return;
+    if (taskId || resolvedTaskId) return;
+    return subscribeLatestTermuxTask((latest) => {
+      setResolvedTaskId(latest.id);
+      setFallbackCommand(latest.command);
+    });
+  }, [resolvedTaskId, taskId]);
+
+  const activeTaskId = taskId ?? resolvedTaskId;
+
+  // Connect to termux-mcp whenever the configured MCP server list or the
+  // resolved task id changes, then stream the requested task.
+  useEffect(() => {
+    if (!activeTaskId) return;
     let cancelled = false;
     setConnecting(true);
     termux
       .connect(mcpServers)
       .then((ok) => {
         if (cancelled || !ok) return;
-        return termux.start(taskId);
+        return termux.start(activeTaskId);
       })
       .catch(() => {})
       .finally(() => {
@@ -48,7 +67,7 @@ export default function TerminalScreen() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commandText, mcpServers, taskId]);
+  }, [activeTaskId, commandText, mcpServers]);
 
   useEffect(() => {
     if (taskId || typeof output !== "string") return;
@@ -60,6 +79,11 @@ export default function TerminalScreen() {
     return onTermuxEvent((event: TermuxStreamEvent) => {
       if (event.type === "output") {
         setTranscript((current) => current + event.data);
+        if (nearBottomRef.current) {
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollToEnd({ animated: false });
+          });
+        }
       }
     });
   }, [onTermuxEvent]);
@@ -99,18 +123,29 @@ export default function TerminalScreen() {
       </View>
 
       <View className="flex-1 w-full">
-        {taskId || typeof output === "string" || pending === "true" ? (
+        {activeTaskId || typeof output === "string" || pending === "true" ? (
           <ScrollView
+            ref={scrollRef}
             className="flex-1"
             contentContainerClassName="gap-sp-1 pb-sp-4"
             showsVerticalScrollIndicator={false}
+            onScroll={(e) => {
+              const { contentSize, contentOffset, layoutMeasurement } =
+                e.nativeEvent;
+              const distanceToBottom =
+                contentSize.height -
+                (contentOffset.y + layoutMeasurement.height);
+              nearBottomRef.current =
+                distanceToBottom <= STREAM_SCROLL_RETENTION_PX;
+            }}
+            scrollEventThrottle={64}
           >
             <View className="flex-row items-start gap-sp-2">
               <Text className="font-mono text-base text-muted-foreground dark:text-muted-foreground-dark">
                 $
               </Text>
               <Text className="min-w-0 flex-1 font-mono text-base text-foreground dark:text-foreground-dark">
-                {commandText}
+                {commandText || fallbackCommand || "(command)"}
               </Text>
             </View>
             {transcript ? (
@@ -128,9 +163,14 @@ export default function TerminalScreen() {
                 size="small"
               />
             ) : null}
-            {taskId && termux.error && !transcript ? (
+            {activeTaskId && termux.error && !transcript ? (
               <Text className="font-mono text-base text-destructive dark:text-destructive-dark">
                 {termux.error}
+              </Text>
+            ) : null}
+            {!activeTaskId && pending === "true" ? (
+              <Text className="font-mono text-base text-muted-foreground dark:text-muted-foreground-dark">
+                Waiting for task id…
               </Text>
             ) : null}
           </ScrollView>

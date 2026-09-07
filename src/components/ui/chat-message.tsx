@@ -1261,6 +1261,17 @@ export const ChatMessage = memo(function ChatMessage({
                     </View>
                   ) : null}
 
+                  {message.content.trim() ? (
+                    <MarkdownContent
+                      content={message.content}
+                      onLinkPress={handleLinkPress}
+                      styles={markdownStyles}
+                    />
+                  ) : memoryEventLabel ? (
+                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                      {memoryEventLabel}
+                    </Text>
+                  ) : null}
                   {termuxRuns.length > 0 ? (
                     <View className="gap-sp-2">
                       {termuxRuns.map((run) => (
@@ -1276,17 +1287,6 @@ export const ChatMessage = memo(function ChatMessage({
                         />
                       ))}
                     </View>
-                  ) : null}
-                  {message.content.trim() ? (
-                    <MarkdownContent
-                      content={message.content}
-                      onLinkPress={handleLinkPress}
-                      styles={markdownStyles}
-                    />
-                  ) : memoryEventLabel ? (
-                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                      {memoryEventLabel}
-                    </Text>
                   ) : null}
                   {generatedImages.length > 0 ? (
                     <View className="gap-sp-2">

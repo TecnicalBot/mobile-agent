@@ -9,6 +9,7 @@ import { createMcpTransportOAuthProvider } from "@/modules/mcp/oauth";
 import { secureSecretStore } from "@/core/services/secrets";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import type { McpServerConfig, ToolExecutionRecord } from "@/core/types/app-state";
+import { publishLatestTermuxTask } from "@/modules/termux/latest-task";
 
 let cryptoInstalled = false;
 
@@ -395,6 +396,225 @@ function extractTaskId(output: unknown): string {
   return visit(output) || visit(mcpTextOutput(output));
 }
 
+const TERMUX_AWAIT_TIMEOUT_MS = 30_000;
+const TERMUX_AWAIT_POLL_MS = 1_000;
+const TERMINAL_STATES = new Set([
+  "finished",
+  "failed",
+  "stopped",
+  "interrupted",
+]);
+const TERMUX_OUTPUT_MAX_CHARS = 8_000;
+const TERMUX_BACKGROUND_POLL_MS = 3_000;
+
+export type TermuxBackgroundCompletion = {
+  command: string;
+  executionId: string;
+  exitCode: number | null;
+  output: string;
+  state: string;
+  taskId: string;
+  toolName: string;
+};
+
+const watchedTermuxTasks = new Set<string>();
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("Aborted"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+  });
+}
+
+function sanitizeTermuxOutput(log: string, maxChars: number): string {
+  const cleaned = log
+    .replace(/\r(?!\n)/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/, ""))
+    .join("\n")
+    .trim();
+
+  if (cleaned.length <= maxChars) return cleaned;
+  return `${cleaned.slice(0, maxChars).trimEnd()}\n… (output truncated; see the Terminal for the full log)`;
+}
+
+type AwaitTaskOutput = {
+  log: string;
+  state: string | null;
+  timedOut: boolean;
+};
+
+function parseMcpJson(output: unknown): Record<string, unknown> | null {
+  const text = mcpTextOutput(output);
+  if (!text.trim()) return null;
+
+  try {
+    const value = JSON.parse(text) as unknown;
+    return value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function awaitTermuxTaskOutput(
+  client: MCPClient,
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<AwaitTaskOutput> {
+  const deadline = Date.now() + TERMUX_AWAIT_TIMEOUT_MS;
+
+  const status = async (): Promise<Record<string, unknown> | null> => {
+    try {
+      const result = await client.callTool({
+        name: "task_status",
+        arguments: { id: taskId },
+      });
+      if (result?.isError) return null;
+      return parseMcpJson(result);
+    } catch (error) {
+      console.info("[TermuxTask] status ERROR", taskId, String(error));
+      return null;
+    }
+  };
+
+  let info = await status();
+  let state = info && typeof info.state === "string" ? info.state : null;
+  console.info(
+    "[TermuxTask] awaiting",
+    taskId,
+    state,
+    deadline ? `until ${new Date(deadline).toISOString()}` : "",
+  );
+
+  let polls = 0;
+  while (
+    !signal?.aborted &&
+    Date.now() < deadline &&
+    (!state || !TERMINAL_STATES.has(state))
+  ) {
+    await sleep(TERMUX_AWAIT_POLL_MS, signal);
+    info = await status();
+    polls += 1;
+    state = info && typeof info.state === "string" ? info.state : state;
+  }
+
+  let log = "";
+  try {
+    const result = await client.callTool({
+      name: "task_log",
+      arguments: { id: taskId, stream: "all" },
+    });
+    if (!result?.isError) log = mcpTextOutput(result);
+  } catch (error) {
+    console.info("[TermuxTask] log ERROR", taskId, String(error));
+  }
+
+  const timedOut = !state || !TERMINAL_STATES.has(state);
+  const sanitized = sanitizeTermuxOutput(log, TERMUX_OUTPUT_MAX_CHARS);
+  console.info("[TermuxTask] settled", taskId, state, {
+    polls,
+    logLength: log.length,
+    sanitizedLength: sanitized.length,
+    timedOut,
+  });
+
+  return { log: sanitized, state: state ?? null, timedOut };
+}
+
+async function readTermuxTaskStatus(
+  client: MCPClient,
+  taskId: string,
+): Promise<{ exitCode: number | null; state: string | null } | null> {
+  try {
+    const result = await client.callTool({
+      name: "task_status",
+      arguments: { id: taskId },
+    });
+    if (result?.isError) return null;
+    const info = parseMcpJson(result);
+    if (!info) return null;
+    return {
+      state: typeof info.state === "string" ? info.state : null,
+      exitCode: typeof info.exit_code === "number" ? info.exit_code : null,
+    };
+  } catch (error) {
+    console.info("[TermuxWatch] status ERROR", taskId, String(error));
+    return null;
+  }
+}
+
+async function watchTermuxTaskToCompletion(params: {
+  command: string;
+  executionId: string;
+  server: McpServerConfig;
+  taskId: string;
+  toolName: string;
+  onComplete: (completion: TermuxBackgroundCompletion) => void;
+}) {
+  const controller = new AbortController();
+  let client: MCPClient | null = null;
+  try {
+    const headers = await buildMcpHeaders(params.server);
+    client = await connectMcpClient(params.server, headers, controller.signal);
+
+    let state: string | null = null;
+    let exitCode: number | null = null;
+    while (!controller.signal.aborted) {
+      const status = await readTermuxTaskStatus(client, params.taskId);
+      if (status && status.state) {
+        state = status.state;
+        exitCode = status.exitCode;
+        if (TERMINAL_STATES.has(state)) break;
+      }
+      await sleep(TERMUX_BACKGROUND_POLL_MS, controller.signal);
+    }
+
+    let log = "";
+    try {
+      const result = await client.callTool({
+        name: "task_log",
+        arguments: { id: params.taskId, stream: "all" },
+      });
+      if (!result?.isError) log = mcpTextOutput(result);
+    } catch (error) {
+      console.info("[TermuxWatch] log ERROR", params.taskId, String(error));
+    }
+
+    const output = sanitizeTermuxOutput(log, TERMUX_OUTPUT_MAX_CHARS);
+    console.info("[TermuxWatch] completed", params.taskId, {
+      exitCode,
+      state: state ?? null,
+      logLength: log.length,
+    });
+
+    params.onComplete({
+      command: params.command,
+      executionId: params.executionId,
+      exitCode,
+      output,
+      state: state ?? "unknown",
+      taskId: params.taskId,
+      toolName: params.toolName,
+    });
+  } catch (error) {
+    console.info("[TermuxWatch] failed", params.taskId, String(error));
+  } finally {
+    watchedTermuxTasks.delete(params.taskId);
+    await client?.close().catch(() => {});
+  }
+}
+
 async function runWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -423,6 +643,7 @@ export async function createMcpRuntimeTools(params: {
     annotations?: Record<string, unknown> | null;
     name: string;
   }) => boolean;
+  onBackgroundTaskComplete?: (completion: TermuxBackgroundCompletion) => void;
   onRecord?: (record: ToolExecutionRecord) => void;
   servers: McpServerConfig[];
   signal?: AbortSignal;
@@ -533,17 +754,6 @@ export async function createMcpRuntimeTools(params: {
               const executionId = termux
                 ? `termux-${Date.now()}-${Math.random().toString(36).slice(2)}`
                 : undefined;
-              if (termux) {
-                params.onRecord?.(
-                  createRecord({
-                    id: executionId,
-                    toolName: displayName,
-                    status: "running",
-                    inputSummary,
-                    termux,
-                  }),
-                );
-              }
 
               try {
                 const output = await execute(toolInput, options as never);
@@ -553,21 +763,92 @@ export async function createMcpRuntimeTools(params: {
                   console.info("[TermuxTask] started", toolName, taskId);
                 }
 
+                // Emit running record with taskId immediately so the pill
+                // and terminal screen can start streaming without waiting
+                // for the bounded await to finish.
+                if (termux) {
+                  params.onRecord?.(
+                    createRecord({
+                      id: executionId,
+                      toolName: displayName,
+                      status: "running",
+                      inputSummary,
+                      termux: { ...termux, taskId: taskId ?? null },
+                    }),
+                  );
+                  if (taskId) {
+                    publishLatestTermuxTask({ id: taskId, command: termux.command });
+                  }
+                }
+
+                let awaited: AwaitTaskOutput | null = null;
+                if (taskId && client) {
+                  awaited = await awaitTermuxTaskOutput(
+                    client,
+                    taskId,
+                    params.signal,
+                  );
+                }
+
+                const startedBackgroundWatch =
+                  termux &&
+                  isShellTask &&
+                  taskId &&
+                  awaited?.timedOut &&
+                  typeof params.onBackgroundTaskComplete === "function" &&
+                  !watchedTermuxTasks.has(taskId);
+                if (startedBackgroundWatch) {
+                  watchedTermuxTasks.add(taskId);
+                  void watchTermuxTaskToCompletion({
+                    command: termux.command,
+                    executionId: executionId!,
+                    server,
+                    taskId,
+                    toolName: displayName,
+                    onComplete: params.onBackgroundTaskComplete!,
+                  });
+                }
+
                 const termuxResult = termux
                   ? {
                       ...termux,
-                      output: null,
+                      output: awaited?.log ?? null,
                       taskId: taskId || null,
                     }
                   : null;
+
+                const initialTask = parseMcpJson(output) ?? {};
+                const finalOutput =
+                  termux && awaited
+                    ? {
+                        content: [
+                          {
+                            type: "text" as const,
+                            text: JSON.stringify({
+                              ...initialTask,
+                              id: taskId,
+                              state: awaited.state ?? initialTask.state,
+                              output: awaited.log,
+                              ...(awaited.timedOut
+                                ? {
+                                    note: `Task is still running after ${Math.round(
+                                      TERMUX_AWAIT_TIMEOUT_MS / 1000,
+                                    )}s. Use task_status to track it or open the Terminal to watch live output.`,
+                                  }
+                                : {}),
+                            }),
+                          },
+                        ],
+                      }
+                    : output;
 
                 params.onRecord?.(
                   createRecord({
                     id: executionId,
                     toolName: displayName,
-                    status: termux ? "running" : "completed",
+                    status: termuxResult && awaited?.timedOut ? "running" : "completed",
                     inputSummary,
-                    outputSummary: summarizeMcpOutput(output),
+                    outputSummary: summarizeMcpOutput(finalOutput),
                     termux: termuxResult ?? undefined,
                   }),
                 );
@@ -576,10 +857,12 @@ export async function createMcpRuntimeTools(params: {
                   console.info(
                     "[TermuxTask] returning to model",
                     taskId,
+                    awaited?.state,
+                    awaited?.log.length ?? 0,
                   );
                 }
 
-                return output;
+                return finalOutput;
               } catch (error) {
                 params.onRecord?.(
                   createRecord({

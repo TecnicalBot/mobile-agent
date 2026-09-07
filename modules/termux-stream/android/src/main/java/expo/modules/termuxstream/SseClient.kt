@@ -16,15 +16,17 @@ class SseClient(
   private val port: Int,
   private val token: String,
   private val onOutput: (String) -> Unit,
-  private val onDone: (exitCode: Int, state: String) -> Unit,
+  private val onDone: (exitCode: Int, state: String, taskId: String) -> Unit,
   private val onError: (String) -> Unit,
   private val onConnectionChange: (Boolean) -> Unit,
 ) {
   private val running = AtomicBoolean(false)
   private var thread: Thread? = null
+  @Volatile private var currentTaskId: String? = null
 
   fun start(taskId: String) {
     if (running.getAndSet(true)) return
+    currentTaskId = taskId
     thread = Thread {
       var connection: HttpURLConnection? = null
       try {
@@ -104,9 +106,9 @@ class SseClient(
           val obj = org.json.JSONObject(data)
           val exitCode = try { obj.getInt("exit_code") } catch (e: Exception) { -1 }
           val state = obj.optString("state", "finished")
-          onDone(exitCode, state)
+          onDone(exitCode, state, currentTaskId ?: "")
         } catch (e: Exception) {
-          onDone(-1, "finished")
+          onDone(-1, "finished", currentTaskId ?: "")
         }
       }
       "error" -> {
@@ -123,6 +125,7 @@ class SseClient(
 
   fun disconnect() {
     running.set(false)
+    currentTaskId = null
   }
 
   fun isConnected(): Boolean = running.get()

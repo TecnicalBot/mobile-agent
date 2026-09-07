@@ -255,7 +255,18 @@ async function generateViaAISDKWithContinuation(
       // failed stream so React Native does not report secondary unhandled
       // NoOutputGeneratedError rejections.
       await Promise.allSettled(resultPromises);
-      throw providerError ?? error;
+      const effectiveError = providerError ?? error;
+      if (providerError) {
+        console.error("[AISDK] provider stream error", {
+          name: (providerError as Error)?.name,
+          message: (providerError as Error)?.message,
+          stack: (providerError as Error)?.stack,
+          raw: providerError,
+          aborted: params.abortSignal?.aborted,
+          textSoFar: finalText.length,
+        });
+      }
+      throw effectiveError;
     }
   } catch (error) {
     if (

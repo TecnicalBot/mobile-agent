@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 27;
+const DATABASE_VERSION = 28;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -118,9 +118,11 @@ const CORE_SCHEMA_REPAIR_SQL = `
     version TEXT NOT NULL,
     description TEXT,
     author TEXT,
-    source TEXT NOT NULL,
+    file_path TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     options_json TEXT DEFAULT '{}',
+    source_url TEXT,
+    last_update_check TEXT,
     last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -1113,9 +1115,11 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         version TEXT NOT NULL,
         description TEXT,
         author TEXT,
-        source TEXT NOT NULL,
+        file_path TEXT NOT NULL DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         options_json TEXT DEFAULT '{}',
+        source_url TEXT,
+        last_update_check TEXT,
         last_error TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -1137,6 +1141,58 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 27;
+  }
+
+  if (currentVersion === 27) {
+    const hasSourceColumn = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(plugins)",
+    ).then((cols) => cols.some((c) => c.name === "source"));
+
+    if (hasSourceColumn) {
+      await db.execAsync(`
+        ALTER TABLE plugins RENAME COLUMN source TO _source_old;
+        ALTER TABLE plugins ADD COLUMN file_path TEXT NOT NULL DEFAULT '';
+        ALTER TABLE plugins ADD COLUMN source_url TEXT;
+        ALTER TABLE plugins ADD COLUMN last_update_check TEXT;
+      `);
+
+      const rows = await db.getAllAsync<{ id: string; _source_old: string }>(
+        "SELECT id, _source_old FROM plugins",
+      );
+
+      const { Directory, File, Paths } = await import("expo-file-system");
+      const pluginsDir = new Directory(Paths.document, "mobile-agent/plugins");
+      if (!pluginsDir.exists) {
+        pluginsDir.create({ idempotent: true, intermediates: true });
+      }
+
+      for (const row of rows) {
+        const file = new File(pluginsDir, `${row.id}.js`);
+        file.create({ intermediates: true });
+        file.write(row._source_old);
+        await db.runAsync(
+          "UPDATE plugins SET file_path = ? WHERE id = ?",
+          file.uri,
+          row.id,
+        );
+      }
+
+      await db.execAsync(`
+        ALTER TABLE plugins DROP COLUMN _source_old;
+      `);
+    } else {
+      const cols = await db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(plugins)",
+      ).then((c) => new Set(c.map((x) => x.name)));
+      if (!cols.has("source_url")) {
+        await db.execAsync(`ALTER TABLE plugins ADD COLUMN source_url TEXT`);
+      }
+      if (!cols.has("last_update_check")) {
+        await db.execAsync(`ALTER TABLE plugins ADD COLUMN last_update_check TEXT`);
+      }
+    }
+
+    currentVersion = 28;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

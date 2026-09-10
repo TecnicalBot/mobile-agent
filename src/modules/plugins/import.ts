@@ -2,6 +2,7 @@ import type { PluginConfig } from "@/core/types/app-state";
 
 import type { Repositories } from "@/core/db/repositories/types";
 import { manifestToId, parsePluginManifest } from "./manifest";
+import { writePluginFile } from "./plugin-files";
 
 export type PluginImportResult =
   | { ok: true; plugin: PluginConfig; wasUpdate: boolean }
@@ -18,6 +19,7 @@ export async function fetchPluginFromUrl(url: string): Promise<string> {
 export async function importPluginSource(
   source: string,
   repositories: Repositories,
+  sourceUrl?: string,
 ): Promise<PluginImportResult> {
   const result = parsePluginManifest(source);
 
@@ -29,14 +31,16 @@ export async function importPluginSource(
   const id = manifestToId(manifest);
 
   try {
+    const filePath = await writePluginFile(id, source);
     const existing = await repositories.pluginRepository.getById(id);
 
     if (existing) {
       await repositories.pluginRepository.update(id, {
-        source,
+        filePath,
         version: manifest.version,
         description: manifest.description ?? null,
         author: manifest.author ?? null,
+        sourceUrl: sourceUrl ?? existing.sourceUrl,
         lastError: null,
       });
 
@@ -55,7 +59,8 @@ export async function importPluginSource(
       version: manifest.version,
       description: manifest.description,
       author: manifest.author,
-      source,
+      filePath,
+      sourceUrl: sourceUrl ?? null,
       enabled: true,
     });
 

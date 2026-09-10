@@ -467,10 +467,11 @@ export interface PluginRepository {
     author?: string | null;
     description?: string | null;
     enabled?: boolean;
+    filePath: string;
     id?: string;
     name: string;
     options?: Record<string, unknown> | null;
-    source: string;
+    sourceUrl?: string | null;
     version: string;
   }): Promise<PluginConfig>;
   delete(id: string): Promise<void>;
@@ -483,10 +484,12 @@ export interface PluginRepository {
       author?: string | null;
       description?: string | null;
       enabled?: boolean;
+      filePath?: string;
       lastError?: string | null;
+      lastUpdateCheck?: string | null;
       name?: string;
       options?: Record<string, unknown> | null;
-      source?: string;
+      sourceUrl?: string | null;
       version?: string;
     },
   ): Promise<void>;

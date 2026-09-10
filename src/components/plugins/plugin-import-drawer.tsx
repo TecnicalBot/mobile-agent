@@ -81,7 +81,7 @@ export function PluginImportDrawer({
         "@/modules/plugins/import"
       );
       const source = await fetchPluginFromUrl(url.trim());
-      await importPlugin(source);
+      await importPlugin(source, url.trim());
       setUrl("");
       onOpenChange(false);
     } catch (fetchError) {

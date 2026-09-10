@@ -382,11 +382,13 @@ export const plugins = sqliteTable(
     version: text("version").notNull(),
     description: text("description"),
     author: text("author"),
-    source: text("source").notNull(),
+    filePath: text("file_path").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     options: text("options_json", { mode: "json" })
       .$type<Record<string, unknown> | null>()
       .default(null),
+    sourceUrl: text("source_url"),
+    lastUpdateCheck: text("last_update_check"),
     lastError: text("last_error"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

@@ -88,9 +88,11 @@ export type PluginConfig = {
   version: string;
   description: string | null;
   author: string | null;
-  source: string;
+  filePath: string;
   enabled: boolean;
   options: Record<string, unknown> | null;
+  sourceUrl: string | null;
+  lastUpdateCheck: string | null;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;

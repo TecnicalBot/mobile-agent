@@ -17,9 +17,11 @@ export function createPluginRepository(db: AppDatabase): PluginRepository {
         version: input.version,
         description: input.description ?? null,
         author: input.author ?? null,
-        source: input.source,
+        filePath: input.filePath,
         enabled: input.enabled ?? true,
         options: input.options ?? null,
+        sourceUrl: input.sourceUrl ?? null,
+        lastUpdateCheck: null,
         lastError: null,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -68,12 +70,18 @@ export function createPluginRepository(db: AppDatabase): PluginRepository {
               ? input.description
               : current.description,
           enabled: input.enabled ?? current.enabled,
+          filePath: input.filePath ?? current.filePath,
           lastError:
             input.lastError !== undefined ? input.lastError : current.lastError,
+          lastUpdateCheck:
+            input.lastUpdateCheck !== undefined
+              ? input.lastUpdateCheck
+              : current.lastUpdateCheck,
           name: input.name ?? current.name,
           options:
             input.options !== undefined ? input.options : current.options,
-          source: input.source ?? current.source,
+          sourceUrl:
+            input.sourceUrl !== undefined ? input.sourceUrl : current.sourceUrl,
           updatedAt: nowIso(),
           version: input.version ?? current.version,
         })

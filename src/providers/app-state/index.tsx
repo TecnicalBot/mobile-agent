@@ -60,6 +60,7 @@ import {
 import { secureSecretStore } from "@/core/services/secrets";
 import { createPluginRuntime } from "@/modules/plugins/plugin-runtime";
 import { importPluginSource } from "@/modules/plugins/import";
+import { checkPluginUpdates } from "@/modules/plugins/updater";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import {
     parseSkillMarkdown,
@@ -335,7 +336,7 @@ type AppStateContextValue = {
     clearMemory: () => Promise<void>;
     deleteSkill: (skillId: string) => Promise<void>;
     deletePlugin: (pluginId: string) => Promise<void>;
-    importPlugin: (source: string) => Promise<PluginConfig>;
+    importPlugin: (source: string, sourceUrl?: string) => Promise<PluginConfig>;
     deleteSavedPrompt: (savedPromptId: string) => Promise<void>;
     disconnectOpenAIOAuth: () => Promise<void>;
     error: string | null;
@@ -1277,6 +1278,11 @@ Your output must be:
 
         resumePendingRuns().catch(() => { });
     }, [hydrating, ready, resumePendingRuns]);
+
+    useEffect(() => {
+        if (!ready || hydrating) return;
+        checkPluginUpdates(repositoriesRef.current).catch(() => { });
+    }, [hydrating, ready]);
 
     const dispatchScheduledRun = useCallback(async (schedule: Schedule) => {
         const { agentRun, assistantMessage, conversation, userMessage } =
@@ -2272,8 +2278,8 @@ Your output must be:
         await hydrate();
     }
 
-    async function importPlugin(source: string) {
-        const result = await importPluginSource(source, repositoriesRef.current);
+    async function importPlugin(source: string, sourceUrl?: string) {
+        const result = await importPluginSource(source, repositoriesRef.current, sourceUrl);
         if (!result.ok) throw new Error(result.error);
         await hydrate();
         return result.plugin;
@@ -2288,6 +2294,8 @@ Your output must be:
     }
 
     async function deletePlugin(pluginId: string) {
+        const { deletePluginFile } = await import("@/modules/plugins/plugin-files");
+        deletePluginFile(pluginId);
         await repositoriesRef.current.pluginRepository.delete(pluginId);
         await hydrate();
     }

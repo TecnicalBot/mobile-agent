@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import type { Repositories } from "@/core/db/repositories/types";
 import { notifyRunFinishedAsync } from "@/modules/notifications/run-notifications";
+import { createPluginRuntime } from "@/modules/plugins/plugin-runtime";
 import { createRunControllerRegistry } from "@/modules/runtime/run-manager";
 import { createExecutionTimelineEvent } from "@/modules/runtime/run-artifacts";
 import type {
@@ -156,6 +157,7 @@ export async function buildHeadlessSnapshot(
   const savedPrompts = await repositories.savedPromptRepository.list();
   const schedules = await repositories.scheduleRepository.list();
   const skills = await repositories.skillRepository.list();
+  const plugins = await repositories.pluginRepository.list();
   const workspaceFiles = await repositories.workspaceRepository.list();
   const agents = await repositories.agentRepository.list();
   const resolvedConfig = await resolveConfig(
@@ -181,6 +183,7 @@ export async function buildHeadlessSnapshot(
     memory,
     mcpServers,
     messages,
+    plugins,
     providerAccounts: [],
     savedPrompts,
     schedules,
@@ -196,8 +199,15 @@ export function buildHeadlessAgentRunDeps(input: {
   runRegistry: ReturnType<typeof createRunControllerRegistry>;
   snapshotRef: RefObject<AppStateSnapshot>;
   workspaceService: ReturnType<typeof createWorkspaceFileService>;
+  pluginRuntimeSnapshot?: AgentRunDeps["pluginRuntimeSnapshot"];
 }): AgentRunDeps {
-  const { repositories, runRegistry, snapshotRef, workspaceService } = input;
+  const {
+    pluginRuntimeSnapshot,
+    repositories,
+    runRegistry,
+    snapshotRef,
+    workspaceService,
+  } = input;
 
   const deps: AgentRunDeps = {
     repositories,
@@ -232,6 +242,7 @@ export function buildHeadlessAgentRunDeps(input: {
     shouldKeepBackgroundAgentAlive: () => runRegistry.hasActiveRuns(),
     refreshScheduler: () => {},
     spawnSubagent: (task) => executeSubagentTask(deps, task),
+    pluginRuntimeSnapshot,
   };
 
   return deps;
@@ -248,16 +259,23 @@ export async function dispatchScheduledRunHeadless(
   const workspaceService = createWorkspaceFileService(
     repositories.workspaceRepository,
   );
+  const pluginRuntime = createPluginRuntime(repositories.pluginRepository.storage);
+  await pluginRuntime.load(snapshot.plugins);
 
-  await executeClaimedAgentRun(
-    agentRun.id,
-    buildHeadlessAgentRunDeps({
-      repositories,
-      runRegistry,
-      snapshotRef,
-      workspaceService,
-    }),
-  );
+  try {
+    await executeClaimedAgentRun(
+      agentRun.id,
+      buildHeadlessAgentRunDeps({
+        repositories,
+        runRegistry,
+        snapshotRef,
+        workspaceService,
+        pluginRuntimeSnapshot: pluginRuntime.snapshot(agentRun.id),
+      }),
+    );
+  } finally {
+    await pluginRuntime.dispose();
+  }
 
   return agentRun;
 }

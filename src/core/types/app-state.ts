@@ -82,6 +82,19 @@ export type SkillFile = {
   createdAt: string;
   updatedAt: string;
 };
+export type PluginConfig = {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  source: string;
+  enabled: boolean;
+  options: Record<string, unknown> | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 export type SkillConfig = {
   id: string;
   title: string;
@@ -550,6 +563,7 @@ export type AppStateSnapshot = {
   memory: MemoryEntry | null;
   mcpServers: McpServerConfig[];
   messages: StoredMessage[];
+  plugins: PluginConfig[];
   providerAccounts: ProviderAccount[];
   savedPrompts: SavedPrompt[];
   schedules: Schedule[];

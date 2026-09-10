@@ -60,6 +60,7 @@ export default function SettingsScreen() {
     notificationSettings,
     savedPrompts,
     skills,
+    plugins,
     themeMode,
     toolSettings,
     updateDatabaseSettings,
@@ -96,6 +97,7 @@ export default function SettingsScreen() {
     (server) => server.enabled,
   ).length;
   const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
+  const enabledPluginCount = plugins.filter((plugin) => plugin.enabled).length;
   const modelSearchQuery = modelSearch.trim().toLowerCase();
   const filteredModels = useMemo(() => {
     if (!modelSearchQuery) {
@@ -170,6 +172,14 @@ export default function SettingsScreen() {
             router.push("/settings/skills" as never);
           }}
           value={`${enabledSkillCount} active`}
+        />
+        <Separator />
+        <SettingsLinkRow
+          label="Plugins"
+          onPress={() => {
+            router.push("/settings/plugins" as never);
+          }}
+          value={`${enabledPluginCount} active`}
         />
         <Separator />
         <SettingsLinkRow

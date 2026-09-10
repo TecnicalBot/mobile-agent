@@ -58,6 +58,8 @@ import {
     shouldAutoResumeRun,
 } from "@/modules/runtime/run-manager";
 import { secureSecretStore } from "@/core/services/secrets";
+import { createPluginRuntime } from "@/modules/plugins/plugin-runtime";
+import { importPluginSource } from "@/modules/plugins/import";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import {
     parseSkillMarkdown,
@@ -98,6 +100,7 @@ import type {
     PendingToolApprovalRequest,
     ProviderAccount,
     ProviderConfig,
+    PluginConfig,
     ReasoningEffort,
     ResolvedConfig,
     ResolvedModel,
@@ -331,6 +334,8 @@ type AppStateContextValue = {
     deleteModelPreset: (modelPresetId: string) => Promise<void>;
     clearMemory: () => Promise<void>;
     deleteSkill: (skillId: string) => Promise<void>;
+    deletePlugin: (pluginId: string) => Promise<void>;
+    importPlugin: (source: string) => Promise<PluginConfig>;
     deleteSavedPrompt: (savedPromptId: string) => Promise<void>;
     disconnectOpenAIOAuth: () => Promise<void>;
     error: string | null;
@@ -450,6 +455,10 @@ type AppStateContextValue = {
             title?: string;
         },
     ) => Promise<void>;
+    updatePlugin: (
+        pluginId: string,
+        input: { enabled?: boolean; options?: Record<string, unknown> | null },
+    ) => Promise<void>;
     updateSavedPrompt: (
         savedPromptId: string,
         input: {
@@ -458,6 +467,7 @@ type AppStateContextValue = {
         },
     ) => Promise<void>;
     skills: SkillConfig[];
+    plugins: PluginConfig[];
     workspaceFiles: WorkspaceFile[];
 };
 
@@ -496,6 +506,9 @@ function getHeaderNames(headers?: Record<string, string>) {
 export function AppStateProvider({ children }: AppStateProviderProps) {
     const db = useSQLiteContext();
     const repositoriesRef = useRef(createRepositories(db));
+    const pluginRuntimeRef = useRef(
+        createPluginRuntime(repositoriesRef.current.pluginRepository.storage),
+    );
     const workspaceServiceRef = useRef(
         createWorkspaceFileService(repositoriesRef.current.workspaceRepository),
     );
@@ -516,6 +529,13 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const [pendingQuestionnaires, setPendingQuestionnaires] = useState<
         PendingQuestionnaire[]
     >([]);
+
+    useEffect(() => {
+        const runtime = pluginRuntimeRef.current;
+        return () => {
+            void runtime.dispose();
+        };
+    }, []);
     const [inAppNotification, setInAppNotification] = useState<{
         body: string;
         conversationId: string;
@@ -1090,6 +1110,22 @@ Your output must be:
             const savedPrompts = await repositories.savedPromptRepository.list();
             const schedules = await repositories.scheduleRepository.list();
             const skills = await repositories.skillRepository.list();
+            const plugins = await repositories.pluginRepository.list();
+            const pluginErrors = await pluginRuntimeRef.current.load(plugins);
+            const pluginErrorById = new Map(
+                pluginErrors.map((item) => [item.id, item.error]),
+            );
+            await Promise.all(
+                plugins.map((plugin) => {
+                    const lastError = pluginErrorById.get(plugin.id) ?? null;
+                    if (lastError === plugin.lastError) return Promise.resolve();
+                    return repositories.pluginRepository.update(plugin.id, { lastError });
+                }),
+            );
+            const hydratedPlugins = plugins.map((plugin) => ({
+                ...plugin,
+                lastError: pluginErrorById.get(plugin.id) ?? null,
+            }));
             const workspaceFiles = await repositories.workspaceRepository.list();
             const agents = await repositories.agentRepository.list();
             const nextSnapshot = {
@@ -1106,6 +1142,7 @@ Your output must be:
                 memory,
                 mcpServers,
                 messages,
+                plugins: hydratedPlugins,
                 providerAccounts,
                 savedPrompts,
                 schedules,
@@ -2235,6 +2272,26 @@ Your output must be:
         await hydrate();
     }
 
+    async function importPlugin(source: string) {
+        const result = await importPluginSource(source, repositoriesRef.current);
+        if (!result.ok) throw new Error(result.error);
+        await hydrate();
+        return result.plugin;
+    }
+
+    async function updatePlugin(
+        pluginId: string,
+        input: { enabled?: boolean; options?: Record<string, unknown> | null },
+    ) {
+        await repositoriesRef.current.pluginRepository.update(pluginId, input);
+        await hydrate();
+    }
+
+    async function deletePlugin(pluginId: string) {
+        await repositoriesRef.current.pluginRepository.delete(pluginId);
+        await hydrate();
+    }
+
     async function importSkillMarkdown(input: {
         markdown: string;
         replaceById?: string | null;
@@ -3277,6 +3334,7 @@ Your output must be:
                 refreshScheduler,
                 spawnSubagent: (task) =>
                     executeSubagentTask(deps, task),
+                pluginRuntimeSnapshot: pluginRuntimeRef.current.snapshot(runId),
             };
 
             await executeClaimedAgentRun(runId, deps);
@@ -4065,6 +4123,7 @@ Your output must be:
                 deleteModelPreset,
                 deleteSavedPrompt,
                 deleteSkill,
+                deletePlugin,
                 deleteWorkspaceFile,
                 disconnectOpenAIOAuth,
                 error,
@@ -4072,6 +4131,7 @@ Your output must be:
                 importFiles,
                 inAppNotification,
                 importSkillMarkdown,
+                importPlugin,
                 modelDiscoveryInProgress,
                 exportSkillMarkdown,
                 messages: snapshot.messages,
@@ -4112,6 +4172,7 @@ Your output must be:
                 setDefaultModelPreset,
                 settings: snapshot.settings,
                 skills: snapshot.skills,
+                plugins: snapshot.plugins,
                 testMcpServer,
                 conversations: snapshot.conversations,
                 updateMcpServer,
@@ -4122,6 +4183,7 @@ Your output must be:
                 updateSchedule,
                 updateSchedulingEnabled,
                 updateSkill,
+                updatePlugin,
                 addSkillFiles,
                 updateToolApprovalMode,
                 setConversationApprovalMode,
@@ -4184,6 +4246,7 @@ export function useConfig() {
         createModelPreset: context.createModelPreset,
         createSavedPrompt: context.createSavedPrompt,
         createSkill: context.createSkill,
+        importPlugin: context.importPlugin,
         importSkillMarkdown: context.importSkillMarkdown,
         exportSkillMarkdown: context.exportSkillMarkdown,
         agents: context.agents,
@@ -4199,6 +4262,7 @@ export function useConfig() {
         deleteModelPreset: context.deleteModelPreset,
         deleteSavedPrompt: context.deleteSavedPrompt,
         deleteSkill: context.deleteSkill,
+        deletePlugin: context.deletePlugin,
         deleteWorkspaceFile: context.deleteWorkspaceFile,
         disconnectOpenAIOAuth: context.disconnectOpenAIOAuth,
         currentSelectedMcpServerIds: context.currentSelectedMcpServerIds,
@@ -4224,6 +4288,7 @@ export function useConfig() {
         updateSchedulingEnabled: context.updateSchedulingEnabled,
         setDefaultModelPreset: context.setDefaultModelPreset,
         skills: context.skills,
+        plugins: context.plugins,
         refresh: context.refresh,
         refreshWorkspaceFiles: context.refreshWorkspaceFiles,
         testMcpServer: context.testMcpServer,
@@ -4236,6 +4301,7 @@ export function useConfig() {
         updateMemoryEnabled: context.updateMemoryEnabled,
         updateSavedPrompt: context.updateSavedPrompt,
         updateSkill: context.updateSkill,
+        updatePlugin: context.updatePlugin,
         addSkillFiles: context.addSkillFiles,
         updateToolApprovalMode: context.updateToolApprovalMode,
         setConversationApprovalMode: context.setConversationApprovalMode,

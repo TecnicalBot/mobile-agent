@@ -1,4 +1,12 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 import type {
   AgentMode,
@@ -366,6 +374,40 @@ export const scheduleRuns = sqliteTable(
   ],
 );
 
+export const plugins = sqliteTable(
+  "plugins",
+  {
+    id: text("id").primaryKey().notNull(),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    description: text("description"),
+    author: text("author"),
+    source: text("source").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    options: text("options_json", { mode: "json" })
+      .$type<Record<string, unknown> | null>()
+      .default(null),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("idx_plugins_updated_at").on(table.updatedAt)],
+);
+
+export const pluginStorage = sqliteTable(
+  "plugin_storage",
+  {
+    pluginId: text("plugin_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.pluginId, table.key] }),
+    index("idx_plugin_storage_plugin_id").on(table.pluginId),
+  ],
+);
+
 export const memories = sqliteTable(
   "memories",
   {
@@ -418,6 +460,8 @@ export const schema = {
   messages,
   mcpServers,
   modelPresets,
+  pluginStorage,
+  plugins,
   providerAccounts,
   providerAccountState,
   providerConfigs,

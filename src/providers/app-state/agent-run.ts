@@ -48,6 +48,7 @@ import {
 import { wrapToolsWithApproval } from "@/modules/runtime/tool-approval";
 import { appendChatRenderError } from "@/core/services/chat-diagnostics";
 import { secureSecretStore } from "@/core/services/secrets";
+import type { PluginRuntimeSnapshot } from "@/modules/plugins/types";
 import { createQuestionTool } from "@/modules/tools/built-in/question";
 import { createAgentTools } from "@/modules/tools/built-in/agent-tools";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
@@ -179,6 +180,8 @@ export type AgentRunDeps = {
   refreshScheduler: () => void;
   /** Spawn and await a subagent task run. */
   spawnSubagent: (input: SubagentTaskInput) => Promise<{ output: string }>;
+  /** Snapshot of loaded plugin hooks for this run. */
+  pluginRuntimeSnapshot?: PluginRuntimeSnapshot;
 };
 
 function summarizeToolInput(toolInput: unknown) {
@@ -245,6 +248,8 @@ export async function executeClaimedAgentRun(
     refreshScheduler,
     onAgentsChange,
   } = deps;
+
+  const pluginSnapshot = deps.pluginRuntimeSnapshot;
 
   const run =
     snapshotRef.current.agentRuns.find((item) => item.id === runId) ??
@@ -461,6 +466,11 @@ export async function executeClaimedAgentRun(
     resumeCount:
       run.status === "resumable" ? run.resumeCount + 1 : run.resumeCount,
     status: "running",
+  });
+
+  await pluginSnapshot?.dispatch("run:start", {
+    conversationId: run.conversationId,
+    runId: run.id,
   });
 
   const persistedMessages =
@@ -989,6 +999,11 @@ export async function executeClaimedAgentRun(
       refreshAssistantState?.();
       return;
     }
+    void pluginSnapshot?.dispatch("tool:after", {
+      conversationId: run.conversationId,
+      record,
+      runId: run.id,
+    });
     pushTimelineEvent(
       createExecutionTimelineEvent({
         detail:
@@ -1369,8 +1384,9 @@ export async function executeClaimedAgentRun(
         .catch(() => {});
     }
 
+    const pluginTools = pluginSnapshot?.tools;
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1380,6 +1396,7 @@ export async function executeClaimedAgentRun(
             ...(scheduleRuntime?.tools ?? {}),
             ...(taskRuntime?.tools ?? {}),
             ...(agentRuntime?.tools ?? {}),
+            ...(pluginTools ?? {}),
           } satisfies ToolSet)
         : undefined;
     const autoApprovedToolNames = new Set([
@@ -1391,6 +1408,7 @@ export async function executeClaimedAgentRun(
       ...(isPlanMode && mcpRuntime?.tools
         ? Object.keys(mcpRuntime.tools)
         : []),
+      ...(pluginSnapshot?.autoApprovedToolNames ?? []),
     ]);
     const approvedRuntimeTools = unapprovedRuntimeTools
       ? wrapToolsWithApproval(unapprovedRuntimeTools, {
@@ -1529,6 +1547,7 @@ export async function executeClaimedAgentRun(
             ),
           ].join("\n\n")
         : undefined;
+    const pluginSystemParts = pluginSnapshot?.systemParts;
     const runtimeSystem =
       [
         agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
@@ -1545,6 +1564,7 @@ export async function executeClaimedAgentRun(
         agentManagementRuntimeSystem,
         taskRuntimeSystem,
         toolLoopRuntimeSystem,
+        ...(pluginSystemParts?.length ? pluginSystemParts : []),
       ]
         .filter((part): part is string => Boolean(part?.trim()))
         .join("\n\n") || undefined;
@@ -1715,6 +1735,11 @@ export async function executeClaimedAgentRun(
       onDelta: (delta) => {
         markActivity();
         assistantText += delta;
+        void pluginSnapshot?.dispatch("message:delta", {
+          conversationId: run.conversationId,
+          delta,
+          runId: run.id,
+        });
         schedulePersist("streaming");
         scheduleSnapshot("streaming");
       },
@@ -1925,6 +1950,11 @@ export async function executeClaimedAgentRun(
       status: "completed",
     });
 
+    await pluginSnapshot?.dispatch("run:complete", {
+      conversationId: run.conversationId,
+      runId: run.id,
+    });
+
     const [memory, workspaceFiles] = await Promise.all([
       repositories.memoryStore.read(),
       repositories.workspaceRepository.list(),
@@ -2127,6 +2157,14 @@ export async function executeClaimedAgentRun(
       lastError: finalStatus === "canceled" ? null : errorMessage,
       status: finalStatus,
     });
+
+    if (finalStatus === "failed") {
+      await pluginSnapshot?.dispatch("run:failed", {
+        conversationId: run.conversationId,
+        error: errorMessage,
+        runId: run.id,
+      });
+    }
 
     if (
       finalStatus === "failed" &&

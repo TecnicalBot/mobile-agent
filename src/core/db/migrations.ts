@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 26;
+const DATABASE_VERSION = 27;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -111,6 +111,34 @@ const CORE_SCHEMA_REPAIR_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started_at
   ON schedule_runs(schedule_id, started_at);
+
+  CREATE TABLE IF NOT EXISTS plugins (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    description TEXT,
+    author TEXT,
+    source TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    options_json TEXT DEFAULT '{}',
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_plugins_updated_at
+  ON plugins(updated_at);
+
+  CREATE TABLE IF NOT EXISTS plugin_storage (
+    plugin_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (plugin_id, key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin_id
+  ON plugin_storage(plugin_id);
 
   CREATE TABLE IF NOT EXISTS skill_files (
     id TEXT PRIMARY KEY NOT NULL,
@@ -1075,6 +1103,40 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 26;
+  }
+
+  if (currentVersion === 26) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS plugins (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        description TEXT,
+        author TEXT,
+        source TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        options_json TEXT DEFAULT '{}',
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plugins_updated_at
+      ON plugins(updated_at);
+
+      CREATE TABLE IF NOT EXISTS plugin_storage (
+        plugin_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (plugin_id, key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin_id
+      ON plugin_storage(plugin_id);
+    `);
+
+    currentVersion = 27;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

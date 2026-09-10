@@ -5,6 +5,7 @@ export type {
   ConfigRepository,
   ConversationRepository,
   MessageRepository,
+  PluginRepository,
   ProviderAccountRepository,
   Repositories,
   SavedPromptRepository,

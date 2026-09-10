@@ -136,7 +136,7 @@ function extractFrontmatter(markdown: string) {
     return null;
   }
 
-  const closingMatch = /^---[ \t]*\r?\n/gm.exec(
+  const closingMatch = /^---[ \t]*(?:\r?\n|$)/gm.exec(
     withoutBom.slice(newlineIndex + 1),
   );
 

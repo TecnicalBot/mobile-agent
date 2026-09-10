@@ -1,8 +1,11 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
+import {
+  serializeAgentToMarkdown,
+} from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 28;
+const DATABASE_VERSION = 29;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -75,22 +78,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     updated_at TEXT NOT NULL
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS agents_name_unique ON agents(name);
   CREATE INDEX IF NOT EXISTS idx_agents_updated_at ON agents(updated_at);
-
-  CREATE TABLE IF NOT EXISTS agent_docs (
-    id TEXT PRIMARY KEY NOT NULL,
-    agent_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    mime_type TEXT,
-    size INTEGER,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_agent_docs_agent_id
-  ON agent_docs(agent_id);
 
   CREATE TABLE IF NOT EXISTS schedule_runs (
     id TEXT PRIMARY KEY NOT NULL,
@@ -141,24 +129,6 @@ const CORE_SCHEMA_REPAIR_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin_id
   ON plugin_storage(plugin_id);
-
-  CREATE TABLE IF NOT EXISTS skill_files (
-    id TEXT PRIMARY KEY NOT NULL,
-    skill_id TEXT NOT NULL,
-    path TEXT NOT NULL,
-    content TEXT NOT NULL,
-    mime_type TEXT,
-    size INTEGER,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
-  );
-
-  CREATE UNIQUE INDEX IF NOT EXISTS skill_files_skill_id_path_unique
-  ON skill_files(skill_id, path);
-
-  CREATE INDEX IF NOT EXISTS idx_skill_files_skill_id
-  ON skill_files(skill_id);
 `;
 
 export async function migrateAppDatabase(db: SQLiteDatabase) {
@@ -540,7 +510,10 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       ON schedule_runs(schedule_id, started_at);
     `);
 
-    currentVersion = DATABASE_VERSION;
+    // The fresh-install schema intentionally matches pre-v29 (full content
+    // columns, supporting tables) so the version-29 migration below converts
+    // it to the file-backed slim schema on first launch.
+    currentVersion = 28;
   }
 
   if (currentVersion === 1) {
@@ -1193,6 +1166,253 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     }
 
     currentVersion = 28;
+  }
+
+  if (currentVersion === 28) {
+    const { Directory, File, Paths } = await import("expo-file-system");
+
+    const skillsBase = new Directory(Paths.document, "mobile-agent/skills");
+    const agentsBase = new Directory(Paths.document, "mobile-agent/agents");
+
+    await db.execAsync(`
+      ALTER TABLE skills ADD COLUMN file_path TEXT;
+      ALTER TABLE agents ADD COLUMN file_path TEXT;
+    `);
+
+    const skillRows = await db.getAllAsync<{
+      auto_match: number;
+      description: string | null;
+      id: string;
+      instructions: string;
+      match_keywords_json: string;
+      recommended_built_in_tool_keys_json: string;
+      recommended_mcp_server_ids_json: string;
+      source_markdown: string | null;
+      title: string;
+    }>(
+      `SELECT id, title, description, instructions, auto_match,
+              match_keywords_json, recommended_built_in_tool_keys_json,
+              recommended_mcp_server_ids_json, source_markdown
+       FROM skills`,
+    );
+
+    for (const skill of skillRows) {
+      let markdown: string | null = null;
+
+      try {
+        markdown = serializeSkillToMarkdown({
+          autoMatch: skill.auto_match === 1,
+          description: skill.description,
+          instructions: skill.instructions,
+          matchKeywords: JSON.parse(skill.match_keywords_json),
+          recommendedBuiltInToolKeys: JSON.parse(
+            skill.recommended_built_in_tool_keys_json,
+          ),
+          recommendedMcpServerIds: JSON.parse(
+            skill.recommended_mcp_server_ids_json,
+          ),
+          title: skill.title,
+        });
+      } catch {
+        markdown = skill.source_markdown;
+      }
+
+      if (!markdown) {
+        continue;
+      }
+
+      const skillDir = new Directory(skillsBase, skill.id);
+      skillDir.create({ idempotent: true, intermediates: true });
+
+      const markdownFile = new File(skillDir, "SKILL.md");
+      markdownFile.create({ intermediates: true, overwrite: true });
+      markdownFile.write(markdown);
+
+      const fileRows = await db.getAllAsync<{
+        content: string;
+        created_at: string;
+        id: string;
+        mime_type: string | null;
+        path: string;
+        size: number | null;
+        updated_at: string;
+      }>(
+        `SELECT path, content, mime_type, size, created_at, updated_at
+         FROM skill_files WHERE skill_id = ?`,
+        [skill.id],
+      );
+
+      if (fileRows.length > 0) {
+        const filesDir = new Directory(skillDir, "files");
+        filesDir.create({ idempotent: true, intermediates: true });
+
+        for (const fileRow of fileRows) {
+          const file = new File(filesDir, ...fileRow.path.split("/"));
+          file.create({ intermediates: true, overwrite: true });
+          file.write(fileRow.content);
+        }
+
+        const manifestFile = new File(skillDir, "files.json");
+        manifestFile.create({ intermediates: true, overwrite: true });
+        manifestFile.write(
+          JSON.stringify({
+            version: 1,
+            files: fileRows.map((fileRow) => ({
+              path: fileRow.path,
+              mimeType: fileRow.mime_type,
+              size: fileRow.size,
+              createdAt: fileRow.created_at,
+              updatedAt: fileRow.updated_at,
+            })),
+          }),
+        );
+      }
+
+      await db.runAsync(
+        "UPDATE skills SET file_path = ? WHERE id = ?",
+        markdownFile.uri,
+        skill.id,
+      );
+    }
+
+    const agentRows = await db.getAllAsync<{
+      description: string | null;
+      id: string;
+      mode: string;
+      model_model_id: string | null;
+      model_provider_id: string | null;
+      name: string;
+      prompt: string | null;
+      source_markdown: string | null;
+      temperature: number | null;
+      tool_permissions_json: string;
+    }>(
+      `SELECT id, name, description, prompt, mode, model_provider_id,
+              model_model_id, temperature, tool_permissions_json, source_markdown
+       FROM agents`,
+    );
+
+    for (const agent of agentRows) {
+      let markdown: string | null = null;
+
+      try {
+        markdown = serializeAgentToMarkdown(
+          {
+            description: agent.description,
+            mode: agent.mode as "all" | "primary" | "subagent",
+            modelModelId: agent.model_model_id,
+            modelProviderId: agent.model_provider_id,
+            name: agent.name,
+            prompt: agent.prompt,
+            temperature: agent.temperature,
+            toolPermissions: JSON.parse(agent.tool_permissions_json),
+          },
+          { allowEmptyPrompt: true },
+        );
+      } catch {
+        markdown = agent.source_markdown;
+      }
+
+      if (!markdown) {
+        continue;
+      }
+
+      const agentDir = new Directory(agentsBase, agent.id);
+      agentDir.create({ idempotent: true, intermediates: true });
+
+      const markdownFile = new File(agentDir, "AGENT.md");
+      markdownFile.create({ intermediates: true, overwrite: true });
+      markdownFile.write(markdown);
+
+      const docRows = await db.getAllAsync<{
+        content: string;
+        created_at: string;
+        id: string;
+        mime_type: string | null;
+        name: string;
+        size: number | null;
+        updated_at: string;
+      }>(
+        `SELECT name, content, mime_type, size, created_at, updated_at
+         FROM agent_docs WHERE agent_id = ?`,
+        [agent.id],
+      );
+
+      if (docRows.length > 0) {
+        const docsDir = new Directory(agentDir, "docs");
+        docsDir.create({ idempotent: true, intermediates: true });
+
+        for (const doc of docRows) {
+          const fileName = doc.name
+            .trim()
+            .replace(/[\\/\u0000-\u001f\u007f]/g, "-")
+            .replace(/^\.+/g, "")
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-+|-+$/g, "") || "doc";
+
+          const file = new File(docsDir, fileName);
+          file.create({ intermediates: true, overwrite: true });
+          file.write(doc.content);
+        }
+
+        const manifestFile = new File(agentDir, "docs.json");
+        manifestFile.create({ intermediates: true, overwrite: true });
+        manifestFile.write(
+          JSON.stringify({
+            version: 1,
+            docs: docRows.map((doc) => ({
+              file: doc.name
+                .trim()
+                .replace(/[\\/\u0000-\u001f\u007f]/g, "-")
+                .replace(/^\.+/g, "")
+                .replace(/\s+/g, "-")
+                .replace(/-+/g, "-")
+                .replace(/^-+|-+$/g, "") || "doc",
+              name: doc.name,
+              mimeType: doc.mime_type,
+              size: doc.size,
+              createdAt: doc.created_at,
+              updatedAt: doc.updated_at,
+            })),
+          }),
+        );
+      }
+
+      await db.runAsync(
+        "UPDATE agents SET file_path = ? WHERE id = ?",
+        markdownFile.uri,
+        agent.id,
+      );
+    }
+
+    await db.execAsync(`
+      DROP TABLE IF EXISTS skill_files;
+      DROP TABLE IF EXISTS agent_docs;
+
+      DROP INDEX IF EXISTS agents_name_unique;
+
+      ALTER TABLE agents DROP COLUMN name;
+      ALTER TABLE agents DROP COLUMN description;
+      ALTER TABLE agents DROP COLUMN prompt;
+      ALTER TABLE agents DROP COLUMN mode;
+      ALTER TABLE agents DROP COLUMN model_provider_id;
+      ALTER TABLE agents DROP COLUMN model_model_id;
+      ALTER TABLE agents DROP COLUMN temperature;
+      ALTER TABLE agents DROP COLUMN source_markdown;
+      ALTER TABLE agents DROP COLUMN tool_permissions_json;
+
+      ALTER TABLE skills DROP COLUMN title;
+      ALTER TABLE skills DROP COLUMN description;
+      ALTER TABLE skills DROP COLUMN instructions;
+      ALTER TABLE skills DROP COLUMN source_markdown;
+      ALTER TABLE skills DROP COLUMN auto_match;
+      ALTER TABLE skills DROP COLUMN match_keywords_json;
+      ALTER TABLE skills DROP COLUMN recommended_mcp_server_ids_json;
+      ALTER TABLE skills DROP COLUMN recommended_built_in_tool_keys_json;
+    `);
+
+    currentVersion = 29;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

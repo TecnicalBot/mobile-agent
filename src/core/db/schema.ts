@@ -2,7 +2,6 @@ import {
   index,
   integer,
   primaryKey,
-  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -11,8 +10,6 @@ import {
 import type {
   AgentMode,
   AgentRunStatus,
-  AgentToolPermissions,
-  AgentVisibilityMode,
   ExternalFolderSession,
   FileContextSource,
   MessageMetadata,
@@ -24,7 +21,6 @@ import type {
   ProviderAuthType,
   ProviderFamily,
   ReasoningEffort,
-  BuiltInToolKey,
   ScheduleRunStatus,
   WorkspaceFileSourceKind,
 } from "@/core/types/app-state";
@@ -216,96 +212,25 @@ export const skills = sqliteTable(
   "skills",
   {
     id: text("id").primaryKey().notNull(),
-    title: text("title").notNull(),
-    description: text("description"),
-    instructions: text("instructions").notNull(),
-    sourceMarkdown: text("source_markdown"),
+    filePath: text("file_path").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-    autoMatch: integer("auto_match", { mode: "boolean" }).notNull().default(false),
-    matchKeywords: text("match_keywords_json", { mode: "json" })
-      .$type<string[]>()
-      .notNull()
-      .default([]),
-    recommendedMcpServerIds: text("recommended_mcp_server_ids_json", {
-      mode: "json",
-    })
-      .$type<string[]>()
-      .notNull()
-      .default([]),
-    recommendedBuiltInToolKeys: text("recommended_built_in_tool_keys_json", {
-      mode: "json",
-    })
-      .$type<BuiltInToolKey[]>()
-      .notNull()
-      .default([]),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [index("idx_skills_updated_at").on(table.updatedAt)],
 );
 
-export const skillFiles = sqliteTable(
-  "skill_files",
-  {
-    id: text("id").primaryKey().notNull(),
-    skillId: text("skill_id")
-      .notNull()
-      .references(() => skills.id, { onDelete: "cascade" }),
-    path: text("path").notNull(),
-    content: text("content").notNull(),
-    mimeType: text("mime_type"),
-    size: integer("size"),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-  },
-  (table) => [
-    uniqueIndex("skill_files_skill_id_path_unique").on(table.skillId, table.path),
-    index("idx_skill_files_skill_id").on(table.skillId),
-  ],
-);
-
 export const agents = sqliteTable(
   "agents",
   {
     id: text("id").primaryKey().notNull(),
-    name: text("name").notNull(),
-    description: text("description"),
-    prompt: text("prompt"),
-    mode: text("mode").$type<AgentVisibilityMode>().notNull().default("all"),
-    modelProviderId: text("model_provider_id"),
-    modelModelId: text("model_model_id"),
-    temperature: real("temperature"),
+    filePath: text("file_path").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
-    sourceMarkdown: text("source_markdown"),
-    toolPermissions: text("tool_permissions_json", { mode: "json" })
-      .$type<AgentToolPermissions>()
-      .notNull()
-      .default({}),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
-  (table) => [
-    uniqueIndex("agents_name_unique").on(table.name),
-    index("idx_agents_updated_at").on(table.updatedAt),
-  ],
-);
-
-export const agentDocs = sqliteTable(
-  "agent_docs",
-  {
-    id: text("id").primaryKey().notNull(),
-    agentId: text("agent_id").notNull(),
-    name: text("name").notNull(),
-    content: text("content").notNull(),
-    mimeType: text("mime_type"),
-    size: integer("size"),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-  },
-  (table) => [
-    index("idx_agent_docs_agent_id").on(table.agentId),
-  ],
+  (table) => [index("idx_agents_updated_at").on(table.updatedAt)],
 );
 
 export const savedPrompts = sqliteTable(
@@ -453,7 +378,6 @@ export const appSettings = sqliteTable("app_settings", {
 });
 
 export const schema = {
-  agentDocs,
   agentRuns,
   agents,
   appSettings,
@@ -470,7 +394,6 @@ export const schema = {
   savedPrompts,
   scheduleRuns,
   schedules,
-  skillFiles,
   skills,
   workspaceFiles,
 };

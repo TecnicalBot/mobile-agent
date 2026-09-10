@@ -49,7 +49,7 @@ function extractFrontmatter(markdown: string) {
     return null;
   }
 
-  const closingMatch = /^---[ \t]*\r?\n/gm.exec(
+  const closingMatch = /^---[ \t]*(?:\r?\n|$)/gm.exec(
     withoutBom.slice(newlineIndex + 1),
   );
 
@@ -251,6 +251,7 @@ export function serializeAgentToMarkdown(
     | "temperature"
     | "toolPermissions"
   >,
+  options: { allowEmptyPrompt?: boolean } = {},
 ) {
   const name = slugifyAgentName(agent.name) || "agent";
   const frontmatter: Record<string, unknown> = {
@@ -277,7 +278,7 @@ export function serializeAgentToMarkdown(
 
   const prompt = agent.prompt?.trim() ?? "";
 
-  if (!prompt) {
+  if (!prompt && !options.allowEmptyPrompt) {
     throw new Error("Agent system prompt cannot be empty.");
   }
 

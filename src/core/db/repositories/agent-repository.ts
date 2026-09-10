@@ -1,98 +1,134 @@
 import * as Crypto from "expo-crypto";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { agentDocs, agents } from "@/core/db/schema";
+import { agents } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
-import type { AgentConfig, AgentDoc } from "@/core/types/app-state";
 import type {
   AgentRepository,
   AppDatabase,
 } from "@/core/db/repositories/types";
+import type { AgentConfig, AgentDoc } from "@/core/types/app-state";
+import {
+  parseAgentMarkdown,
+  serializeAgentToMarkdown,
+} from "@/modules/agents/agent-markdown";
+import {
+  AGENT_DOCS_DIR,
+  AGENT_MARKDOWN_FILE,
+  deleteEntityDir,
+  deleteEntitySubdir,
+  readAgentDocsManifest,
+  readEntityFile,
+  sanitizeFileName,
+  writeAgentDocsManifest,
+  writeEntityFile,
+} from "@/modules/content/files";
+import type { AgentDocsManifest } from "@/modules/content/files";
 
 export function createAgentRepository(db: AppDatabase): AgentRepository {
-  async function getDocs(agentId: string): Promise<AgentDoc[]> {
-    const rows = await db
-      .select()
-      .from(agentDocs)
-      .where(eq(agentDocs.agentId, agentId));
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      content: row.content,
-      mimeType: row.mimeType,
-      size: row.size,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    }));
+  function writeMarkdown(id: string, markdown: string): string {
+    return writeEntityFile("agents", id, [AGENT_MARKDOWN_FILE], markdown);
   }
 
-  async function replaceDocs(
-    agentId: string,
-    docs: NonNullable<
-      Parameters<AgentRepository["update"]>[1]["docs"]
-    >,
-  ) {
-    const timestamp = nowIso();
-
-    await db.delete(agentDocs).where(eq(agentDocs.agentId, agentId));
-
-    for (const doc of docs) {
-      await db.insert(agentDocs).values({
-        id: Crypto.randomUUID(),
-        agentId,
-        name: doc.name,
-        content: doc.content,
-        mimeType: doc.mimeType ?? null,
-        size: doc.size ?? null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-    }
-  }
-
-  async function insertDocs(
-    agentId: string,
+  function writeDocs(
+    id: string,
     docs: NonNullable<
       Parameters<AgentRepository["create"]>[0]["docs"]
     >,
+    timestamp: string,
   ) {
-    const timestamp = nowIso();
+    deleteEntitySubdir("agents", id, AGENT_DOCS_DIR);
+
+    const manifestDocs: AgentDocsManifest["docs"] = [];
 
     for (const doc of docs) {
-      await db.insert(agentDocs).values({
-        id: Crypto.randomUUID(),
-        agentId,
+      const file = sanitizeFileName(doc.name);
+
+      writeEntityFile("agents", id, [AGENT_DOCS_DIR, file], doc.content);
+      manifestDocs.push({
+        file,
         name: doc.name,
-        content: doc.content,
         mimeType: doc.mimeType ?? null,
         size: doc.size ?? null,
         createdAt: timestamp,
         updatedAt: timestamp,
       });
     }
+
+    writeAgentDocsManifest(id, manifestDocs);
   }
 
-  function factory(
-    row: (typeof agents.$inferSelect) & { docs?: AgentDoc[] },
-  ): AgentConfig {
+  async function readDocs(agentId: string): Promise<AgentDoc[]> {
+    const manifest = await readAgentDocsManifest(agentId);
+
+    if (!manifest) {
+      return [];
+    }
+
+    const result: AgentDoc[] = [];
+
+    for (const meta of manifest.docs) {
+      const content = await readEntityFile("agents", agentId, [
+        AGENT_DOCS_DIR,
+        meta.file,
+      ]);
+
+      if (content === null) {
+        continue;
+      }
+
+      result.push({
+        id: meta.name,
+        name: meta.name,
+        content,
+        mimeType: meta.mimeType,
+        size: meta.size,
+        createdAt: meta.createdAt ?? "",
+        updatedAt: meta.updatedAt ?? "",
+      });
+    }
+
+    return result;
+  }
+
+  async function readConfig(row: typeof agents.$inferSelect): Promise<AgentConfig | null> {
+    const markdown = await readEntityFile("agents", row.id, [AGENT_MARKDOWN_FILE]);
+
+    if (markdown === null) {
+      return null;
+    }
+
+    let parsed: ReturnType<typeof parseAgentMarkdown>;
+
+    try {
+      parsed = parseAgentMarkdown(markdown);
+    } catch {
+      return null;
+    }
+
     return {
       id: row.id,
-      name: row.name,
-      description: row.description,
-      prompt: row.prompt,
-      mode: row.mode,
-      modelProviderId: row.modelProviderId,
-      modelModelId: row.modelModelId,
-      temperature: row.temperature,
+      name: parsed.name,
+      description: parsed.description,
+      prompt: parsed.prompt,
+      mode: parsed.mode,
+      modelProviderId: parsed.modelProviderId,
+      modelModelId: parsed.modelModelId,
+      temperature: parsed.temperature,
       enabled: row.enabled,
       hidden: row.hidden,
-      sourceMarkdown: row.sourceMarkdown,
-      toolPermissions: row.toolPermissions,
-      docs: row.docs ?? [],
+      sourceMarkdown: markdown,
+      toolPermissions: parsed.toolPermissions,
+      docs: await readDocs(row.id),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  function buildMarkdown(
+    agent: Parameters<typeof serializeAgentToMarkdown>[0],
+  ): string {
+    return serializeAgentToMarkdown(agent, { allowEmptyPrompt: true });
   }
 
   return {
@@ -100,26 +136,34 @@ export function createAgentRepository(db: AppDatabase): AgentRepository {
       const timestamp = nowIso();
       const id = input.id ?? Crypto.randomUUID();
 
+      const markdown =
+        input.sourceMarkdown !== undefined && input.sourceMarkdown !== null
+          ? input.sourceMarkdown
+          : buildMarkdown({
+              description: input.description ?? null,
+              mode: input.mode ?? "all",
+              modelModelId: input.modelModelId ?? null,
+              modelProviderId: input.modelProviderId ?? null,
+              name: input.name,
+              prompt: input.prompt ?? null,
+              temperature: input.temperature ?? null,
+              toolPermissions: input.toolPermissions ?? {},
+            });
+
+      const filePath = writeMarkdown(id, markdown);
+
+      if (input.docs && input.docs.length > 0) {
+        writeDocs(id, input.docs, timestamp);
+      }
+
       await db.insert(agents).values({
         id,
-        name: input.name,
-        description: input.description ?? null,
-        prompt: input.prompt ?? null,
-        mode: input.mode ?? "all",
-        modelProviderId: input.modelProviderId ?? null,
-        modelModelId: input.modelModelId ?? null,
-        temperature: input.temperature ?? null,
+        filePath,
         enabled: input.enabled ?? true,
         hidden: input.hidden ?? false,
-        sourceMarkdown: input.sourceMarkdown ?? null,
-        toolPermissions: input.toolPermissions ?? {},
         createdAt: timestamp,
         updatedAt: timestamp,
       });
-
-      if (input.docs && input.docs.length > 0) {
-        await insertDocs(id, input.docs);
-      }
 
       const row = await this.getById(id);
 
@@ -130,7 +174,7 @@ export function createAgentRepository(db: AppDatabase): AgentRepository {
       return row;
     },
     async delete(id) {
-      await db.delete(agentDocs).where(eq(agentDocs.agentId, id));
+      deleteEntityDir("agents", id);
       await db.delete(agents).where(eq(agents.id, id));
     },
     async getById(id) {
@@ -142,45 +186,34 @@ export function createAgentRepository(db: AppDatabase): AgentRepository {
         return null;
       }
 
-      return factory({ ...row, docs: await getDocs(id) });
+      return readConfig(row);
     },
     async getByName(name) {
-      const row = (
-        await db
-          .select()
-          .from(agents)
-          .where(eq(agents.name, name))
-          .limit(1)
-      )[0] ?? null;
+      const rows = await db.select().from(agents);
 
-      if (!row) {
-        return null;
+      for (const row of rows) {
+        const config = await readConfig(row);
+
+        if (config?.name === name) {
+          return config;
+        }
       }
 
-      return factory({ ...row, docs: await getDocs(row.id) });
+      return null;
     },
     async list() {
-      const rows = await db.select().from(agents).orderBy(asc(agents.name));
-      const docRows = await db.select().from(agentDocs);
-      const docsByAgent = new Map<string, AgentDoc[]>();
+      const rows = await db.select().from(agents);
+      const result: AgentConfig[] = [];
 
-      for (const row of docRows) {
-        const list = docsByAgent.get(row.agentId) ?? [];
-        list.push({
-          id: row.id,
-          name: row.name,
-          content: row.content,
-          mimeType: row.mimeType,
-          size: row.size,
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-        });
-        docsByAgent.set(row.agentId, list);
+      for (const row of rows) {
+        const config = await readConfig(row);
+
+        if (config) {
+          result.push(config);
+        }
       }
 
-      return rows.map((row) =>
-        factory({ ...row, docs: docsByAgent.get(row.id) ?? [] }),
-      );
+      return result.sort((a, b) => a.name.localeCompare(b.name));
     },
     async update(id, input) {
       const current = await this.getById(id);
@@ -189,44 +222,47 @@ export function createAgentRepository(db: AppDatabase): AgentRepository {
         return;
       }
 
+      const markdown =
+        input.sourceMarkdown !== undefined && input.sourceMarkdown !== null
+          ? input.sourceMarkdown
+          : buildMarkdown({
+              description:
+                input.description !== undefined
+                  ? input.description
+                  : current.description,
+              mode: input.mode ?? current.mode,
+              modelModelId:
+                input.modelModelId !== undefined
+                  ? input.modelModelId
+                  : current.modelModelId,
+              modelProviderId:
+                input.modelProviderId !== undefined
+                  ? input.modelProviderId
+                  : current.modelProviderId,
+              name: input.name ?? current.name,
+              prompt:
+                input.prompt !== undefined ? input.prompt : current.prompt,
+              temperature:
+                input.temperature !== undefined
+                  ? input.temperature
+                  : current.temperature,
+              toolPermissions: input.toolPermissions ?? current.toolPermissions,
+            });
+
+      writeMarkdown(id, markdown);
+
+      if (input.docs !== undefined) {
+        writeDocs(id, input.docs, nowIso());
+      }
+
       await db
         .update(agents)
         .set({
-          description:
-            input.description !== undefined
-              ? input.description
-              : current.description,
           enabled: input.enabled ?? current.enabled,
           hidden: input.hidden ?? current.hidden,
-          mode: input.mode ?? current.mode,
-          modelModelId:
-            input.modelModelId !== undefined
-              ? input.modelModelId
-              : current.modelModelId,
-          modelProviderId:
-            input.modelProviderId !== undefined
-              ? input.modelProviderId
-              : current.modelProviderId,
-          name: input.name ?? current.name,
-          prompt:
-            input.prompt !== undefined ? input.prompt : current.prompt,
-          sourceMarkdown:
-            input.sourceMarkdown !== undefined
-              ? input.sourceMarkdown
-              : current.sourceMarkdown,
-          temperature:
-            input.temperature !== undefined
-              ? input.temperature
-              : current.temperature,
-          toolPermissions:
-            input.toolPermissions ?? current.toolPermissions,
           updatedAt: nowIso(),
         })
         .where(eq(agents.id, id));
-
-      if (input.docs !== undefined) {
-        await replaceDocs(id, input.docs);
-      }
     },
   };
 }

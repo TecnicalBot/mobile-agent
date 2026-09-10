@@ -1,61 +1,130 @@
 import * as Crypto from "expo-crypto";
 import { desc, eq } from "drizzle-orm";
 
-import { skillFiles, skills } from "@/core/db/schema";
+import { skills } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
 import type { AppDatabase, SkillRepository } from "@/core/db/repositories/types";
+import type { SkillConfig, SkillFile } from "@/core/types/app-state";
+import {
+  parseSkillMarkdown,
+  serializeSkillToMarkdown,
+} from "@/modules/skills/skill-markdown";
+import {
+  SKILL_FILES_DIR,
+  SKILL_MARKDOWN_FILE,
+  deleteEntityDir,
+  deleteEntitySubdir,
+  readEntityFile,
+  readSkillFilesManifest,
+  sanitizeRelPath,
+  writeEntityFile,
+  writeSkillFilesManifest,
+} from "@/modules/content/files";
+import type { SkillFilesManifest } from "@/modules/content/files";
 
 export function createSkillRepository(db: AppDatabase): SkillRepository {
-  async function insertFiles(
-    skillId: string,
-    files: NonNullable<Parameters<SkillRepository["create"]>[0]["files"]>,
-  ) {
-    if (!files || files.length === 0) {
-      return;
-    }
+  function writeMarkdown(id: string, markdown: string): string {
+    return writeEntityFile("skills", id, [SKILL_MARKDOWN_FILE], markdown);
+  }
 
-    const timestamp = nowIso();
+  function writeSupportingFiles(
+    id: string,
+    files: NonNullable<Parameters<SkillRepository["create"]>[0]["files"]>,
+    timestamp: string,
+  ) {
+    deleteEntitySubdir("skills", id, SKILL_FILES_DIR);
+
+    const manifestFiles: SkillFilesManifest["files"] = [];
 
     for (const file of files) {
-      await db.insert(skillFiles).values({
-        id: file.id ?? Crypto.randomUUID(),
-        skillId,
-        path: file.path,
-        content: file.content,
+      const path = sanitizeRelPath(file.path);
+
+      if (!path) {
+        continue;
+      }
+
+      writeEntityFile(
+        "skills",
+        id,
+        [SKILL_FILES_DIR, ...path.split("/")],
+        file.content,
+      );
+      manifestFiles.push({
+        path,
         mimeType: file.mimeType ?? null,
         size: file.size ?? null,
         createdAt: timestamp,
         updatedAt: timestamp,
       });
     }
+
+    writeSkillFilesManifest(id, manifestFiles);
   }
 
-  const factory = (row: typeof skills.$inferSelect & { files?: (typeof skillFiles.$inferSelect)[] }) => ({
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    instructions: row.instructions,
-    sourceMarkdown: row.sourceMarkdown,
-    enabled: row.enabled,
-    autoMatch: row.autoMatch,
-    matchKeywords: row.matchKeywords,
-    recommendedMcpServerIds: row.recommendedMcpServerIds,
-    recommendedBuiltInToolKeys: row.recommendedBuiltInToolKeys,
-    skillFiles: (row.files ?? []).map((file) => ({
-      id: file.id,
-      path: file.path,
-      content: file.content,
-      mimeType: file.mimeType,
-      size: file.size,
-      createdAt: file.createdAt,
-      updatedAt: file.updatedAt,
-    })),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  });
+  async function readSupportingFiles(id: string): Promise<SkillFile[]> {
+    const manifest = await readSkillFilesManifest(id);
 
-  async function getFiles(skillId: string) {
-    return db.select().from(skillFiles).where(eq(skillFiles.skillId, skillId));
+    if (!manifest) {
+      return [];
+    }
+
+    const result: SkillFile[] = [];
+
+    for (const meta of manifest.files) {
+      const content = await readEntityFile(
+        "skills",
+        id,
+        [SKILL_FILES_DIR, ...meta.path.split("/")],
+      );
+
+      if (content === null) {
+        continue;
+      }
+
+      result.push({
+        id: meta.path,
+        path: meta.path,
+        content,
+        mimeType: meta.mimeType,
+        size: meta.size,
+        createdAt: meta.createdAt ?? "",
+        updatedAt: meta.updatedAt ?? "",
+      });
+    }
+
+    return result;
+  }
+
+  async function readConfig(row: typeof skills.$inferSelect): Promise<SkillConfig | null> {
+    const markdown = await readEntityFile("skills", row.id, [SKILL_MARKDOWN_FILE]);
+
+    if (markdown === null) {
+      return null;
+    }
+
+    let parsed: ReturnType<typeof parseSkillMarkdown>;
+
+    try {
+      parsed = parseSkillMarkdown(markdown);
+    } catch {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      title: parsed.title,
+      description: parsed.description,
+      instructions: parsed.instructions,
+      sourceMarkdown: markdown,
+      enabled: row.enabled,
+      autoMatch: parsed.autoMatch,
+      matchKeywords: parsed.matchKeywords,
+      recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+      recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
+      skillFiles: await readSupportingFiles(row.id),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 
   return {
@@ -63,22 +132,33 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
       const timestamp = nowIso();
       const id = input.id ?? Crypto.randomUUID();
 
+      const markdown =
+        input.sourceMarkdown !== undefined && input.sourceMarkdown !== null
+          ? input.sourceMarkdown
+          : serializeSkillToMarkdown({
+              autoMatch: input.autoMatch ?? false,
+              description: input.description ?? null,
+              instructions: input.instructions,
+              matchKeywords: input.matchKeywords ?? [],
+              recommendedBuiltInToolKeys:
+                input.recommendedBuiltInToolKeys ?? [],
+              recommendedMcpServerIds: input.recommendedMcpServerIds ?? [],
+              title: input.title,
+            });
+
+      const filePath = writeMarkdown(id, markdown);
+
+      if (input.files && input.files.length > 0) {
+        writeSupportingFiles(id, input.files, timestamp);
+      }
+
       await db.insert(skills).values({
         id,
-        title: input.title,
-        description: input.description ?? null,
-        instructions: input.instructions,
-        sourceMarkdown: input.sourceMarkdown ?? null,
+        filePath,
         enabled: input.enabled ?? true,
-        autoMatch: input.autoMatch ?? false,
-        matchKeywords: input.matchKeywords ?? [],
-        recommendedMcpServerIds: input.recommendedMcpServerIds ?? [],
-        recommendedBuiltInToolKeys: input.recommendedBuiltInToolKeys ?? [],
         createdAt: timestamp,
         updatedAt: timestamp,
       });
-
-      await insertFiles(id, input.files ?? []);
 
       const row = await this.getById(id);
 
@@ -89,11 +169,10 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
       return row;
     },
     async delete(id) {
-      await db.delete(skillFiles).where(eq(skillFiles.skillId, id));
+      deleteEntityDir("skills", id);
       await db.delete(skills).where(eq(skills.id, id));
     },
     async getById(id) {
-      const rows = await db.select().from(skillFiles).where(eq(skillFiles.skillId, id));
       const row = (
         await db.select().from(skills).where(eq(skills.id, id)).limit(1)
       )[0];
@@ -102,20 +181,21 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
         return null;
       }
 
-      return factory({ ...row, files: rows });
+      return readConfig(row);
     },
     async list() {
       const rows = await db.select().from(skills).orderBy(desc(skills.updatedAt));
-      const fileRows = await db.select().from(skillFiles);
-      const filesBySkill = new Map<string, (typeof skillFiles.$inferSelect)[]>();
+      const result: SkillConfig[] = [];
 
-      for (const file of fileRows) {
-        const list = filesBySkill.get(file.skillId) ?? [];
-        list.push(file);
-        filesBySkill.set(file.skillId, list);
+      for (const row of rows) {
+        const config = await readConfig(row);
+
+        if (config) {
+          result.push(config);
+        }
       }
 
-      return rows.map((row) => factory({ ...row, files: filesBySkill.get(row.id) ?? [] }));
+      return result;
     },
     async update(id, input) {
       const current = await this.getById(id);
@@ -124,51 +204,46 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
         return;
       }
 
+      const markdown =
+        input.sourceMarkdown !== undefined && input.sourceMarkdown !== null
+          ? input.sourceMarkdown
+          : serializeSkillToMarkdown({
+              autoMatch: input.autoMatch ?? current.autoMatch,
+              description:
+                input.description !== undefined
+                  ? input.description
+                  : current.description,
+              instructions: input.instructions ?? current.instructions,
+              matchKeywords: input.matchKeywords ?? current.matchKeywords,
+              recommendedBuiltInToolKeys:
+                input.recommendedBuiltInToolKeys ??
+                current.recommendedBuiltInToolKeys,
+              recommendedMcpServerIds:
+                input.recommendedMcpServerIds ??
+                current.recommendedMcpServerIds,
+              title: input.title ?? current.title,
+            });
+
+      writeMarkdown(id, markdown);
+
+      if (input.files !== undefined) {
+        writeSupportingFiles(id, input.files, nowIso());
+      }
+
       await db
         .update(skills)
         .set({
-          autoMatch: input.autoMatch ?? current.autoMatch,
-          description:
-            input.description !== undefined
-              ? input.description
-              : current.description,
           enabled: input.enabled ?? current.enabled,
-          instructions: input.instructions ?? current.instructions,
-          matchKeywords: input.matchKeywords ?? current.matchKeywords,
-          recommendedBuiltInToolKeys:
-            input.recommendedBuiltInToolKeys ??
-            current.recommendedBuiltInToolKeys,
-          recommendedMcpServerIds:
-            input.recommendedMcpServerIds ?? current.recommendedMcpServerIds,
-          sourceMarkdown:
-            input.sourceMarkdown !== undefined
-              ? input.sourceMarkdown
-              : current.sourceMarkdown,
-          title: input.title ?? current.title,
           updatedAt: nowIso(),
         })
         .where(eq(skills.id, id));
-
-      if (input.files !== undefined) {
-        await db.delete(skillFiles).where(eq(skillFiles.skillId, id));
-        await insertFiles(id, input.files);
-      }
     },
     async listFilesForSkill(skillId) {
-      const rows = await getFiles(skillId);
-
-      return rows.map((file) => ({
-        id: file.id,
-        path: file.path,
-        content: file.content,
-        mimeType: file.mimeType,
-        size: file.size,
-        createdAt: file.createdAt,
-        updatedAt: file.updatedAt,
-      }));
+      return readSupportingFiles(skillId);
     },
     async deleteFilesForSkill(skillId) {
-      await db.delete(skillFiles).where(eq(skillFiles.skillId, skillId));
+      deleteEntitySubdir("skills", skillId, SKILL_FILES_DIR);
+      writeSkillFilesManifest(skillId, []);
     },
   };
 }

@@ -117,4 +117,27 @@ Research thoroughly and cite sources.
       }),
     ).toThrow();
   });
+
+  it("allows empty prompts when allowEmptyPrompt is set and round-trips", () => {
+    const serialized = serializeAgentToMarkdown(
+      {
+        description: "No prompt agent",
+        mode: "subagent",
+        modelModelId: null,
+        modelProviderId: null,
+        name: "empty",
+        prompt: null,
+        temperature: null,
+        toolPermissions: {},
+      },
+      { allowEmptyPrompt: true },
+    );
+
+    const reparsed = parseAgentMarkdown(serialized);
+
+    expect(reparsed.name).toBe("empty");
+    expect(reparsed.description).toBe("No prompt agent");
+    expect(reparsed.mode).toBe("subagent");
+    expect(reparsed.prompt).toBeNull();
+  });
 });

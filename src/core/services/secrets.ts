@@ -44,7 +44,8 @@ export type McpOAuthSession = {
   clientInformation?: OAuthClientInformation | null;
   codeVerifier?: string | null;
   expiresAt?: number | null;
-  flowType?: "compat" | "discovered" | "manual" | null;
+  flowType?: "compat" | "discovered" | "manual" | "proxy" | null;
+  proxyToken?: string | null;
   redirectUri?: string | null;
   resourceUrl?: string | null;
   state?: string | null;
@@ -137,9 +138,12 @@ function parseMcpOAuthSession(raw: string | null): McpOAuthSession | null {
       flowType:
         parsed.flowType === "compat" ||
         parsed.flowType === "discovered" ||
-        parsed.flowType === "manual"
+        parsed.flowType === "manual" ||
+        parsed.flowType === "proxy"
           ? parsed.flowType
           : null,
+      proxyToken:
+        typeof parsed.proxyToken === "string" ? parsed.proxyToken : null,
       redirectUri:
         typeof parsed.redirectUri === "string" ? parsed.redirectUri : null,
       resourceUrl:

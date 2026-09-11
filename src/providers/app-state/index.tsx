@@ -24,6 +24,7 @@ import {
 } from "@/core/db/database";
 import { createExternalFolderService } from "@/core/services/external-folder/external-folder-service";
 import { connectMcpOAuth } from "@/modules/mcp/oauth";
+import { revokeProxySession } from "@/modules/mcp/proxy";
 import { testMcpServerConnection } from "@/modules/mcp/runtime-tools";
 import {
     dismissApprovalNotification,
@@ -2009,6 +2010,17 @@ Your output must be:
     }
 
     async function deleteMcpServer(serverId: string) {
+        const session =
+            await secureSecretStore.getMcpOAuthSession(serverId);
+        const server =
+            await repositoriesRef.current.mcpServerRepository.getById(serverId);
+
+        if (server && session?.flowType === "proxy") {
+            await revokeProxySession(server).catch((error) =>
+                console.error("Failed to revoke MCP proxy session", error),
+            );
+        }
+
         await repositoriesRef.current.mcpServerRepository.delete(serverId);
         await Promise.all([
             secureSecretStore.deleteMcpHeaderValues(serverId),
@@ -2029,6 +2041,17 @@ Your output must be:
     }
 
     async function clearMcpServerCredentials(serverId: string) {
+        const session =
+            await secureSecretStore.getMcpOAuthSession(serverId);
+        const server =
+            await repositoriesRef.current.mcpServerRepository.getById(serverId);
+
+        if (server && session?.flowType === "proxy") {
+            await revokeProxySession(server).catch((error) =>
+                console.error("Failed to revoke MCP proxy session", error),
+            );
+        }
+
         await Promise.all([
             secureSecretStore.deleteMcpHeaderValues(serverId),
             secureSecretStore.deleteMcpOAuthTokens(serverId),

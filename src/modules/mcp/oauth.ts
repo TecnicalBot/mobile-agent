@@ -21,6 +21,13 @@ import {
   MCP_OAUTH_REDIRECT_URI,
   openMcpLoopbackAuthorization,
 } from "@/modules/mcp/loopback-oauth";
+import {
+  beginProxyAuthorization,
+  fetchProxyTokens,
+  getProxyProviderId,
+  isMcpOAuthProxyConfigured,
+} from "@/modules/mcp/proxy";
+import * as WebBrowser from "expo-web-browser";
 import type { McpServerConfig } from "@/core/types/app-state";
 
 const REFRESH_SKEW_MS = 60_000;
@@ -853,6 +860,10 @@ function buildDiscoveryOAuthProvider(
  * user reconnects from MCP settings rather than seeing a browser mid-agent-run.
  */
 export function createMcpTransportOAuthProvider(server: McpServerConfig) {
+  if (shouldUseMcpOAuthProxy(server)) {
+    return buildProxyOAuthProvider(server);
+  }
+
   return buildDiscoveryOAuthProvider(server, { interactive: false });
 }
 
@@ -1040,6 +1051,190 @@ export function getMcpOAuthRedirectUri() {
   return MCP_OAUTH_REDIRECT_URI;
 }
 
+const PROXY_CALLBACK_TIMEOUT_MS = 5 * 60_000;
+
+function mcpOAuthCanceledError() {
+  const error = new Error("MCP OAuth was canceled.");
+  error.name = MCP_OAUTH_CANCELED_ERROR_NAME;
+  return error;
+}
+
+const pendingProxyConnections = new Map<
+  string,
+  {
+    resolve: (proxyToken: string) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
+
+/**
+ * Called by the deep-link callback route when the Worker redirects back into
+ * the app with a proxy token. Resolves the in-flight connect promise so the
+ * settings screen can react immediately instead of waiting for the browser
+ * tab to close.
+ */
+export function settleProxyOAuthCallback(
+  serverId: string,
+  proxyToken: string | null,
+  error?: string,
+) {
+  const entry = pendingProxyConnections.get(serverId);
+
+  if (!entry) {
+    return;
+  }
+
+  clearTimeout(entry.timer);
+  pendingProxyConnections.delete(serverId);
+
+  if (!proxyToken || error) {
+    entry.reject(new Error(error || "MCP OAuth proxy connection failed."));
+    return;
+  }
+
+  entry.resolve(proxyToken);
+}
+
+function shouldUseMcpOAuthProxy(server: McpServerConfig) {
+  return (
+    server.authMode === "oauth" &&
+    !hasManualOAuthConfiguration(server) &&
+    isMcpOAuthProxyConfigured() &&
+    getProxyProviderId(server) !== null
+  );
+}
+
+/**
+ * Opens the Worker's browser flow for a proxied MCP server. The Worker owns
+ * the entire OAuth dance (discovery, client registration, PKCE, token
+ * exchange) so the user never sees a client ID or secret. Completion arrives
+ * via the deep-link callback route, which calls `settleProxyOAuthCallback`.
+ */
+async function connectProxyMcpOAuth(server: McpServerConfig) {
+  const authorizeUrl = await beginProxyAuthorization(server);
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingProxyConnections.delete(server.id);
+      reject(mcpOAuthCanceledError());
+    }, PROXY_CALLBACK_TIMEOUT_MS);
+
+    pendingProxyConnections.set(server.id, {
+      timer,
+      resolve: (proxyToken) => {
+        clearTimeout(timer);
+        pendingProxyConnections.delete(server.id);
+        resolve();
+      },
+      reject: (error) => {
+        clearTimeout(timer);
+        pendingProxyConnections.delete(server.id);
+        reject(error);
+      },
+    });
+
+    // The promise stays pending until the browser deep-links back into the app.
+    // Open the browser and don't resolve on close - settlement happens in the
+    // callback route via settleProxyOAuthCallback.
+    WebBrowser.openBrowserAsync(authorizeUrl).then(
+      (result) => {
+        if (result.type === "cancel" || result.type === "dismiss") {
+          const entry = pendingProxyConnections.get(server.id);
+          if (entry) {
+            entry.reject(mcpOAuthCanceledError());
+          }
+        }
+
+        // "opened" and "success" keep waiting: settlement happens in the
+        // callback route via settleProxyOAuthCallback.
+      },
+      (error) => {
+        const entry = pendingProxyConnections.get(server.id);
+        if (entry) {
+          entry.reject(error as Error);
+        }
+      },
+    );
+  });
+}
+
+async function getProxyMcpAccessToken(server: McpServerConfig) {
+  const tokens = await fetchProxyTokens(server);
+
+  return tokens?.access_token ?? null;
+}
+
+/**
+ * Supplies proxy-backed tokens to the MCP transport. All discovery and
+ * registration happens server-side on the Worker, so this provider only
+ * proxies token reads; the dance methods are satisfied as no-ops to keep the
+ * SDK's `auth()` path from attempting a direct flow.
+ */
+function buildProxyOAuthProvider(server: McpServerConfig): OAuthClientProvider {
+  return {
+    async tokens() {
+      return (await fetchProxyTokens(server)) ?? undefined;
+    },
+
+    async saveTokens() {
+      // Tokens live on the Worker; nothing to persist locally.
+    },
+
+    async redirectToAuthorization() {
+      throw new Error(
+        "MCP OAuth authorization expired. Reconnect this server to continue.",
+      );
+    },
+
+    async saveCodeVerifier() {},
+
+    async codeVerifier() {
+      throw new Error("MCP OAuth code verifier is missing.");
+    },
+
+    async invalidateCredentials() {},
+
+    get redirectUrl() {
+      return MCP_OAUTH_REDIRECT_URI;
+    },
+
+    get clientMetadata() {
+      return {
+        client_name: "mobile-agent",
+        grant_types: ["authorization_code", "refresh_token"],
+        redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      };
+    },
+
+    async clientInformation() {
+      return undefined;
+    },
+
+    async saveClientInformation() {},
+
+    async authorizationServerInformation() {
+      return undefined;
+    },
+
+    async saveAuthorizationServerInformation() {},
+
+    async validateAuthorizationServerURL() {},
+
+    async state() {
+      return Crypto.randomUUID();
+    },
+
+    async saveState() {},
+
+    async storedState() {
+      return undefined;
+    },
+  };
+}
+
 export async function connectMcpOAuth(server: McpServerConfig) {
   try {
     await initializeCrypto();
@@ -1062,6 +1257,11 @@ export async function connectMcpOAuth(server: McpServerConfig) {
 
     if (hasManualOAuthConfiguration(server)) {
       await connectManualMcpOAuth(server);
+      return;
+    }
+
+    if (shouldUseMcpOAuthProxy(server)) {
+      await connectProxyMcpOAuth(server);
       return;
     }
 
@@ -1093,6 +1293,10 @@ export async function getMcpOAuthAccessToken(server: McpServerConfig) {
   try {
     await initializeCrypto();
     const session = await secureSecretStore.getMcpOAuthSession(server.id);
+
+    if (session?.flowType === "proxy") {
+      return getProxyMcpAccessToken(server);
+    }
 
     if (session?.flowType === "compat") {
       return refreshCompatibleDiscoveredMcpAccessToken(server);

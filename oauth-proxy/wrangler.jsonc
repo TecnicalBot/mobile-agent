@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mobile-agent-oauth-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-24",
+  "observability": {
+    "enabled": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "PROXY_KV",
+      "id": "REPLACE_WITH_KV_NAMESPACE_ID",
+      "preview_id": "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
+    }
+  ],
+  "vars": {
+    "BASE_URL": "https://mobile-agent-oauth-proxy.YOUR_SUBDOMAIN.workers.dev",
+    "APP_DEEP_LINK": "mobile-agent://app.home/mcp/oauth/callback"
+  }
+}

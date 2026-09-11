@@ -1,0 +1,4 @@
+CLIENT_KEYS=install-key-1,install-key-2
+PROVIDER_SECRETS={}
+BASE_URL=http://localhost:8787
+APP_DEEP_LINK=mobile-agent://app.home/mcp/oauth/callback

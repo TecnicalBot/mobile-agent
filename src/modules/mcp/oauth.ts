@@ -1097,12 +1097,13 @@ export function settleProxyOAuthCallback(
 }
 
 function shouldUseMcpOAuthProxy(server: McpServerConfig) {
-  return (
-    server.authMode === "oauth" &&
-    !hasManualOAuthConfiguration(server) &&
-    isMcpOAuthProxyConfigured() &&
-    getProxyProviderId(server) !== null
-  );
+  if (server.authMode !== "oauth" || hasManualOAuthConfiguration(server) || !isMcpOAuthProxyConfigured()) {
+    return false;
+  }
+
+  // Prefer the explicit catalog flag when present; fall back to hostname mapping
+  // so custom servers whose URL happens to match a known provider still benefit.
+  return server.oauthMode === "proxy" || getProxyProviderId(server) !== null;
 }
 
 /**

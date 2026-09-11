@@ -18,6 +18,7 @@ export type McpServerPreset = {
   oauthAllowedAuthOrigin: string | null;
   oauthAuthorizationUrl: string | null;
   oauthClientId: string | null;
+  oauthMode: "proxy" | null;
   oauthScopes: string | null;
   oauthTokenUrl: string | null;
   transport: McpServerTransport;
@@ -96,6 +97,20 @@ function getHttpsUrl(value: string, label: string) {
   return parsed.href;
 }
 
+function getOptionalOauthMode(record: Record<string, unknown>) {
+  const value = record.oauthMode;
+
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (value !== "proxy") {
+    throw new Error("MCP catalog oauthMode is invalid.");
+  }
+
+  return value;
+}
+
 function parsePreset(value: unknown): McpServerPreset {
   const record = getRecord(value, "MCP catalog server");
   const authMode = record.authMode;
@@ -126,6 +141,7 @@ function parsePreset(value: unknown): McpServerPreset {
       2048,
     ),
     oauthClientId: getOptionalString(record, "oauthClientId", 512),
+    oauthMode: getOptionalOauthMode(record),
     oauthScopes: getOptionalString(record, "oauthScopes", 1024),
     oauthTokenUrl: getOptionalString(record, "oauthTokenUrl", 2048),
     transport,

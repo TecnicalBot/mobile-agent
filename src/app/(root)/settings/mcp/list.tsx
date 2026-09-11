@@ -7,6 +7,7 @@ import { McpScreenHeader } from "@/components/settings/mcp/screen-header";
 import { McpServerForm } from "@/components/settings/mcp/mcp-server-form";
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
@@ -98,6 +99,7 @@ export default function McpCatalogScreen() {
         oauthAllowedAuthOrigin: preset.oauthAllowedAuthOrigin,
         oauthAuthorizationUrl: preset.oauthAuthorizationUrl,
         oauthClientId: preset.oauthClientId,
+        oauthMode: preset.oauthMode,
         oauthScopes: preset.oauthScopes,
         oauthTokenUrl: preset.oauthTokenUrl,
         transport: preset.transport,
@@ -239,9 +241,16 @@ function PresetRow({
   return (
     <View className="flex-row items-center gap-sp-3 px-sp-4 py-sp-4">
       <View className="min-w-0 flex-1 gap-1">
-        <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
-          {preset.label}
-        </Text>
+        <View className="flex-row items-center gap-sp-2">
+          <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
+            {preset.label}
+          </Text>
+          {preset.oauthMode === "proxy" ? (
+            <Badge textClassName="text-xs" variant="secondary">
+              Managed
+            </Badge>
+          ) : null}
+        </View>
         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
           {preset.description}
         </Text>

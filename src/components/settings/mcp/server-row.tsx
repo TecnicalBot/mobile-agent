@@ -1,6 +1,7 @@
 import { KeyRound, RefreshCw, Trash2 } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useTheme } from "@/hooks/use-theme";
@@ -72,6 +73,11 @@ export function McpServerRow({
             <Text className="min-w-0 flex-1 font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
               {server.label}
             </Text>
+            {server.oauthMode === "proxy" ? (
+              <Badge textClassName="text-xs" variant="secondary">
+                Managed
+              </Badge>
+            ) : null}
             <StatusPill status={server.lastStatus} text={statusText} />
           </View>
           <Text

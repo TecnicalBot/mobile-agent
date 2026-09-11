@@ -16,6 +16,7 @@ import type {
   FileContextSource,
   McpServerAuthMode,
   McpServerConfig,
+  McpServerOAuthMode,
   McpServerStatus,
   McpServerTransport,
   MessageMetadata,
@@ -222,6 +223,7 @@ export interface McpServerRepository {
     oauthAllowedAuthOrigin?: string | null;
     oauthAuthorizationUrl?: string | null;
     oauthClientId?: string | null;
+    oauthMode?: McpServerOAuthMode;
     oauthScopes?: string | null;
     oauthTokenUrl?: string | null;
     transport: McpServerTransport;
@@ -240,6 +242,7 @@ export interface McpServerRepository {
       oauthAllowedAuthOrigin?: string | null;
       oauthAuthorizationUrl?: string | null;
       oauthClientId?: string | null;
+      oauthMode?: McpServerOAuthMode;
       oauthScopes?: string | null;
       oauthTokenUrl?: string | null;
       transport?: McpServerTransport;

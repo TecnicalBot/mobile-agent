@@ -393,12 +393,15 @@ export type ProviderConfig = {
   updatedAt: string;
 };
 
+export type McpServerOAuthMode = "proxy" | null;
+
 export type McpServerConfig = {
   id: string;
   label: string;
   url: string;
   transport: McpServerTransport;
   authMode: McpServerAuthMode;
+  oauthMode: McpServerOAuthMode;
   enabled: boolean;
   headerNames: string[];
   oauthClientId: string | null;

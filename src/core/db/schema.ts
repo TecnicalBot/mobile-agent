@@ -16,6 +16,7 @@ import type {
   MessageRole,
   MessageStatus,
   McpServerAuthMode,
+  McpServerOAuthMode,
   McpServerStatus,
   McpServerTransport,
   ProviderAuthType,
@@ -187,6 +188,7 @@ export const mcpServers = sqliteTable(
     url: text("url").notNull(),
     transport: text("transport").$type<McpServerTransport>().notNull(),
     authMode: text("auth_mode").$type<McpServerAuthMode>().notNull(),
+    oauthMode: text("oauth_mode").$type<McpServerOAuthMode>(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     headerNames: text("header_names_json", { mode: "json" })
       .$type<string[]>()

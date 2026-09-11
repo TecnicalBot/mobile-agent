@@ -7,7 +7,8 @@
       "description": "Search, read, and update pages in your Notion workspace.",
       "url": "https://mcp.notion.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "linear",
@@ -15,7 +16,8 @@
       "description": "Find, create, and update Linear issues and projects.",
       "url": "https://mcp.linear.app/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "atlassian",
@@ -23,7 +25,8 @@
       "description": "Search and manage Jira issues, Confluence pages, and Compass resources.",
       "url": "https://mcp.atlassian.com/v1/mcp/authv2",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "github",
@@ -40,7 +43,8 @@
       "description": "Investigate errors, issues, traces, and project health in Sentry.",
       "url": "https://mcp.sentry.dev/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "honeycomb",
@@ -48,7 +52,8 @@
       "description": "Query telemetry, investigate traces, and manage observability resources.",
       "url": "https://mcp.honeycomb.io/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "hugging-face",
@@ -56,7 +61,8 @@
       "description": "Search models, datasets, Spaces, papers, and Hugging Face docs.",
       "url": "https://huggingface.co/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "cloudflare-docs",
@@ -72,7 +78,8 @@
       "description": "Manage Cloudflare services across DNS, Workers, R2, Zero Trust, and more.",
       "url": "https://mcp.cloudflare.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "cloudflare-api-token",
@@ -105,7 +112,8 @@
       "description": "Read and send messages, search conversations, and manage your Slack workspace.",
       "url": "https://mcp.slack.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "stripe",
@@ -113,7 +121,8 @@
       "description": "Manage customers, payments, invoices, and subscriptions in Stripe.",
       "url": "https://mcp.stripe.com",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "supabase",
@@ -121,7 +130,8 @@
       "description": "Query and manage your Supabase projects, databases, and auth.",
       "url": "https://mcp.supabase.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "neon",
@@ -129,7 +139,8 @@
       "description": "Manage Neon projects and branches, inspect schemas, and run PostgreSQL queries.",
       "url": "https://mcp.neon.tech/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "clickhouse-cloud",
@@ -137,7 +148,8 @@
       "description": "Explore schemas, run read-only queries, and inspect ClickHouse Cloud services.",
       "url": "https://mcp.clickhouse.cloud/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "resend",
@@ -145,7 +157,8 @@
       "description": "Send and manage transactional emails with the Resend API.",
       "url": "https://mcp.resend.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "airtable",
@@ -153,7 +166,8 @@
       "description": "Read and update records, bases, and tables in Airtable.",
       "url": "https://mcp.airtable.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "box",
@@ -161,7 +175,8 @@
       "description": "Browse, upload, and manage files and folders in Box.",
       "url": "https://mcp.box.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "webflow",
@@ -169,7 +184,8 @@
       "description": "Create and manage sites, pages, collections, and content in Webflow.",
       "url": "https://mcp.webflow.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "paypal",
@@ -177,7 +193,8 @@
       "description": "Manage payments, invoices, and billing in PayPal.",
       "url": "https://mcp.paypal.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "postman",
@@ -185,7 +202,8 @@
       "description": "Manage API workspaces, collections, specifications, mocks, and monitors.",
       "url": "https://mcp.postman.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "zapier",
@@ -193,7 +211,8 @@
       "description": "Trigger Zaps and automate workflows across thousands of apps.",
       "url": "https://mcp.zapier.com/api/v1/connect",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "google-maps",
@@ -226,7 +245,8 @@
       "description": "Manage cloud resources, databases, and services on Alibaba Cloud.",
       "url": "https://mcp.alibabacloud.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "render",
@@ -243,7 +263,8 @@
       "description": "Query Pulumi stacks and resources, review policies, and generate infrastructure code.",
       "url": "https://mcp.ai.pulumi.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "aiven",
@@ -251,7 +272,8 @@
       "description": "Manage Aiven data services and inspect their configuration, metrics, and logs.",
       "url": "https://mcp.aiven.live/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "shutterstock",
@@ -259,7 +281,8 @@
       "description": "Search and license photos, vectors, and video from Shutterstock.",
       "url": "https://mcp.shutterstock.com/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "anthropic",
@@ -302,7 +325,8 @@
       "description": "Search, scrape, crawl, and extract structured data from the web.",
       "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "apify",
@@ -310,7 +334,8 @@
       "description": "Discover and run Apify Actors, access results and storage, and search Apify docs.",
       "url": "https://mcp.apify.com",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     },
     {
       "id": "context7",
@@ -351,7 +376,8 @@
       "description": "Convert documents, PDFs, images, audio, video, and data across 140+ formats.",
       "url": "https://mcp.conversiontools.io/mcp",
       "transport": "http",
-      "authMode": "oauth"
+      "authMode": "oauth",
+      "oauthMode": "proxy"
     }
   ]
 }

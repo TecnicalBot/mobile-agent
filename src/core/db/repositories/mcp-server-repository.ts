@@ -19,6 +19,7 @@ export function createMcpServerRepository(
         url: input.url,
         transport: input.transport,
         authMode: input.authMode,
+        oauthMode: input.oauthMode ?? null,
         enabled: input.enabled ?? true,
         headerNames: input.headerNames ?? [],
         oauthClientId: input.oauthClientId ?? null,
@@ -80,6 +81,8 @@ export function createMcpServerRepository(
             input.oauthClientId !== undefined
               ? input.oauthClientId
               : current.oauthClientId,
+          oauthMode:
+            input.oauthMode !== undefined ? input.oauthMode : current.oauthMode,
           oauthScopes:
             input.oauthScopes !== undefined
               ? input.oauthScopes

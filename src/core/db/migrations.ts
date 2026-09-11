@@ -162,6 +162,17 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
   };
   await ensureAgentIdColumns();
 
+  const ensureMcpServersOauthModeColumn = async () => {
+    const columns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(mcp_servers)",
+    );
+
+    if (!columns.some((column) => column.name === "oauth_mode")) {
+      await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);
+    }
+  };
+  await ensureMcpServersOauthModeColumn();
+
   if (currentVersion >= DATABASE_VERSION) {
     const conversationColumns = await db.getAllAsync<{ name: string }>(
       "PRAGMA table_info(conversations)",
@@ -350,6 +361,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         url TEXT NOT NULL,
         transport TEXT NOT NULL,
         auth_mode TEXT NOT NULL,
+        oauth_mode TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         header_names_json TEXT NOT NULL DEFAULT '[]',
         oauth_client_id TEXT,
@@ -629,6 +641,7 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         url TEXT NOT NULL,
         transport TEXT NOT NULL,
         auth_mode TEXT NOT NULL,
+        oauth_mode TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         header_names_json TEXT NOT NULL DEFAULT '[]',
         oauth_client_id TEXT,

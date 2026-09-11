@@ -92,6 +92,7 @@ import type {
     ExternalFolderSession,
     McpServerAuthMode,
     McpServerConfig,
+    McpServerOAuthMode,
     McpServerTransport,
     MemoryEntry,
     ModelRef,
@@ -193,6 +194,7 @@ type AppStateContextValue = {
         oauthAllowedAuthOrigin?: string | null;
         oauthAuthorizationUrl?: string | null;
         oauthClientId?: string | null;
+        oauthMode?: McpServerOAuthMode;
         oauthScopes?: string | null;
         oauthTokenUrl?: string | null;
         transport: McpServerTransport;
@@ -206,6 +208,7 @@ type AppStateContextValue = {
         oauthAllowedAuthOrigin?: string | null;
         oauthAuthorizationUrl?: string | null;
         oauthClientId?: string | null;
+        oauthMode?: McpServerOAuthMode;
         oauthScopes?: string | null;
         oauthTokenUrl?: string | null;
         transport: McpServerTransport;
@@ -1879,6 +1882,7 @@ Your output must be:
         oauthAllowedAuthOrigin?: string | null;
         oauthAuthorizationUrl?: string | null;
         oauthClientId?: string | null;
+        oauthMode?: McpServerOAuthMode;
         oauthScopes?: string | null;
         oauthTokenUrl?: string | null;
         transport: McpServerTransport;
@@ -1892,6 +1896,7 @@ Your output must be:
             oauthAllowedAuthOrigin: input.oauthAllowedAuthOrigin,
             oauthAuthorizationUrl: input.oauthAuthorizationUrl,
             oauthClientId: input.oauthClientId,
+            oauthMode: input.oauthMode ?? null,
             oauthScopes: input.oauthScopes,
             oauthTokenUrl: input.oauthTokenUrl,
             transport: input.transport,
@@ -1912,6 +1917,7 @@ Your output must be:
         oauthAllowedAuthOrigin?: string | null;
         oauthAuthorizationUrl?: string | null;
         oauthClientId?: string | null;
+        oauthMode?: McpServerOAuthMode;
         oauthScopes?: string | null;
         oauthTokenUrl?: string | null;
         transport: McpServerTransport;
@@ -1931,6 +1937,7 @@ Your output must be:
             oauthAllowedAuthOrigin: input.oauthAllowedAuthOrigin ?? null,
             oauthAuthorizationUrl: input.oauthAuthorizationUrl ?? null,
             oauthClientId: input.oauthClientId ?? null,
+            oauthMode: input.oauthMode ?? null,
             oauthScopes: input.oauthScopes ?? null,
             oauthTokenUrl: input.oauthTokenUrl ?? null,
             serverInfo: null,
@@ -1953,6 +1960,7 @@ Your output must be:
                     oauthAllowedAuthOrigin: pendingServer.oauthAllowedAuthOrigin,
                     oauthAuthorizationUrl: pendingServer.oauthAuthorizationUrl,
                     oauthClientId: pendingServer.oauthClientId,
+                    oauthMode: pendingServer.oauthMode,
                     oauthScopes: pendingServer.oauthScopes,
                     oauthTokenUrl: pendingServer.oauthTokenUrl,
                     transport: pendingServer.transport,
@@ -1980,6 +1988,7 @@ Your output must be:
             oauthAllowedAuthOrigin?: string | null;
             oauthAuthorizationUrl?: string | null;
             oauthClientId?: string | null;
+            oauthMode?: McpServerOAuthMode;
             oauthScopes?: string | null;
             oauthTokenUrl?: string | null;
             transport?: McpServerTransport;
@@ -1996,6 +2005,7 @@ Your output must be:
             oauthAllowedAuthOrigin: input.oauthAllowedAuthOrigin,
             oauthAuthorizationUrl: input.oauthAuthorizationUrl,
             oauthClientId: input.oauthClientId,
+            oauthMode: input.oauthMode,
             oauthScopes: input.oauthScopes,
             oauthTokenUrl: input.oauthTokenUrl,
             transport: input.transport,

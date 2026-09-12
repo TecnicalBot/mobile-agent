@@ -70,6 +70,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Questionnaire } from "@/components/ui/questionnaire";
+import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -232,11 +233,14 @@ export default function Screen() {
     messages,
     pendingToolApproval,
     pendingQuestionnaire,
+    pendingSecretRequest,
     pickConversationFolder,
     sendMessage,
     stopSending,
     submitPendingQuestionnaire,
     dismissPendingQuestionnaire,
+    submitPendingSecretRequest,
+    dismissPendingSecretRequest,
     createConversation,
     setCurrentSelectedFileIds,
     setCurrentSelectedSkillIds,
@@ -613,6 +617,15 @@ export default function Screen() {
               questionnaire={pendingQuestionnaire}
               onDismiss={dismissPendingQuestionnaire}
               onSubmit={submitPendingQuestionnaire}
+            />
+          ) : null}
+
+          {pendingSecretRequest ? (
+            <SecretRequest
+              key={pendingSecretRequest.id}
+              secretRequest={pendingSecretRequest}
+              onDismiss={dismissPendingSecretRequest}
+              onSubmit={submitPendingSecretRequest}
             />
           ) : null}
 

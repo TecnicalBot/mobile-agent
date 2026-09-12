@@ -1,10 +1,10 @@
-import * as SecureStore from "expo-secure-store";
 import type { ToolSet } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
 
 import type { PluginConfig } from "@/core/types/app-state";
 
+import { secureSecretStore } from "@/core/services/secrets";
 import { loadAllPlugins } from "./loader";
 import type {
   LoadedPlugin,
@@ -20,16 +20,11 @@ type PluginStorageRepository = {
   set(pluginId: string, key: string, value: string): Promise<void>;
 };
 
-function secureKey(pluginId: string, key: string) {
-  return `plugin_${pluginId.replace(/[^a-zA-Z0-9._-]/g, "_")}_${key.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-}
-
 function createSecretStore(pluginId: string): PluginKeyValueStore {
   return {
-    delete: (key) => SecureStore.deleteItemAsync(secureKey(pluginId, key)),
-    get: (key) => SecureStore.getItemAsync(secureKey(pluginId, key)),
-    set: (key, value) =>
-      SecureStore.setItemAsync(secureKey(pluginId, key), value),
+    delete: (key) => secureSecretStore.deletePluginSecret(pluginId, key),
+    get: (key) => secureSecretStore.getPluginSecret(pluginId, key),
+    set: (key, value) => secureSecretStore.setPluginSecret(pluginId, key, value),
   };
 }
 

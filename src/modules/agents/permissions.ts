@@ -15,6 +15,7 @@ export const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "manageSkill",
   "moveEntry",
   "renameEntry",
+  "requestSecret",
   "task",
   "write",
 ]);
@@ -27,6 +28,7 @@ export const SUBAGENT_DEFAULT_DENIED_TOOL_NAMES = new Set([
   "manageAgent",
   "managePlugin",
   "manageSkill",
+  "requestSecret",
   "schedule_task",
   "task",
   "update_schedule",

@@ -5,7 +5,7 @@ import {
 } from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 29;
+const DATABASE_VERSION = 30;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -112,6 +112,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
     source_url TEXT,
     last_update_check TEXT,
     last_error TEXT,
+    required_secrets_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -1426,6 +1427,20 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 29;
+  }
+
+  if (currentVersion === 29) {
+    const pluginColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(plugins)",
+    );
+    if (!pluginColumns.some((column) => column.name === "required_secrets_json")) {
+      await db.execAsync(`
+        ALTER TABLE plugins
+        ADD COLUMN required_secrets_json TEXT NOT NULL DEFAULT '[]';
+      `);
+    }
+
+    currentVersion = 30;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

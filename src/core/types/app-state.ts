@@ -71,7 +71,8 @@ export type BuiltInToolKey =
   | "todos"
   | "question"
   | "skill"
-  | "schedules";
+  | "schedules"
+  | "requestSecret";
 export type BuiltInToolSettings = Record<BuiltInToolKey, boolean>;
 export type SkillFile = {
   id: string;
@@ -94,6 +95,7 @@ export type PluginConfig = {
   sourceUrl: string | null;
   lastUpdateCheck: string | null;
   lastError: string | null;
+  requiredSecrets: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -196,6 +198,24 @@ export type PendingQuestionnaire = PendingQuestionnaireRequest & {
   chatTitle: string;
   conversationId: string;
   runId: string;
+};
+export type PendingSecretRequestRequest = {
+  id: string;
+  scope: "plugin";
+  pluginId: string;
+  key: string;
+  purpose: string | null;
+};
+export type PendingSecretRequestAnswer =
+  | { status: "stored" }
+  | { status: "deferred" }
+  | { status: "aborted" };
+export type PendingSecretRequest = PendingSecretRequestRequest & {
+  chatTitle: string;
+  conversationId: string;
+  runId: string;
+  pluginName: string;
+  alreadyConfigured: boolean;
 };
 export type ModelUsageSnapshot = {
   providerId: string;

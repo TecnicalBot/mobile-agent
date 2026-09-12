@@ -85,6 +85,7 @@ const BUILT_IN_TOOL_LABELS: Record<BuiltInToolKey, string> = {
   folderRenameEntry: "Rename entries (external)",
   folderWrite: "Write files (external)",
   question: "Ask questions",
+  requestSecret: "Request secrets",
   schedules: "Scheduled jobs",
   skill: "Use skills",
   todos: "Todo lists",

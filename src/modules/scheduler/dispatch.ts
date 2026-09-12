@@ -220,6 +220,7 @@ export function buildHeadlessAgentRunDeps(input: {
     },
     requestToolApproval: async () => "deny" as const,
     requestRunQuestionnaire: async () => null,
+    requestSecretAnswer: async () => ({ status: "deferred" } as const),
     generateAndApplyConversationTitle: async () => {},
     notifyRunStateChange: async ({ body, conversationId, status, title }) => {
       if (snapshotRef.current.settings.notificationSettings.runFinished) {

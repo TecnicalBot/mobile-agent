@@ -23,4 +23,19 @@ The host `api` exposes `fetch`, namespaced `storage`, encrypted `secrets`,
 `emit`, and `log`. Plugins must bundle all dependencies into the single file;
 runtime `import` and `require` are not available.
 
+## Secrets
+
+API keys and tokens are entered by the user in Settings > Plugins >
+\<plugin> > Secrets, stored encrypted on-device, and never sent to the model.
+Reference a secret only by key name:
+
+```js
+const token = await api.secrets.get("MY_API_KEY");
+```
+
+These key names are discovered automatically (Settings shows a field for each)
+and reported to the agent, which directs the user to configure them. Do not
+embed literal credentials in plugin code, and never ask the user to paste a
+secret into the chat.
+
 See `example.js` for a complete plugin.

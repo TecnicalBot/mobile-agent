@@ -317,6 +317,10 @@ export const plugins = sqliteTable(
     sourceUrl: text("source_url"),
     lastUpdateCheck: text("last_update_check"),
     lastError: text("last_error"),
+    requiredSecrets: text("required_secrets_json", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

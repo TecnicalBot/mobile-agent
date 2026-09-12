@@ -24,6 +24,7 @@ export const DEFAULT_BUILT_IN_TOOL_SETTINGS: BuiltInToolSettings = {
   question: true,
   skill: true,
   schedules: true,
+  requestSecret: true,
 };
 
 export const ALL_BUILT_IN_TOOL_KEYS = Object.keys(
@@ -102,6 +103,7 @@ export const ALWAYS_ENABLED_BUILT_IN_TOOLS: BuiltInToolKey[] = [
   "question",
   "skill",
   "schedules",
+  "requestSecret",
 ];
 
 export function normalizeBuiltInToolSettings(

@@ -2,10 +2,12 @@ import { tool } from "ai";
 import { z } from "zod";
 
 import type { Repositories } from "@/core/db/repositories/types";
+import { secureSecretStore } from "@/core/services/secrets";
 import type { ToolExecutionRecord } from "@/core/types/app-state";
 import { buildPluginSource, validatePluginSource } from "@/modules/plugins/builder";
 import { importPluginSource } from "@/modules/plugins/import";
 import { manifestToId } from "@/modules/plugins/manifest";
+import { extractRequiredSecretKeys } from "@/modules/plugins/secret-keys";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 
 const MAX_NAME_LENGTH = 64;
@@ -60,6 +62,10 @@ function buildPluginId(name: string) {
   return manifestToId({ name, version: "0.0.0" });
 }
 
+function missingSecrets(required: string[], configured: string[]): string[] {
+  return required.filter((key) => !configured.includes(key));
+}
+
 export function createPluginTools(input: {
   onPluginsChange?: () => void;
   onRecord?: (record: ToolExecutionRecord) => void;
@@ -72,7 +78,7 @@ export function createPluginTools(input: {
     tools: {
       managePlugin: tool({
         description:
-          "Create, update, delete, or list plugins. Plugins are installable capabilities that add tools (and optional system-prompt instructions) the agent can use across conversations. Use createPlugin when the user asks to add a reusable capability (checking weather, querying an API, syncing two services); use updatePlugin to modify an existing plugin; use deletePlugin to remove one; use listPlugins to show installed plugins. Each plugin tool has a name, a description, a JSON Schema inputSchema, and an execute body — a single self-contained JavaScript function body. Inside the body, `args` is the tool input and `api.fetch/storage/secrets/log` are available; do NOT use imports or require(). Mutating tools (ones that send/write/delete) must set mutating: true so the user approves them.",
+          "Create, update, delete, or list plugins. Plugins are installable capabilities that add tools (and optional system-prompt instructions) the agent can use across conversations. Use createPlugin when the user asks to add a reusable capability (checking weather, querying an API, syncing two services); use updatePlugin to modify an existing plugin; use deletePlugin to remove one; use listPlugins to show installed plugins. Each plugin tool has a name, a description, a JSON Schema inputSchema, and an execute body — a single self-contained JavaScript function body. Inside the body, `args` is the tool input and `api.fetch/storage/secrets/log` are available; do NOT use imports or require(). Mutating tools (ones that send/write/delete) must set mutating: true so the user approves them. If a tool needs an API key or token, reference it only by key name inside the execute body via `await api.secrets.get(\"MY_API_KEY\")` where MY_API_KEY is a descriptive UPPER_SNAKE key. NEVER ask the user to paste a secret value into the chat and NEVER guess or echo a stored value. After creating a plugin, report any returned secretsMissing keys so the user knows what to configure — you may also collect a missing secret in-chat by calling the requestSecret tool with the plugin id (from listPlugins) and the key name; the user types the value into a masked, encrypted on-device prompt that you never see. If the user defers, continue without the secret.",
         inputSchema: z
           .object({
             action: z.enum([
@@ -141,13 +147,25 @@ export function createPluginTools(input: {
 
           if (args.action === "listPlugins") {
             const plugins = await pluginRepository.list();
-            const catalog = plugins.map((plugin) => ({
-              name: plugin.name,
-              version: plugin.version,
-              description: plugin.description,
-              enabled: plugin.enabled,
-              autoUpdates: Boolean(plugin.sourceUrl),
-            }));
+            const catalog = await Promise.all(
+              plugins.map(async (plugin) => {
+                const configured =
+                  await secureSecretStore.listPluginSecretKeys(plugin.id);
+                return {
+                  id: plugin.id,
+                  name: plugin.name,
+                  version: plugin.version,
+                  description: plugin.description,
+                  enabled: plugin.enabled,
+                  autoUpdates: Boolean(plugin.sourceUrl),
+                  requiredSecrets: plugin.requiredSecrets,
+                  hasAllSecrets: missingSecrets(
+                    plugin.requiredSecrets,
+                    configured,
+                  ).length === 0,
+                };
+              }),
+            );
 
             onRecord?.(
               createRecord({
@@ -228,10 +246,17 @@ export function createPluginTools(input: {
             };
           }
 
+          const requiredSecrets = extractRequiredSecretKeys(source);
+
           const result = await importPluginSource(source, repositories);
           if (!result.ok) {
             return { created: false, updated: false, error: result.error };
           }
+
+          const configured = await secureSecretStore.listPluginSecretKeys(
+            result.plugin.id,
+          );
+          const secretsMissing = missingSecrets(requiredSecrets, configured);
 
           onPluginsChange?.();
 
@@ -245,7 +270,8 @@ export function createPluginTools(input: {
                 version: result.plugin.version,
                 wasUpdate: result.wasUpdate,
                 tools: validation.toolCount,
-                source,
+                requiredSecrets,
+                secretsMissing,
               }),
             }),
           );
@@ -258,7 +284,11 @@ export function createPluginTools(input: {
             version: result.plugin.version,
             description: result.plugin.description,
             toolCount: validation.toolCount,
-            source,
+            requiredSecrets,
+            secretsMissing,
+            message: secretsMissing.length > 0
+              ? `Configure the plugin's secret${secretsMissing.length > 1 ? "s" : ""} ${secretsMissing.map((key) => `"${key}"`).join(", ")} in Settings → Plugins → ${result.plugin.name} → Secrets. Do not ask the user to paste secret values into the chat.`
+              : undefined,
           };
         },
       }),

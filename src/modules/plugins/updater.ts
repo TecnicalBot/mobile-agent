@@ -2,6 +2,7 @@ import type { Repositories } from "@/core/db/repositories/types";
 import { fetchPluginFromUrl } from "./import";
 import { manifestToId, parsePluginManifest } from "./manifest";
 import { writePluginFile } from "./plugin-files";
+import { extractRequiredSecretKeys } from "./secret-keys";
 
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -77,6 +78,7 @@ export async function checkPluginUpdates(repositories: Repositories) {
           version: result.manifest.version,
           description: result.manifest.description ?? plugin.description,
           author: result.manifest.author ?? plugin.author,
+          requiredSecrets: extractRequiredSecretKeys(source),
           lastError: null,
           lastUpdateCheck: new Date().toISOString(),
         });

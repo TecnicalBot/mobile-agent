@@ -483,6 +483,7 @@ export interface PluginRepository {
     id?: string;
     name: string;
     options?: Record<string, unknown> | null;
+    requiredSecrets?: string[];
     sourceUrl?: string | null;
     version: string;
   }): Promise<PluginConfig>;
@@ -501,6 +502,7 @@ export interface PluginRepository {
       lastUpdateCheck?: string | null;
       name?: string;
       options?: Record<string, unknown> | null;
+      requiredSecrets?: string[];
       sourceUrl?: string | null;
       version?: string;
     },

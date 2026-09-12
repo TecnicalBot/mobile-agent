@@ -82,6 +82,7 @@ const BUILT_IN_TOOL_KEY_TO_SKILL_NAME: Record<BuiltInToolKey, string> = {
   folderRenameEntry: "FolderRenameEntry",
   folderWrite: "FolderWrite",
   question: "AskUserQuestion",
+  requestSecret: "RequestSecret",
   schedules: "Schedules",
   skill: "Skill",
   todos: "TodoWrite",

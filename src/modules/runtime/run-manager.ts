@@ -4,6 +4,9 @@ import type {
   PendingQuestionnaire,
   PendingQuestionnaireAnswer,
   PendingQuestionnaireRequest,
+  PendingSecretRequest,
+  PendingSecretRequestAnswer,
+  PendingSecretRequestRequest,
   PendingToolApproval,
   PendingToolApprovalRequest,
 } from "@/core/types/app-state";
@@ -74,6 +77,23 @@ export function createPendingQuestionnaire(
   };
 }
 
+export function createPendingSecretRequest(
+  run: AgentRun,
+  chatTitle: string,
+  request: PendingSecretRequestRequest,
+  pluginName: string,
+  alreadyConfigured: boolean,
+): PendingSecretRequest {
+  return {
+    ...request,
+    alreadyConfigured,
+    chatTitle,
+    conversationId: run.conversationId,
+    pluginName,
+    runId: run.id,
+  };
+}
+
 export function createRunControllerRegistry() {
   const abortControllers = new Map<string, AbortController>();
   const claimedRuns = new Set<string>();
@@ -86,6 +106,10 @@ export function createRunControllerRegistry() {
     string,
     Map<string, (answers: PendingQuestionnaireAnswer[] | null) => void>
   >();
+  const secretRequestResolvers = new Map<
+    string,
+    Map<string, (answer: PendingSecretRequestAnswer) => void>
+  >();
 
   return {
     version: 3 as number,
@@ -93,6 +117,7 @@ export function createRunControllerRegistry() {
       abortControllers.delete(runId);
       approvalResolvers.delete(runId);
       questionnaireResolvers.delete(runId);
+      secretRequestResolvers.delete(runId);
       claimedRuns.delete(runId);
       canceledRuns.delete(runId);
     },
@@ -159,6 +184,30 @@ export function createRunControllerRegistry() {
       }
       resolver?.(answers);
     },
+    registerPendingSecretRequest(
+      runId: string,
+      secretRequestId: string,
+      resolver: (answer: PendingSecretRequestAnswer) => void,
+    ) {
+      const runSecretRequests =
+        secretRequestResolvers.get(runId) ?? new Map();
+      runSecretRequests.set(secretRequestId, resolver);
+      secretRequestResolvers.set(runId, runSecretRequests);
+    },
+    resolvePendingSecretRequest(
+      runId: string,
+      secretRequestId: string,
+      answer: PendingSecretRequestAnswer,
+    ) {
+      const runSecretRequests = secretRequestResolvers.get(runId);
+      const resolver = runSecretRequests?.get(secretRequestId) ?? null;
+
+      runSecretRequests?.delete(secretRequestId);
+      if (runSecretRequests?.size === 0) {
+        secretRequestResolvers.delete(runId);
+      }
+      resolver?.(answer);
+    },
     stopRun(runId: string) {
       const controller = abortControllers.get(runId);
       if (controller || claimedRuns.has(runId)) canceledRuns.add(runId);
@@ -169,6 +218,11 @@ export function createRunControllerRegistry() {
       const runQuestionnaires = questionnaireResolvers.get(runId);
       questionnaireResolvers.delete(runId);
       runQuestionnaires?.forEach((resolve) => resolve(null));
+      const runSecretRequests = secretRequestResolvers.get(runId);
+      secretRequestResolvers.delete(runId);
+      runSecretRequests?.forEach((resolve) =>
+        resolve({ status: "aborted" }),
+      );
       return Boolean(controller) || claimedRuns.has(runId);
     },
   };

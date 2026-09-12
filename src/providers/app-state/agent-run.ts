@@ -55,6 +55,7 @@ import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createScheduleTools } from "@/modules/tools/built-in/schedules";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
 import { createPluginTools } from "@/modules/tools/built-in/plugin-tools";
+import { createSecretRequestTools } from "@/modules/tools/built-in/secret-request";
 import {
   createTaskTool,
   describeSubagentCatalog,
@@ -91,6 +92,8 @@ import type {
   MessageMetadata,
   PendingQuestionnaireAnswer,
   PendingQuestionnaireRequest,
+  PendingSecretRequestAnswer,
+  PendingSecretRequestRequest,
   PendingToolApprovalRequest,
   PromptArtifact,
   ProviderConfig,
@@ -157,6 +160,10 @@ export type AgentRunDeps = {
     run: AgentRun,
     request: PendingQuestionnaireRequest,
   ) => Promise<PendingQuestionnaireAnswer[] | null>;
+  requestSecretAnswer: (
+    run: AgentRun,
+    request: PendingSecretRequestRequest,
+  ) => Promise<PendingSecretRequestAnswer>;
   generateAndApplyConversationTitle: (input: {
     conversation: Conversation;
     firstUserMessage: string;
@@ -243,6 +250,7 @@ export async function executeClaimedAgentRun(
     updateRunRecord,
     requestToolApproval,
     requestRunQuestionnaire: requestRunQuestionnaireFromUi,
+    requestSecretAnswer: requestSecretAnswerFromUi,
     generateAndApplyConversationTitle,
     notifyRunStateChange,
     ui,
@@ -815,6 +823,44 @@ export async function executeClaimedAgentRun(
 
     return answers;
   };
+  const requestRunSecret = async (
+    request: PendingSecretRequestRequest,
+  ): Promise<PendingSecretRequestAnswer> => {
+    pushTimelineEvent(
+      createExecutionTimelineEvent({
+        detail: `${request.scope === "plugin" ? request.pluginId : request.scope} / ${request.key}`,
+        kind: "tool",
+        status: "pending",
+        title: `Secret requested for ${request.key}`,
+      }),
+    );
+    refreshAssistantState?.();
+    await setRunWaitingForQuestion();
+
+    let answer: PendingSecretRequestAnswer;
+    try {
+      answer = await requestSecretAnswerFromUi(run, request);
+    } catch (error) {
+      if (!isUiProjectionFailure(error)) {
+        throw error;
+      }
+      reportProjectionFailure("request-secret", error);
+      runRegistry.stopRun(run.id);
+      await safeUpdateRunRecord(run.id, {
+        completedAt: new Date().toISOString(),
+        lastError: null,
+        status: "canceled",
+      });
+      return { status: "aborted" };
+    }
+    markActivity();
+    await safeUpdateRunRecord(run.id, {
+      lastError: null,
+      status: "running",
+    });
+
+    return answer;
+  };
   let refreshAssistantState: null | (() => void) = null;
   const pendingArtifactWrites: Promise<void>[] = [];
   let assistantText = startingAssistantText;
@@ -1385,6 +1431,17 @@ export async function executeClaimedAgentRun(
             repositories,
           })
         : null;
+    const secretRequestRuntime =
+      runtimeSupportsTools &&
+      !isPlanMode &&
+      !isSubagentRun &&
+      snapshotRef.current.settings.builtInToolSettings.requestSecret
+        ? createSecretRequestTools({
+            onRecord: handleToolExecutionRecord,
+            repositories,
+            requestSecret: (request) => requestRunSecret(request),
+          })
+        : null;
 
     for (const serverResult of mcpRuntime?.serverResults ?? []) {
       repositories.mcpServerRepository
@@ -1400,7 +1457,7 @@ export async function executeClaimedAgentRun(
 
     const pluginTools = pluginSnapshot?.tools;
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || pluginTools
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || secretRequestRuntime || pluginTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1411,6 +1468,7 @@ export async function executeClaimedAgentRun(
             ...(taskRuntime?.tools ?? {}),
             ...(agentRuntime?.tools ?? {}),
             ...(pluginManagementRuntime?.tools ?? {}),
+            ...(secretRequestRuntime?.tools ?? {}),
             ...(pluginTools ?? {}),
           } satisfies ToolSet)
         : undefined;
@@ -1420,6 +1478,7 @@ export async function executeClaimedAgentRun(
       ...(questionRuntime ? Object.keys(questionRuntime.tools) : []),
       ...(skillRuntime ? ["skill", "skillReadFile"] : []),
       ...(scheduleRuntime ? Object.keys(scheduleRuntime.tools) : []),
+      ...(secretRequestRuntime ? Object.keys(secretRequestRuntime.tools) : []),
       ...(isPlanMode && mcpRuntime?.tools
         ? Object.keys(mcpRuntime.tools)
         : []),
@@ -1521,7 +1580,7 @@ export async function executeClaimedAgentRun(
         : undefined;
     const pluginManagementRuntimeSystem =
       pluginManagementRuntime && runtimeSupportsTools && !isPlanMode
-        ? "You can create, update, delete, and list plugins with the managePlugin tool. Plugins are reusable capabilities that add tools and optional system-prompt instructions to any conversation. Use createPlugin when the user asks for a new reusable capability (e.g. checking weather, querying an API, syncing services). You provide a kebab-case name, a short description, and one or more tool definitions — each with a name, a JSON Schema inputSchema, and a self-contained JavaScript executeBody. Inside the executeBody, `args` is the tool input; `api.fetch(url, init)`, `api.storage.get/set/delete(key)`, `api.secrets.get/set/delete(key)`, and `api.log(...)` are available. Do NOT use imports or require() inside executeBody — the plugin sandbox has no module system. Set mutating: true for any tool that writes, sends, or deletes data so the user is asked to approve it before running. You can also add optional system lines that are injected as extra prompt instructions whenever the plugin is active."
+        ? "You can create, update, delete, and list plugins with the managePlugin tool. Plugins are reusable capabilities that add tools and optional system-prompt instructions to any conversation. Use createPlugin when the user asks for a new reusable capability (e.g. checking weather, querying an API, syncing services). You provide a kebab-case name, a short description, and one or more tool definitions — each with a name, a JSON Schema inputSchema, and a self-contained JavaScript executeBody. Inside the executeBody, `args` is the tool input; `api.fetch(url, init)`, `api.storage.get/set/delete(key)`, `api.secrets.get/set/delete(key)`, and `api.log(...)` are available. Do NOT use imports or require() inside executeBody — the plugin sandbox has no module system. Set mutating: true for any tool that writes, sends, or deletes data so the user is asked to approve it before running. You can also add optional system lines that are injected as extra prompt instructions whenever the plugin is active.\n\nSecrets policy: if a plugin tool needs an API key or token, reference it only by key name inside the executeBody (e.g. `await api.secrets.get(\"WUNDERLIST_API_KEY\")`). NEVER ask the user to type a secret value into the chat and NEVER repeat a stored value back — doing so exposes it in the conversation. Instead, tell the user to enter it in Settings → Plugins → the plugin → Secrets. After createPlugin/updatePlugin, list the returned secretsMissing keys so the user knows exactly what to configure. To collect a missing secret in-chat, call the requestSecret tool with the plugin id (from listPlugins) and the exact key name; the user types the value into a masked, encrypted on-device prompt that you never see — you only learn whether it was stored or deferred. If the user defers, continue without it and let them know the key is still missing; do not keep asking. You cannot read secret values; you can only see which key names are configured."
         : undefined;
     const agentManagementRuntimeSystem =
       agentRuntime && runtimeSupportsTools && !isPlanMode

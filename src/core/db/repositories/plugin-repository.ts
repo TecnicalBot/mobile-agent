@@ -20,6 +20,7 @@ export function createPluginRepository(db: AppDatabase): PluginRepository {
         filePath: input.filePath,
         enabled: input.enabled ?? true,
         options: input.options ?? null,
+        requiredSecrets: input.requiredSecrets ?? [],
         sourceUrl: input.sourceUrl ?? null,
         lastUpdateCheck: null,
         lastError: null,
@@ -80,6 +81,10 @@ export function createPluginRepository(db: AppDatabase): PluginRepository {
           name: input.name ?? current.name,
           options:
             input.options !== undefined ? input.options : current.options,
+          requiredSecrets:
+            input.requiredSecrets !== undefined
+              ? input.requiredSecrets
+              : current.requiredSecrets,
           sourceUrl:
             input.sourceUrl !== undefined ? input.sourceUrl : current.sourceUrl,
           updatedAt: nowIso(),

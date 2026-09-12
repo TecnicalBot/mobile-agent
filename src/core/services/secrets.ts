@@ -32,6 +32,54 @@ function getMcpOAuthTokensKey(serverId: string) {
   return `mcp_${serverId}_oauth_tokens`;
 }
 
+export type PluginSecretMap = Record<string, string>;
+
+function getPluginSecretsKey(pluginId: string) {
+  const safe = pluginId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `plugin_secrets_${safe}`;
+}
+
+function sanitizeSecretKey(key: string) {
+  return key.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function readPluginSecretMap(pluginId: string): Promise<PluginSecretMap> {
+  const raw = await SecureStore.getItemAsync(getPluginSecretsKey(pluginId));
+
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === "string" && typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+async function writePluginSecretMap(
+  pluginId: string,
+  map: PluginSecretMap,
+): Promise<void> {
+  if (Object.keys(map).length === 0) {
+    await SecureStore.deleteItemAsync(getPluginSecretsKey(pluginId));
+    return;
+  }
+
+  await SecureStore.setItemAsync(getPluginSecretsKey(pluginId), JSON.stringify(map));
+}
+
 export type McpOAuthTokens = {
   accessToken: string;
   expiresAt?: number | null;
@@ -56,15 +104,19 @@ export interface SecretStore {
   deleteLegacyProviderApiKey(providerId: string): Promise<void>;
   deleteMcpHeaderValues(serverId: string): Promise<void>;
   deleteMcpOAuthTokens(serverId: string): Promise<void>;
+  deletePluginSecret(pluginId: string, key: string): Promise<void>;
+  deletePluginSecrets(pluginId: string): Promise<void>;
   deleteProviderAccountApiKey(accountId: string): Promise<void>;
   getActiveProviderAccountId(providerId: string): Promise<string | null>;
   getLegacyProviderApiKey(providerId: string): Promise<string | null>;
   getMcpHeaderValues(serverId: string): Promise<Record<string, string>>;
   getMcpOAuthSession(serverId: string): Promise<McpOAuthSession | null>;
   getMcpOAuthTokens(serverId: string): Promise<McpOAuthTokens | null>;
+  getPluginSecret(pluginId: string, key: string): Promise<string | null>;
   getProviderAccountApiKey(accountId: string): Promise<string | null>;
   getProviderApiKey(providerId: string): Promise<string | null>;
   hasProviderCredential(provider: ProviderConfig): Promise<boolean>;
+  listPluginSecretKeys(pluginId: string): Promise<string[]>;
   setActiveProviderAccount(
     providerId: string,
     accountId: string | null,
@@ -76,6 +128,11 @@ export interface SecretStore {
   ): Promise<void>;
   setMcpOAuthSession(serverId: string, session: McpOAuthSession): Promise<void>;
   setMcpOAuthTokens(serverId: string, tokens: McpOAuthTokens): Promise<void>;
+  setPluginSecret(
+    pluginId: string,
+    key: string,
+    value: string,
+  ): Promise<void>;
   setProviderAccountApiKey(accountId: string, apiKey: string): Promise<void>;
   syncActiveProviderAccounts(map: Record<string, string | null>): Promise<void>;
 }
@@ -166,6 +223,14 @@ export const secureSecretStore: SecretStore = {
   async deleteMcpOAuthTokens(serverId) {
     await SecureStore.deleteItemAsync(getMcpOAuthTokensKey(serverId));
   },
+  async deletePluginSecret(pluginId, key) {
+    const map = await readPluginSecretMap(pluginId);
+    delete map[sanitizeSecretKey(key)];
+    await writePluginSecretMap(pluginId, map);
+  },
+  async deletePluginSecrets(pluginId) {
+    await SecureStore.deleteItemAsync(getPluginSecretsKey(pluginId));
+  },
   async deleteProviderAccountApiKey(accountId) {
     await SecureStore.deleteItemAsync(getProviderAccountApiKeyKey(accountId));
   },
@@ -220,6 +285,12 @@ export const secureSecretStore: SecretStore = {
   },
   async getProviderAccountApiKey(accountId) {
     return SecureStore.getItemAsync(getProviderAccountApiKeyKey(accountId));
+  },
+  async getPluginSecret(pluginId, key) {
+    return (await readPluginSecretMap(pluginId))[sanitizeSecretKey(key)] ?? null;
+  },
+  async listPluginSecretKeys(pluginId) {
+    return Object.keys(await readPluginSecretMap(pluginId));
   },
   async getProviderApiKey(providerId) {
     const activeAccountId =
@@ -347,6 +418,11 @@ export const secureSecretStore: SecretStore = {
       getProviderAccountApiKeyKey(accountId),
       apiKey,
     );
+  },
+  async setPluginSecret(pluginId, key, value) {
+    const map = await readPluginSecretMap(pluginId);
+    map[sanitizeSecretKey(key)] = value;
+    await writePluginSecretMap(pluginId, map);
   },
   async syncActiveProviderAccounts(map) {
     await Promise.all(

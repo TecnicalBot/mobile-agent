@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { ChevronLeft, FileDown, Trash2 } from "lucide-react-native";
+import { ChevronLeft, FileDown, Settings2, Trash2 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 
@@ -110,6 +110,16 @@ export default function SettingsPluginsScreen() {
                     variant="outline"
                   >
                     {plugin.enabled ? "Disable" : "Enable"}
+                  </Button>
+                  <Button
+                    leftIcon={<Settings2 color={theme.text} size={14} />}
+                    onPress={() =>
+                      router.push(`/settings/plugins/${plugin.id}` as never)
+                    }
+                    size="sm"
+                    variant="outline"
+                  >
+                    Details
                   </Button>
                   <Button
                     leftIcon={<Trash2 color={theme.destructive} size={14} />}

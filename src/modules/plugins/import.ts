@@ -3,6 +3,7 @@ import type { PluginConfig } from "@/core/types/app-state";
 import type { Repositories } from "@/core/db/repositories/types";
 import { manifestToId, parsePluginManifest } from "./manifest";
 import { writePluginFile } from "./plugin-files";
+import { extractRequiredSecretKeys } from "./secret-keys";
 
 export type PluginImportResult =
   | { ok: true; plugin: PluginConfig; wasUpdate: boolean }
@@ -32,6 +33,7 @@ export async function importPluginSource(
 
   try {
     const filePath = await writePluginFile(id, source);
+    const requiredSecrets = extractRequiredSecretKeys(source);
     const existing = await repositories.pluginRepository.getById(id);
 
     if (existing) {
@@ -41,6 +43,7 @@ export async function importPluginSource(
         description: manifest.description ?? null,
         author: manifest.author ?? null,
         sourceUrl: sourceUrl ?? existing.sourceUrl,
+        requiredSecrets,
         lastError: null,
       });
 
@@ -62,6 +65,7 @@ export async function importPluginSource(
       filePath,
       sourceUrl: sourceUrl ?? null,
       enabled: true,
+      requiredSecrets,
     });
 
     return { ok: true, plugin, wasUpdate: false };

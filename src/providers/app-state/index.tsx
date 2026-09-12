@@ -53,6 +53,7 @@ import { createExecutionTimelineEvent } from "@/modules/runtime/run-artifacts";
 import {
     buildRunStatusByConversation,
     createPendingQuestionnaire,
+    createPendingSecretRequest,
     createPendingToolApproval,
     createRunControllerRegistry,
     isActiveAgentRunStatus,
@@ -102,6 +103,9 @@ import type {
     ModelRef,
     PendingQuestionnaire,
     PendingQuestionnaireAnswer,
+    PendingSecretRequest,
+    PendingSecretRequestAnswer,
+    PendingSecretRequestRequest,
     ToolApprovalMode,
     PendingToolApproval,
     PendingToolApprovalRequest,
@@ -163,6 +167,9 @@ type AppStateContextValue = {
         answers: PendingQuestionnaireAnswer[],
     ) => void;
     dismissPendingQuestionnaire: () => void;
+    pendingSecretRequest: PendingSecretRequest | null;
+    submitPendingSecretRequest: (value: string) => void;
+    dismissPendingSecretRequest: () => void;
     agentRuns: AgentRun[];
     activeProviderAccountIds: Record<string, string | null>;
     cancelRun: (input?: {
@@ -540,6 +547,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const [pendingQuestionnaires, setPendingQuestionnaires] = useState<
         PendingQuestionnaire[]
     >([]);
+    const [pendingSecretRequests, setPendingSecretRequests] = useState<
+        PendingSecretRequest[]
+    >([]);
 
     useEffect(() => {
         const runtime = pluginRuntimeRef.current;
@@ -560,6 +570,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const pendingQuestionnairesRef = useRef<PendingQuestionnaire[]>(
         pendingQuestionnaires,
     );
+    const pendingSecretRequestsRef = useRef<PendingSecretRequest[]>(
+        pendingSecretRequests,
+    );
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
@@ -577,6 +590,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     snapshotRef.current = snapshot;
     pendingToolApprovalsRef.current = pendingToolApprovals;
     pendingQuestionnairesRef.current = pendingQuestionnaires;
+    pendingSecretRequestsRef.current = pendingSecretRequests;
 
     useEffect(() => {
         logMessageDebug("snapshot-updated", {
@@ -640,6 +654,92 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             runRegistryRef.current.registerPendingQuestionnaire(
                 run.id,
                 questionnaire.id,
+                resolve,
+            );
+        });
+    }
+
+    function resolvePendingSecretRequest(
+        secretRequest: PendingSecretRequest,
+        answer: PendingSecretRequestAnswer,
+    ) {
+        runRegistryRef.current.resolvePendingSecretRequest(
+            secretRequest.runId,
+            secretRequest.id,
+            answer,
+        );
+        setPendingSecretRequests((current) =>
+            current.filter((item) => item.id !== secretRequest.id),
+        );
+
+        setBackgroundAgentNotificationState("running").catch(() => { });
+    }
+
+    async function submitPendingSecretRequest(value: string) {
+        const secretRequest = pendingSecretRequestsRef.current.find(
+            (item) =>
+                item.conversationId === snapshotRef.current.currentConversation?.id,
+        );
+
+        if (!secretRequest) {
+            return;
+        }
+
+        const normalized = value.trim();
+        if (normalized) {
+            await secureSecretStore.setPluginSecret(
+                secretRequest.pluginId,
+                secretRequest.key,
+                normalized,
+            );
+        }
+        resolvePendingSecretRequest(secretRequest, { status: "stored" });
+    }
+
+    function dismissPendingSecretRequest() {
+        const secretRequest = pendingSecretRequestsRef.current.find(
+            (item) =>
+                item.conversationId === snapshotRef.current.currentConversation?.id,
+        );
+
+        if (!secretRequest) {
+            return;
+        }
+
+        resolvePendingSecretRequest(secretRequest, { status: "deferred" });
+    }
+
+    async function requestRunSecret(
+        run: AgentRun,
+        request: PendingSecretRequestRequest,
+    ): Promise<PendingSecretRequestAnswer> {
+        const conversation =
+            snapshotRef.current.conversations.find(
+                (item) => item.id === run.conversationId,
+            ) ?? snapshotRef.current.currentConversation;
+        const plugin = snapshotRef.current.plugins.find(
+            (item) => item.id === request.pluginId,
+        );
+        const configuredKeys =
+            request.scope === "plugin"
+                ? await secureSecretStore.listPluginSecretKeys(request.pluginId)
+                : [];
+        const secretRequest = createPendingSecretRequest(
+            run,
+            conversation?.title ?? "Chat",
+            request,
+            plugin?.name ?? request.pluginId,
+            configuredKeys.includes(request.key),
+        );
+
+        setPendingSecretRequests((current) => [...current, secretRequest]);
+
+        setBackgroundAgentNotificationState("waiting_approval").catch(() => { });
+
+        return await new Promise<PendingSecretRequestAnswer>((resolve) => {
+            runRegistryRef.current.registerPendingSecretRequest(
+                run.id,
+                secretRequest.id,
                 resolve,
             );
         });
@@ -2334,7 +2434,9 @@ Your output must be:
 
     async function deletePlugin(pluginId: string) {
         const { deletePluginFile } = await import("@/modules/plugins/plugin-files");
+        const { secureSecretStore } = await import("@/core/services/secrets");
         deletePluginFile(pluginId);
+        await secureSecretStore.deletePluginSecrets(pluginId);
         await repositoriesRef.current.pluginRepository.delete(pluginId);
         await hydrate();
     }
@@ -3420,6 +3522,7 @@ Your output must be:
                 updateRunRecord,
                 requestToolApproval,
                 requestRunQuestionnaire,
+                requestSecretAnswer: requestRunSecret,
                 generateAndApplyConversationTitle,
                 notifyRunStateChange,
                 ui,
@@ -4154,6 +4257,12 @@ Your output must be:
                 questionnaire.conversationId ===
                 snapshot.currentConversation?.id,
         ) ?? null;
+    const pendingSecretRequest =
+        pendingSecretRequests.find(
+            (secretRequest) =>
+                secretRequest.conversationId ===
+                snapshot.currentConversation?.id,
+        ) ?? null;
 
     return (
         <AppStateContext.Provider
@@ -4228,6 +4337,9 @@ Your output must be:
                         resolvePendingQuestionnaire(pendingQuestionnaire, null);
                     }
                 },
+                pendingSecretRequest,
+                submitPendingSecretRequest,
+                dismissPendingSecretRequest,
                 deleteMcpServer,
                 clearMemory,
                 deleteModelPreset,
@@ -4443,6 +4555,9 @@ export function useChat() {
         pendingQuestionnaire: context.pendingQuestionnaire,
         submitPendingQuestionnaire: context.submitPendingQuestionnaire,
         dismissPendingQuestionnaire: context.dismissPendingQuestionnaire,
+        pendingSecretRequest: context.pendingSecretRequest,
+        submitPendingSecretRequest: context.submitPendingSecretRequest,
+        dismissPendingSecretRequest: context.dismissPendingSecretRequest,
         resolveNotificationApproval: context.resolveNotificationApproval,
         createConversation: context.createConversation,
         createSavedPrompt: context.createSavedPrompt,

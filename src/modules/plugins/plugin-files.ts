@@ -1,16 +1,19 @@
 import { Directory, File, Paths } from "expo-file-system";
 
-const PLUGINS_DIR = new Directory(Paths.document, "mobile-agent/plugins");
+function getPluginsDir() {
+  return new Directory(Paths.document, "mobile-agent/plugins");
+}
 
 function ensurePluginsDir() {
-  if (!PLUGINS_DIR.exists) {
-    PLUGINS_DIR.create({ idempotent: true, intermediates: true });
+  const directory = getPluginsDir();
+  if (!directory.exists) {
+    directory.create({ idempotent: true, intermediates: true });
   }
+  return directory;
 }
 
 export function getPluginFile(pluginId: string): File {
-  ensurePluginsDir();
-  return new File(PLUGINS_DIR, `${pluginId}.js`);
+  return new File(ensurePluginsDir(), `${pluginId}.js`);
 }
 
 export async function writePluginFile(

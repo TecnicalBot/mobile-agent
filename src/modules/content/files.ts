@@ -30,17 +30,20 @@ export const AGENT_DOCS_DIR = "docs";
 export const SKILL_FILES_MANIFEST_FILE = "files.json";
 export const AGENT_DOCS_MANIFEST_FILE = "docs.json";
 
-const CONTENT_ROOT = new Directory(Paths.document, "mobile-agent");
+function getContentRoot() {
+  return new Directory(Paths.document, "mobile-agent");
+}
 
 export function ensureContentDir() {
-  if (!CONTENT_ROOT.exists) {
-    CONTENT_ROOT.create({ idempotent: true, intermediates: true });
+  const directory = getContentRoot();
+  if (!directory.exists) {
+    directory.create({ idempotent: true, intermediates: true });
   }
+  return directory;
 }
 
 export function contentRoot(): Directory {
-  ensureContentDir();
-  return CONTENT_ROOT;
+  return ensureContentDir();
 }
 
 export function getEntityBaseDir(kind: ContentKind): Directory {

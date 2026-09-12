@@ -82,11 +82,20 @@ export interface ConversationRepository {
   deleteById(id: string): Promise<void>;
   create(input: {
     agentId?: string | null;
+    archivedAt?: string | null;
+    agentMode?: AgentMode;
+    createdAt?: string;
+    externalFolderSession?: ExternalFolderSession | null;
     id?: string;
     modelId?: string | null;
     pinnedAt?: string | null;
     providerId?: string | null;
+    reasoningEffort?: ReasoningEffort;
+    selectedFileIds?: string[];
+    selectedMcpServerIds?: string[] | null;
+    selectedSkillIds?: string[];
     title: string;
+    updatedAt?: string;
   }): Promise<Conversation>;
   getById(id: string): Promise<Conversation | null>;
   list(): Promise<Conversation[]>;

@@ -31,6 +31,7 @@ import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { usePathname, useRouter } from "expo-router";
 import {
+  Download,
   Edit,
   EllipsisVertical,
   Library,
@@ -40,6 +41,7 @@ import {
   PinOff,
   Settings2,
   Trash2,
+  Upload,
   Users,
 } from "lucide-react-native";
 import { useState } from "react";
@@ -48,6 +50,8 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Conversation } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { ChatImportDrawer } from "@/components/chat/chat-import-drawer";
+import { ExportChatDrawer } from "@/components/chat/export-chat-drawer";
 
 export function AppSidebar() {
   const theme = useTheme();
@@ -69,6 +73,10 @@ export function AppSidebar() {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [exportConversationId, setExportConversationId] = useState<
+    string | null
+  >(null);
   const pinnedConversations = conversations.filter(
     (conversation) => conversation.pinnedAt,
   );
@@ -124,13 +132,16 @@ export function AppSidebar() {
                   <ChatOptions
                     conversationId={conversation.id}
                     color={active ? theme.background : theme.textSecondary}
-                    pinned={Boolean(conversation.pinnedAt)}
-                    pinnedCount={pinnedConversations.length}
+                    onExport={() => {
+                      handleExportConversation(conversation.id);
+                    }}
                     onRename={() => {
                       setRenameTarget(conversation);
                       setRenameTitle(conversation.title);
                       setRenameError(null);
                     }}
+                    pinned={Boolean(conversation.pinnedAt)}
+                    pinnedCount={pinnedConversations.length}
                   />
                 )}
               </View>
@@ -140,6 +151,10 @@ export function AppSidebar() {
       </SidebarMenuItem>
     );
   }
+
+  const handleExportConversation = (conversationId: string) => {
+    setExportConversationId(conversationId);
+  };
 
   const submitRename = () => {
     if (!renameTarget || !renameTitle.trim() || renaming) {
@@ -171,22 +186,36 @@ export function AppSidebar() {
           <Text className="font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark">
             Mobile Agent
           </Text>
-          <SidebarClose asChild>
-            <Button
-              accessibilityLabel="New chat"
-              onPress={() => {
-                createConversation()
-                  .then(() => {
-                    router.push("/");
-                  })
-                  .catch(console.error);
-              }}
-              size="icon"
-              variant="ghost"
-            >
-              <Edit color={theme.text} size={20} />
-            </Button>
-          </SidebarClose>
+          <View className="flex-row items-center gap-sp-1">
+            <SidebarClose asChild>
+              <Button
+                accessibilityLabel="Import chat"
+                onPress={() => {
+                  setImportDrawerOpen(true);
+                }}
+                size="icon"
+                variant="ghost"
+              >
+                <Upload color={theme.text} size={20} />
+              </Button>
+            </SidebarClose>
+            <SidebarClose asChild>
+              <Button
+                accessibilityLabel="New chat"
+                onPress={() => {
+                  createConversation()
+                    .then(() => {
+                      router.push("/");
+                    })
+                    .catch(console.error);
+                }}
+                size="icon"
+                variant="ghost"
+              >
+                <Edit color={theme.text} size={20} />
+              </Button>
+            </SidebarClose>
+          </View>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -371,6 +400,19 @@ export function AppSidebar() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+      <ChatImportDrawer
+        onOpenChange={setImportDrawerOpen}
+        open={importDrawerOpen}
+      />
+      <ExportChatDrawer
+        conversationId={exportConversationId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setExportConversationId(null);
+          }
+        }}
+        open={exportConversationId !== null}
+      />
     </>
   );
 }
@@ -378,12 +420,14 @@ export function AppSidebar() {
 function ChatOptions({
   color,
   conversationId,
+  onExport,
   onRename,
   pinned,
   pinnedCount,
 }: {
   color: string;
   conversationId: string;
+  onExport: () => void;
   onRename: () => void;
   pinned: boolean;
   pinnedCount: number;
@@ -404,6 +448,14 @@ function ChatOptions({
             <Pencil color={theme.text} size={16} />
             <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
               Rename
+            </Text>
+          </View>
+        </DropdownMenuItem>
+        <DropdownMenuItem onPress={onExport}>
+          <View className="flex-row items-center gap-sp-2">
+            <Download color={theme.text} size={16} />
+            <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+              Export chat
             </Text>
           </View>
         </DropdownMenuItem>

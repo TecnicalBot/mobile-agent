@@ -82,6 +82,10 @@ import {
     parseAgentMarkdown,
     serializeAgentToMarkdown,
 } from "@/modules/agents/agent-markdown";
+import {
+    parseConversationExport,
+    serializeConversationExport,
+} from "@/modules/content/chat-export";
 import type {
     AgentConfig,
     AgentRun,
@@ -385,6 +389,8 @@ type AppStateContextValue = {
         conversationId: string,
         pinned: boolean,
     ) => Promise<void>;
+    exportConversationJson: (conversationId: string) => Promise<string>;
+    importConversationJson: (json: string) => Promise<Conversation>;
     selectModel: (modelRef: ModelRef) => Promise<void>;
     sendMessage: (input: SendMessageInput) => Promise<void>;
     sending: boolean;
@@ -2561,6 +2567,64 @@ Your output must be:
         return serializeAgentToMarkdown(agent);
     }
 
+    async function exportConversationJson(conversationId: string) {
+        const conversation =
+            await repositoriesRef.current.conversationRepository.getById(
+                conversationId,
+            );
+
+        if (!conversation) {
+            throw new Error(`Chat not found: ${conversationId}`);
+        }
+
+        const messages =
+            await repositoriesRef.current.messageRepository.listByConversation(
+                conversationId,
+            );
+
+        return serializeConversationExport(conversation, messages);
+    }
+
+    async function importConversationJson(json: string) {
+        const parsed = parseConversationExport(json);
+
+        const conversation =
+            await repositoriesRef.current.conversationRepository.create({
+                agentId: parsed.conversation.agentId ?? null,
+                agentMode: parsed.conversation.agentMode ?? "build",
+                modelId: parsed.conversation.modelId ?? null,
+                pinnedAt: null,
+                providerId: parsed.conversation.providerId ?? null,
+                reasoningEffort: parsed.conversation.reasoningEffort ?? "medium",
+                selectedFileIds: parsed.conversation.selectedFileIds ?? [],
+                selectedMcpServerIds:
+                    parsed.conversation.selectedMcpServerIds ?? null,
+                selectedSkillIds: parsed.conversation.selectedSkillIds ?? [],
+                externalFolderSession:
+                    parsed.conversation.externalFolderSession ?? null,
+                title:
+                    parsed.conversation.title.trim() || "Imported chat",
+                archivedAt: null,
+            });
+
+        for (let index = 0; index < parsed.messages.length; index += 1) {
+            const message = parsed.messages[index];
+
+            await repositoriesRef.current.messageRepository.create({
+                conversationId: conversation.id,
+                content: message.content,
+                error: message.error ?? null,
+                metadata: message.metadata ?? null,
+                role: message.role,
+                sequence: index + 1,
+                status: message.status === "streaming" ? "completed" : message.status,
+            });
+        }
+
+        await hydrate();
+        return conversation;
+    }
+
     async function createSavedPrompt(input: {
         content: string;
         title: string;
@@ -4126,6 +4190,8 @@ Your output must be:
                 deleteAgent,
                 importAgentMarkdown,
                 exportAgentMarkdown,
+                importConversationJson,
+                exportConversationJson,
                 createWorkspaceFile,
                 currentConversation: snapshot.currentConversation,
                 currentExternalFolderSession:
@@ -4416,6 +4482,8 @@ export function useChat() {
         deleteAgent: context.deleteAgent,
         importAgentMarkdown: context.importAgentMarkdown,
         exportAgentMarkdown: context.exportAgentMarkdown,
+        importConversationJson: context.importConversationJson,
+        exportConversationJson: context.exportConversationJson,
         setCurrentSelectedFileIds: context.setCurrentSelectedFileIds,
         setCurrentSelectedMcpServerIds: context.setCurrentSelectedMcpServerIds,
         setCurrentSelectedSkillIds: context.setCurrentSelectedSkillIds,

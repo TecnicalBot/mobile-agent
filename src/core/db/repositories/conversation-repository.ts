@@ -23,14 +23,18 @@ export function createConversationRepository(
         modelId: input.modelId ?? null,
         agentId: input.agentId ?? null,
         pinnedAt: input.pinnedAt ?? null,
-        reasoningEffort: "medium",
-        agentMode: "build",
-        selectedFileIds: [],
-        selectedSkillIds: [],
-        externalFolderSession: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        archivedAt: null,
+        reasoningEffort: input.reasoningEffort ?? "medium",
+        agentMode: input.agentMode ?? "build",
+        selectedFileIds: input.selectedFileIds ?? [],
+        selectedMcpServerIds:
+          input.selectedMcpServerIds !== undefined
+            ? input.selectedMcpServerIds
+            : null,
+        selectedSkillIds: input.selectedSkillIds ?? [],
+        externalFolderSession: input.externalFolderSession ?? null,
+        createdAt: input.createdAt ?? timestamp,
+        updatedAt: input.updatedAt ?? timestamp,
+        archivedAt: input.archivedAt ?? null,
       });
 
       const row = (

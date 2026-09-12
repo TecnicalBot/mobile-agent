@@ -3426,6 +3426,9 @@ Your output must be:
                 onSkillsChange: () => {
                     hydrate().catch(() => {});
                 },
+                onPluginsChange: () => {
+                    hydrate().catch(() => {});
+                },
                 onAgentsChange: () => {
                     hydrate().catch(() => {});
                 },

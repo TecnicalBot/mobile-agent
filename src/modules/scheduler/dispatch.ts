@@ -232,6 +232,7 @@ export function buildHeadlessAgentRunDeps(input: {
       }
     },
     onSkillsChange: () => {},
+    onPluginsChange: () => {},
     onAgentsChange: () => {},
     ui: createHeadlessRunPublisher(),
     retryRun: (runId, delayMs) => {

@@ -54,6 +54,7 @@ import { createAgentTools } from "@/modules/tools/built-in/agent-tools";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createScheduleTools } from "@/modules/tools/built-in/schedules";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
+import { createPluginTools } from "@/modules/tools/built-in/plugin-tools";
 import {
   createTaskTool,
   describeSubagentCatalog,
@@ -170,6 +171,8 @@ export type AgentRunDeps = {
     title: string;
   }) => Promise<void>;
   onSkillsChange: () => void;
+  /** Refresh the snapshot + plugin runtime after plugins change via tools. */
+  onPluginsChange: () => void;
   /** Refresh the snapshot after agents change via tools. */
   onAgentsChange: () => void;
   ui: RunUiPublisher;
@@ -1371,6 +1374,17 @@ export async function executeClaimedAgentRun(
             repository: repositories.agentRepository,
           })
         : null;
+    const pluginManagementRuntime =
+      runtimeSupportsTools && !isPlanMode && !isSubagentRun
+        ? createPluginTools({
+            onPluginsChange: () => {
+              deps.onPluginsChange();
+              markActivity();
+            },
+            onRecord: handleToolExecutionRecord,
+            repositories,
+          })
+        : null;
 
     for (const serverResult of mcpRuntime?.serverResults ?? []) {
       repositories.mcpServerRepository
@@ -1386,7 +1400,7 @@ export async function executeClaimedAgentRun(
 
     const pluginTools = pluginSnapshot?.tools;
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginTools
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || pluginTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1396,6 +1410,7 @@ export async function executeClaimedAgentRun(
             ...(scheduleRuntime?.tools ?? {}),
             ...(taskRuntime?.tools ?? {}),
             ...(agentRuntime?.tools ?? {}),
+            ...(pluginManagementRuntime?.tools ?? {}),
             ...(pluginTools ?? {}),
           } satisfies ToolSet)
         : undefined;
@@ -1504,6 +1519,10 @@ export async function executeClaimedAgentRun(
       skillRuntime && runtimeSupportsTools && !isPlanMode
         ? "You can create, update, delete, and list skills with the manageSkill tool. Skills follow the SKILL.md format: a name, a short description, and markdown instructions. Create a skill when the user explicitly asks to save one, or when a repeated task would benefit from reusable instructions. A skill may include supporting files (scripts, references, templates) which are listed when you load it with the skill tool; use the skillReadFile tool to read the full contents of one of those files when needed."
         : undefined;
+    const pluginManagementRuntimeSystem =
+      pluginManagementRuntime && runtimeSupportsTools && !isPlanMode
+        ? "You can create, update, delete, and list plugins with the managePlugin tool. Plugins are reusable capabilities that add tools and optional system-prompt instructions to any conversation. Use createPlugin when the user asks for a new reusable capability (e.g. checking weather, querying an API, syncing services). You provide a kebab-case name, a short description, and one or more tool definitions — each with a name, a JSON Schema inputSchema, and a self-contained JavaScript executeBody. Inside the executeBody, `args` is the tool input; `api.fetch(url, init)`, `api.storage.get/set/delete(key)`, `api.secrets.get/set/delete(key)`, and `api.log(...)` are available. Do NOT use imports or require() inside executeBody — the plugin sandbox has no module system. Set mutating: true for any tool that writes, sends, or deletes data so the user is asked to approve it before running. You can also add optional system lines that are injected as extra prompt instructions whenever the plugin is active."
+        : undefined;
     const agentManagementRuntimeSystem =
       agentRuntime && runtimeSupportsTools && !isPlanMode
         ? "You can create, update, delete, and list agents with the manageAgent tool. Agents are reusable personas: a kebab-case name, a description of when to use them, an availability mode (primary = selectable in chats, subagent = invoked via the task tool, all = both), and a markdown system prompt that replaces your default persona while they run. Create an agent when the user explicitly asks to save one."
@@ -1561,6 +1580,7 @@ export async function executeClaimedAgentRun(
         memoryRuntimeSystem,
         skillsRuntimeSystem,
         skillManagementRuntimeSystem,
+        pluginManagementRuntimeSystem,
         agentManagementRuntimeSystem,
         taskRuntimeSystem,
         toolLoopRuntimeSystem,

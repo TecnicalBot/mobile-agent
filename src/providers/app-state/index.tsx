@@ -1,7 +1,5 @@
 import type { DocumentPickerAsset } from "expo-document-picker";
-import * as Crypto from "expo-crypto";
 import * as Notifications from "expo-notifications";
-import { useSQLiteContext } from "expo-sqlite";
 import { colorScheme } from "nativewind";
 import {
     createContext,
@@ -19,9 +17,9 @@ import {
 } from "react-native";
 
 import {
-    createRepositories,
     type Repositories,
-} from "@/core/db/database";
+} from "@/core/db/repositories/types";
+import { randomId } from "@/core/ids";
 import { createExternalFolderService } from "@/core/services/external-folder/external-folder-service";
 import { connectMcpOAuth } from "@/modules/mcp/oauth";
 import { revokeProxySession } from "@/modules/mcp/proxy";
@@ -491,6 +489,15 @@ type AppStateContextValue = {
 
 type AppStateProviderProps = {
     children: ReactNode;
+    /**
+     * The repository set for this host.
+     *
+     * Injected rather than resolved here so the same provider serves Android
+     * (an `expo-sqlite` handle) and the Electron renderer (an IPC-backed
+     * `sqlite-proxy` handle) without branching on `Platform.OS` inside a
+     * 4,000-line component.
+     */
+    repositories: Repositories;
 };
 
 function ThemePreferenceController({
@@ -521,9 +528,8 @@ function getHeaderNames(headers?: Record<string, string>) {
         .map(([name]) => name.trim());
 }
 
-export function AppStateProvider({ children }: AppStateProviderProps) {
-    const db = useSQLiteContext();
-    const repositoriesRef = useRef(createRepositories(db));
+export function AppStateProvider({ children, repositories }: AppStateProviderProps) {
+    const repositoriesRef = useRef(repositories);
     const pluginRuntimeRef = useRef(
         createPluginRuntime(repositoriesRef.current.pluginRepository.storage),
     );
@@ -2029,7 +2035,7 @@ Your output must be:
         transport: McpServerTransport;
         url: string;
     }) {
-        const id = Crypto.randomUUID();
+        const id = randomId();
         const timestamp = new Date().toISOString();
         const pendingServer: McpServerConfig = {
             authMode: "oauth",
@@ -2916,7 +2922,7 @@ Your output must be:
             archivedAt: null,
             createdAt: now,
             externalFolderSession: null,
-            id: Crypto.randomUUID(),
+            id: randomId(),
             modelId: currentModel?.modelId ?? null,
             pinnedAt: null,
             providerId: currentModel?.providerId ?? null,
@@ -4004,9 +4010,9 @@ Your output must be:
 
         const userMetadata: import("@/core/types/app-state").MessageMetadata | null =
             Object.keys(userMetadataEntries).length > 0 ? userMetadataEntries : null;
-        const userMessageId = Crypto.randomUUID();
-        const assistantMessageId = Crypto.randomUUID();
-        const agentRunId = Crypto.randomUUID();
+        const userMessageId = randomId();
+        const assistantMessageId = randomId();
+        const agentRunId = randomId();
 
         const optimisticUserMessage: StoredMessage = {
             conversationId: conversation.id,

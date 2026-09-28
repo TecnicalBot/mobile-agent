@@ -1,6 +1,9 @@
 import { openDatabaseSync } from "expo-sqlite";
 
-import { createRepositories, migrateAppDatabase } from "@/core/db/database";
+import {
+  createNativeRepositories,
+  migrateAppDatabase,
+} from "@/core/db/database";
 import type { Schedule } from "@/core/types/app-state";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import { createRunControllerRegistry } from "@/modules/runtime/run-manager";
@@ -18,7 +21,7 @@ export async function runSchedulerHeadlessTick(): Promise<void> {
 
   try {
     await migrateAppDatabase(db);
-    const repositories = createRepositories(db);
+    const repositories = createNativeRepositories(db);
     const settings = await repositories.configRepository.getSettings();
 
     if (!settings.schedulingEnabled) {

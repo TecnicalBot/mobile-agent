@@ -1,6 +1,6 @@
-import * as Crypto from "expo-crypto";
 import type { ModelMessage } from "ai";
 
+import { randomId } from "@/core/ids";
 import type {
   AgentRun,
   ExecutionTimelineEvent,
@@ -33,7 +33,7 @@ export function createExecutionTimelineEvent(input: {
   title: string;
 }): ExecutionTimelineEvent {
   return {
-    id: Crypto.randomUUID(),
+    id: randomId(),
     kind: input.kind,
     status: input.status,
     title: input.title,
@@ -50,7 +50,7 @@ export function createPromptArtifactRecord(input: {
   relativePath: string;
 }): PromptArtifact {
   return {
-    id: Crypto.randomUUID(),
+    id: randomId(),
     category: input.category,
     createdAt: input.createdAt ?? new Date().toISOString(),
     displayName: input.displayName,

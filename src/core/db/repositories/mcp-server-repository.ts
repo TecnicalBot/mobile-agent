@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { desc, eq } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { mcpServers } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -11,7 +11,7 @@ export function createMcpServerRepository(
   return {
     async create(input) {
       const timestamp = nowIso();
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
 
       await db.insert(mcpServers).values({
         id,

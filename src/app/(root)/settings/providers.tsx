@@ -1,4 +1,3 @@
-import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +10,7 @@ import {
   View,
 } from "react-native";
 import type { DownloadableModel } from "expo-ai-kit";
+import { randomId } from "@/core/ids";
 
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
@@ -378,7 +378,7 @@ export default function SettingsProvidersScreen() {
       baseUrl: customProviderBaseUrl.trim(),
       enabled: true,
       family: "openai-compatible",
-      id: `custom-${Crypto.randomUUID()}`,
+      id: `custom-${randomId()}`,
       label: customProviderName.trim(),
     });
     setAddProviderOpen(false);

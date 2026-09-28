@@ -1,3 +1,4 @@
+import { randomId } from "@/core/ids";
 import { initializeCrypto } from "@/core/services/crypto";
 import type {
   OAuthAuthorizationServerInformation,
@@ -13,7 +14,6 @@ import {
   ResponseType,
   type DiscoveryDocument,
 } from "expo-auth-session";
-import * as Crypto from "expo-crypto";
 import "react-native-get-random-values";
 
 import { secureSecretStore, type McpOAuthSession } from "@/core/services/secrets";
@@ -833,7 +833,7 @@ function buildDiscoveryOAuthProvider(
       validateOAuthOrigin(server, String(authorizationServerUrl));
     },
     state() {
-      return Crypto.randomUUID();
+      return randomId();
     },
     async saveState(state) {
       await updateSession((current) => ({
@@ -1225,7 +1225,7 @@ function buildProxyOAuthProvider(server: McpServerConfig): OAuthClientProvider {
     async validateAuthorizationServerURL() {},
 
     async state() {
-      return Crypto.randomUUID();
+      return randomId();
     },
 
     async saveState() {},

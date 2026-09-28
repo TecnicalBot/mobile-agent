@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { desc, eq } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { normalizeBuiltInToolSettings } from "@/modules/config/built-in-tools";
 import { DEFAULT_PROVIDER_CONFIGS } from "@/modules/config/registry";
@@ -109,7 +109,7 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
           .where(eq(modelPresets.providerId, input.providerId))
       ).find((preset) => preset.modelId === input.modelId);
 
-      const presetId = existing?.id ?? Crypto.randomUUID();
+      const presetId = existing?.id ?? randomId();
 
       if (existing) {
         await db

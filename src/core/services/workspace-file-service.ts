@@ -1,6 +1,6 @@
-import * as Crypto from "expo-crypto";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
+import { randomId } from "@/core/ids";
 
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 
@@ -269,7 +269,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       await repository.delete(workspaceFile.id);
     },
     async importDocument(asset: DocumentPickerAsset) {
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const displayName = sanitizeFileName(asset.name || "imported-file");
       const relativePath = buildRelativePath(id, displayName);
 
@@ -295,7 +295,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       mimeType?: string | null;
       name: string;
     }) {
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const displayName = sanitizeFileName(input.name);
       const relativePath = buildRelativePath(id, displayName);
 
@@ -324,7 +324,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       mimeType?: string | null;
       name: string;
     }) {
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const displayName = sanitizeFileName(input.name);
       const relativePath = buildManagedRelativePath({
         folderSegments: input.folderSegments,
@@ -356,7 +356,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       mimeType?: string | null;
       name: string;
     }) {
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const displayName = sanitizeFileName(input.name);
       const relativePath = buildRelativePath(id, displayName);
 
@@ -439,7 +439,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
           inferFileNameFromUrl(input.url) ||
           "downloaded-file",
       );
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const relativePath = buildManagedRelativePath({
         folderSegments: input.folderSegments,
         id,

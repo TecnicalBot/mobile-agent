@@ -10,16 +10,19 @@
       ],
       "scheduler-alarm": ["./modules/scheduler-alarm/index.ts"],
       "process-text": ["./modules/process-text/index.ts"],
-      "device-automation": ["./modules/device-automation/index.ts"],
       "saf-file-operations": ["./modules/saf-file-operations/index.ts"],
       "termux-stream": ["./modules/termux-stream/index.ts"]
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "modules/**/*.ts",
+    "plugins/**/*.js",
+    "scripts/**/*.js",
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
     "nativewind-env.d.ts"
-  ]
+  ],
+  "exclude": ["node_modules", "dist", "desktop", "oauth-proxy"]
 }

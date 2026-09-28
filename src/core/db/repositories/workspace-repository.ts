@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { and, desc, eq, ne, notLike } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { workspaceFiles } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -8,7 +8,7 @@ import type { AppDatabase, WorkspaceRepository } from "@/core/db/repositories/ty
 export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository {
   return {
     async create(input) {
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
       const timestamp = nowIso();
 
       await db.insert(workspaceFiles).values({

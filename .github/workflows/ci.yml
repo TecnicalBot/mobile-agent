@@ -28,11 +28,23 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # The desktop main process uses `node:sqlite` with `StatementSync.columns()`,
+          # which needs Node 22.13 or newer. Keeping CI on the floor of that range
+          # means the positional row mapping is exercised on every push.
+          node-version: 22.13
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck app
+        run: npx tsc --noEmit
+
+      - name: Typecheck desktop
+        run: npx tsc --noEmit -p desktop/tsconfig.json
 
       - name: Run unit tests
         run: pnpm test

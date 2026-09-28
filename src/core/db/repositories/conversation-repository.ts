@@ -1,5 +1,5 @@
 import { desc, eq, isNull } from "drizzle-orm";
-import * as Crypto from "expo-crypto";
+import { randomId } from "@/core/ids";
 
 import { nowIso } from "@/core/db/repositories/shared";
 import type {
@@ -13,7 +13,7 @@ export function createConversationRepository(
 ): ConversationRepository {
   return {
     async create(input) {
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
       const timestamp = nowIso();
 
       await db.insert(conversations).values({

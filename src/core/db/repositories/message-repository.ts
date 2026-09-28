@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { eq, sql } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { messages } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -8,7 +8,7 @@ import type { AppDatabase, MessageRepository } from "@/core/db/repositories/type
 export function createMessageRepository(db: AppDatabase): MessageRepository {
   return {
     async create(input) {
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
       const timestamp = nowIso();
 
       await db.insert(messages).values({

@@ -1,8 +1,5 @@
-import { drizzle } from "drizzle-orm/expo-sqlite";
-import type { SQLiteDatabase } from "expo-sqlite";
-
 import { normalizeBuiltInToolSettings } from "@/modules/config/built-in-tools";
-import { appSettings, schema } from "@/core/db/schema";
+import { appSettings } from "@/core/db/schema";
 import type {
   AppSettings,
   DatabaseMode,
@@ -14,10 +11,6 @@ type AppSettingRow = typeof appSettings.$inferSelect;
 
 export function nowIso() {
   return new Date().toISOString();
-}
-
-export function createDrizzleDb(sqliteDb: SQLiteDatabase) {
-  return drizzle(sqliteDb, { schema });
 }
 
 export function buildSettings(rows: AppSettingRow[]): AppSettings {

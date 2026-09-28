@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { eq } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { agents } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -134,7 +134,7 @@ export function createAgentRepository(db: AppDatabase): AgentRepository {
   return {
     async create(input) {
       const timestamp = nowIso();
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
 
       const markdown =
         input.sourceMarkdown !== undefined && input.sourceMarkdown !== null

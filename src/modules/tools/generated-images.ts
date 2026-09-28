@@ -1,6 +1,6 @@
 import type { GeneratedFile } from "ai";
-import * as Crypto from "expo-crypto";
 import { Directory, File, Paths } from "expo-file-system";
+import { randomId } from "@/core/ids";
 
 import type { GeneratedImageAttachment } from "@/core/types/app-state";
 
@@ -47,7 +47,7 @@ export async function persistGeneratedImages(
   return files
     .filter((file) => file.mediaType.startsWith("image/"))
     .map((file) => {
-      const id = Crypto.randomUUID();
+      const id = randomId();
       const extension = getExtensionForMimeType(file.mediaType);
       const localFile = new File(directory, `${id}.${extension}`);
 

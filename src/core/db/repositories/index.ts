@@ -1,10 +1,7 @@
-import type { SQLiteDatabase } from "expo-sqlite";
-
 import { createAgentRepository } from "@/core/db/repositories/agent-repository";
 import { createAgentRunRepository } from "@/core/db/repositories/agent-run-repository";
 import { createConfigRepository } from "@/core/db/repositories/config-repository";
 import { createConversationRepository } from "@/core/db/repositories/conversation-repository";
-import { createFileMemoryStore } from "@/modules/memory/file-memory-store";
 import { createMcpServerRepository } from "@/core/db/repositories/mcp-server-repository";
 import { createMessageRepository } from "@/core/db/repositories/message-repository";
 import { createPluginRepository } from "@/core/db/repositories/plugin-repository";
@@ -14,18 +11,32 @@ import { createScheduleRepository } from "@/core/db/repositories/schedule-reposi
 import { createScheduleRunRepository } from "@/core/db/repositories/schedule-run-repository";
 import { createSkillRepository } from "@/core/db/repositories/skill-repository";
 import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
-import { createDrizzleDb } from "@/core/db/repositories/shared";
-import type { Repositories } from "@/core/db/repositories/types";
+import type {
+  AppDatabase,
+  Repositories,
+} from "@/core/db/repositories/types";
+import type { MemoryStore } from "@/modules/memory/types";
 
-export function createRepositories(sqliteDb: SQLiteDatabase): Repositories {
-  const db = createDrizzleDb(sqliteDb);
-
+/**
+ * Builds the repository set from an already-constructed Drizzle handle.
+ *
+ * The driver is chosen by the caller, which is what keeps this module free of
+ * native imports: Android/iOS pass a `drizzle-orm/expo-sqlite` handle, while the
+ * Electron renderer and main process pass a `drizzle-orm/sqlite-proxy` handle.
+ *
+ * `memoryStore` is likewise injected, because the default implementation is
+ * backed by `expo-file-system` and cannot be reached from a non-Expo host.
+ */
+export function createRepositories(
+  db: AppDatabase,
+  memoryStore: MemoryStore,
+): Repositories {
   return {
     agentRepository: createAgentRepository(db),
     agentRunRepository: createAgentRunRepository(db),
     configRepository: createConfigRepository(db),
     conversationRepository: createConversationRepository(db),
-    memoryStore: createFileMemoryStore(db),
+    memoryStore,
     mcpServerRepository: createMcpServerRepository(db),
     messageRepository: createMessageRepository(db),
     pluginRepository: createPluginRepository(db),

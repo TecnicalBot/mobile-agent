@@ -1,11 +1,19 @@
-import type { SQLiteDatabase } from "expo-sqlite";
+import type { RawSqliteDatabase } from "@/core/db/raw";
 
 import {
   serializeAgentToMarkdown,
 } from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 30;
+/**
+ * Schema version of the current release.
+ *
+ * Exported so a host that starts from an empty database (the Electron main
+ * process) can seed `user_version` and take the idempotent repair path instead
+ * of replaying the legacy data-migration history, which reads from
+ * `expo-file-system`.
+ */
+export const DATABASE_VERSION = 30;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -132,7 +140,7 @@ const CORE_SCHEMA_REPAIR_SQL = `
   ON plugin_storage(plugin_id);
 `;
 
-export async function migrateAppDatabase(db: SQLiteDatabase) {
+export async function migrateAppDatabase(db: RawSqliteDatabase) {
   const versionRow = await db.getFirstAsync<{ user_version: number }>(
     "PRAGMA user_version",
   );
@@ -167,6 +175,14 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     const columns = await db.getAllAsync<{ name: string }>(
       "PRAGMA table_info(mcp_servers)",
     );
+
+    // A fresh database has no `mcp_servers` yet: the table is created further
+    // down by the version-0 and version-6 blocks, both of which include
+    // `oauth_mode` in their column list. `ALTER TABLE` on a table that does not
+    // exist can only fail, so there is nothing to repair in that case.
+    if (columns.length === 0) {
+      return;
+    }
 
     if (!columns.some((column) => column.name === "oauth_mode")) {
       await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);

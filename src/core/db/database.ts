@@ -1,5 +1,6 @@
 export { migrateAppDatabase } from "@/core/db/migrations";
 export { createRepositories } from "@/core/db/repositories";
+export { createNativeRepositories } from "@/core/db/native";
 export type {
   AppDatabase,
   ConfigRepository,

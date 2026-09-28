@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { agentRuns } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -20,7 +20,7 @@ const ACTIVE_RUN_STATUSES: AgentRunStatus[] = [
 export function createAgentRunRepository(db: AppDatabase): AgentRunRepository {
   return {
     async create(input) {
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
       const timestamp = input.updatedAt ?? nowIso();
 
       await db.insert(agentRuns).values({

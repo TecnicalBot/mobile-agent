@@ -1,0 +1,58 @@
+{
+  "name": "mobile-agent-desktop",
+  "productName": "Mobile Agent",
+  "version": "2.1.2",
+  "description": "Windows desktop shell for Mobile Agent.",
+  "private": true,
+  "author": "Mobile Agent",
+  "license": "UNLICENSED",
+  "main": "out/main/index.cjs",
+  "_comment": [
+    "This file is the `electron-builder` manifest. The app is a single pnpm package:",
+    "`pnpm-workspace.yaml` lists only \".\", so this directory is not a workspace member and",
+    "pnpm never installs its dependencies. Electron and electron-builder therefore live in the",
+    "repository's root `package.json`, which is why `electronVersion` is pinned explicitly below",
+    "instead of being left to node_modules auto-detection -- detection walks `desktop/node_modules`",
+    "first and finds nothing there. It must match the root `devDependencies.electron`."
+  ],
+  "build": {
+    "appId": "com.technicalbot.mobileagent",
+    "productName": "Mobile Agent",
+    "copyright": "Copyright © Mobile Agent",
+    "electronVersion": "44.4.5",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/main/**",
+      "out/preload/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/images/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mobile Agent"
+    }
+  }
+}

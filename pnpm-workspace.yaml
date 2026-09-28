@@ -3,6 +3,22 @@ packages:
 
 patchedDependencies:
   "@ai-sdk/mcp@2.0.7": patches/@ai-sdk__mcp@2.0.7.patch
+  "expo-ai-kit@0.11.1": patches/expo-ai-kit@0.11.1.patch
+  "react-native-css-interop@0.2.6": patches/react-native-css-interop@0.2.6.patch
 
+# Build scripts approved to run, as a map of package name to boolean.
+#
+#   esbuild             installs its platform binary
+#   unrs-resolver       installs the native binding ESLint's import resolver uses
+#   electron-winstaller builds the NSIS installer (transitive dep of electron-builder)
+#
+# Electron itself is deliberately absent: as of 44.x the package ships no
+# postinstall and downloads its binary lazily from `index.js` on first require,
+# so there is nothing for pnpm to approve.
+#
+# Anything not listed is treated as unreviewed and fails the install under the
+# default `strictDepBuilds: true`, so a new postinstall cannot slip in silently.
 allowBuilds:
-  - expo-libghostty
+  electron-winstaller: true
+  esbuild: true
+  unrs-resolver: true

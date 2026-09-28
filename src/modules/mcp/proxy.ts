@@ -1,6 +1,6 @@
 import type { OAuthTokens } from "@ai-sdk/mcp";
-import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
+import { randomId } from "@/core/ids";
 
 import { secureSecretStore } from "@/core/services/secrets";
 import type { McpServerConfig } from "@/core/types/app-state";
@@ -65,7 +65,7 @@ export async function getOrCreateProxyClientKey(): Promise<string> {
     return existing;
   }
 
-  const generated = Crypto.randomUUID();
+  const generated = randomId();
 
   await SecureStore.setItemAsync(PROXY_CLIENT_KEY_SECURE_KEY, generated);
 

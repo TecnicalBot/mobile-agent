@@ -1,4 +1,4 @@
-import type { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import type { SQLiteDatabase } from "expo-sqlite";
 
 import type { schema } from "@/core/db/schema";
@@ -531,5 +531,20 @@ export type Repositories = {
   workspaceRepository: WorkspaceRepository;
 };
 
-export type AppDatabase = ExpoSQLiteDatabase<typeof schema>;
+/**
+ * Driver-agnostic Drizzle handle.
+ *
+ * The shape the repositories are written against. It matches
+ * `drizzle-orm/expo-sqlite`'s handle (Android/iOS) and, via a single
+ * documented cast in `@/core/db/proxy`, the `drizzle-orm/sqlite-proxy` handle
+ * used by the Electron renderer and main process.
+ *
+ * Note that Drizzle types `expo-sqlite` with result kind `"sync"` even though
+ * every repository method here is awaited; the same call sites therefore work
+ * against an async driver. `TRunResult` is `unknown` because no repository uses
+ * `.returning()`.
+ */
+export type AppDatabase = BaseSQLiteDatabase<"sync", unknown, typeof schema>;
+
+/** Raw `expo-sqlite` handle, needed only by native migrations. */
 export type SqliteDb = SQLiteDatabase;

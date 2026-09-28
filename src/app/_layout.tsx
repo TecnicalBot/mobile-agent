@@ -3,8 +3,7 @@ import { useChat } from "@/hooks/use-chat";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { DismissibleBanner } from "@/components/ui/dismissible-banner";
-import { migrateAppDatabase } from "@/core/db/database";
-import { AppStateProvider } from "@/providers/app-state";
+import DatabaseTree from "@/core/db/native-tree";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
 import { AppQueryProvider } from "@/providers/query-provider";
 import {
@@ -27,7 +26,6 @@ import {
   ThemeProvider,
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { SQLiteProvider } from "expo-sqlite";
 import { X } from "lucide-react-native";
 import { useEffect, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -287,20 +285,15 @@ export default function MainLayout() {
       <KeyboardProvider>
         <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
           <AppQueryProvider>
-            <SQLiteProvider
-              databaseName="mobile-agent.db"
-              onInit={migrateAppDatabase}
-            >
-              <AppStateProvider>
-                <UpdateProvider>
-                  <SplashScreenController ready={fontsReady} />
-                  <NotificationObserver />
-                  <InAppNotificationBanner />
-                  <ReleaseUpdateBanner />
-                  <Slot />
-                </UpdateProvider>
-              </AppStateProvider>
-            </SQLiteProvider>
+            <DatabaseTree>
+              <UpdateProvider>
+                <SplashScreenController ready={fontsReady} />
+                <NotificationObserver />
+                <InAppNotificationBanner />
+                <ReleaseUpdateBanner />
+                <Slot />
+              </UpdateProvider>
+            </DatabaseTree>
           </AppQueryProvider>
         </ThemeProvider>
       </KeyboardProvider>

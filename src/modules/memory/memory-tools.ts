@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "ai";
-import * as Crypto from "expo-crypto";
 import { z } from "zod";
+import { randomId } from "@/core/ids";
 
 import type { MemoryStore } from "@/modules/memory/types";
 import type { MemoryEntry, MemoryEvent } from "@/core/types/app-state";
@@ -57,7 +57,7 @@ export function createMemoryTools(input: {
         event: Omit<MemoryEvent, "createdAt" | "id">,
     ): MemoryEvent => ({
         ...event,
-        id: Crypto.randomUUID(),
+        id: randomId(),
         createdAt: new Date().toISOString(),
     });
 

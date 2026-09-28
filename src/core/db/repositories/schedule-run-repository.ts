@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
 import { and, desc, eq } from "drizzle-orm";
+import { randomId } from "@/core/ids";
 
 import { scheduleRuns } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
@@ -13,7 +13,7 @@ export function createScheduleRunRepository(
 ): ScheduleRunRepository {
   return {
     async create(input) {
-      const id = input.id ?? Crypto.randomUUID();
+      const id = input.id ?? randomId();
 
       await db.insert(scheduleRuns).values({
         id,

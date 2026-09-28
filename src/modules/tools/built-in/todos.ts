@@ -1,6 +1,6 @@
 import { tool } from "ai";
-import * as Crypto from "expo-crypto";
 import { z } from "zod";
+import { randomId } from "@/core/ids";
 
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import type { TodoListItem, ToolExecutionRecord } from "@/core/types/app-state";
@@ -40,7 +40,7 @@ function mergeTodoList(
       });
     } else {
       result.push({
-        id: Crypto.randomUUID(),
+        id: randomId(),
         title,
         status: input.status,
         createdAt: now,

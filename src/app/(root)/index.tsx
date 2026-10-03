@@ -47,7 +47,8 @@ import {
 } from "react-native-keyboard-controller";
 
 import { Container } from "@/components/shared/container";
-import { SearchBox } from "@/components/shared/search-box";import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
+import { SearchBox } from "@/components/shared/search-box";
+import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
 import {
   Attachment,
   AttachmentAction,
@@ -69,8 +70,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Questionnaire } from "@/components/ui/questionnaire";
-import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -78,6 +77,8 @@ import {
   MessageScrollerProvider,
   useMessageScrollerActions,
 } from "@/components/ui/message-scroller";
+import { Questionnaire } from "@/components/ui/questionnaire";
+import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
@@ -95,12 +96,12 @@ import type {
   WorkspaceFile,
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
-import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { useChatInfo } from "@/hooks/use-chat-info";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
+import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
 
@@ -407,7 +408,9 @@ export default function Screen() {
               <SidebarTrigger accessibilityLabel="Open sidebar" />
               <Button
                 accessibilityLabel="New chat"
-                onPress={() => { createConversation().catch(console.error); }}
+                onPress={() => {
+                  createConversation().catch(console.error);
+                }}
                 size="icon"
                 variant="ghost"
               >
@@ -1052,14 +1055,17 @@ const ChatInput = memo(function ChatInput({
     }
 
     return modelGroups
-      .map(([providerLabel, models]) => [
-        providerLabel,
-        models.filter(
-          (model) =>
-            model.label.toLowerCase().includes(modelSearchQuery) ||
-            providerLabel.toLowerCase().includes(modelSearchQuery),
-        ),
-      ] as [string, typeof activeModels])
+      .map(
+        ([providerLabel, models]) =>
+          [
+            providerLabel,
+            models.filter(
+              (model) =>
+                model.label.toLowerCase().includes(modelSearchQuery) ||
+                providerLabel.toLowerCase().includes(modelSearchQuery),
+            ),
+          ] as [string, typeof activeModels],
+      )
       .filter(([, models]) => models.length > 0);
   }, [modelSearchQuery, modelGroups]);
 

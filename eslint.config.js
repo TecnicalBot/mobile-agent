@@ -28,13 +28,6 @@ module.exports = defineConfig([
     },
   },
   {
-    rules: {
-      "react-hooks/immutability": "off",
-      "react-hooks/refs": "off",
-      "react-hooks/set-state-in-effect": "off",
-    },
-  },
-  {
     // Portability boundary.
     //
     // The database schema, migrations and the cron engine are imported directly
@@ -71,6 +64,15 @@ module.exports = defineConfig([
           ],
         },
       ],
+    },
+  },
+  {
+    // `#app-markdown-it` is a test-only alias declared in vitest.config.mts and
+    // typed ambiently in src/types. Nothing on disk resolves it, so the import
+    // resolver cannot see it.
+    files: ["**/*.test.ts", "**/*.test.tsx"],
+    rules: {
+      "import/no-unresolved": "off",
     },
   },
 ]);

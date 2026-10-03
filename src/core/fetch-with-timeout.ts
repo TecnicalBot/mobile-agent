@@ -35,6 +35,13 @@ function normalizeFetchError(error: unknown, timeoutMs: number) {
       return new Error(`Request timed out after ${timeoutMs}ms.`);
     }
 
+    // A cancelled request got no response, but reporting it as a connection
+    // failure sends people looking at the network instead of at whatever
+    // aborted it.
+    if (error.message.includes("cancel")) {
+      return new Error(`Request canceled: ${error.message}`);
+    }
+
     return new Error(
       error.message.startsWith("Network request failed") ||
         name === "TypeError" ||

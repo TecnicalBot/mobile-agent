@@ -176,17 +176,18 @@ export async function migrateAppDatabase(db: RawSqliteDatabase) {
       "PRAGMA table_info(mcp_servers)",
     );
 
-    // A fresh database has no `mcp_servers` yet: the table is created further
-    // down by the version-0 and version-6 blocks, both of which include
-    // `oauth_mode` in their column list. `ALTER TABLE` on a table that does not
-    // exist can only fail, so there is nothing to repair in that case.
-    if (columns.length === 0) {
+    // `PRAGMA table_info` returns no rows (rather than erroring) for a table
+    // that does not exist. On a fresh database mcp_servers has not been created
+    // yet, so bail out and let the version-gated migrations below create it —
+    // their schema already includes oauth_mode.
+    if (
+      columns.length === 0 ||
+      columns.some((column) => column.name === "oauth_mode")
+    ) {
       return;
     }
 
-    if (!columns.some((column) => column.name === "oauth_mode")) {
-      await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);
-    }
+    await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);
   };
   await ensureMcpServersOauthModeColumn();
 

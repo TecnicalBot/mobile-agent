@@ -168,9 +168,18 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       "PRAGMA table_info(mcp_servers)",
     );
 
-    if (!columns.some((column) => column.name === "oauth_mode")) {
-      await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);
+    // `PRAGMA table_info` returns no rows (rather than erroring) for a table
+    // that does not exist. On a fresh database mcp_servers has not been created
+    // yet, so bail out and let the version-gated migrations below create it —
+    // their schema already includes oauth_mode.
+    if (
+      columns.length === 0 ||
+      columns.some((column) => column.name === "oauth_mode")
+    ) {
+      return;
     }
+
+    await db.execAsync(`ALTER TABLE mcp_servers ADD COLUMN oauth_mode TEXT;`);
   };
   await ensureMcpServersOauthModeColumn();
 

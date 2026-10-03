@@ -1,11 +1,11 @@
 import { useRecyclingState } from "@shopify/flash-list";
 import * as Clipboard from "expo-clipboard";
-import { useRouter } from "expo-router";
 import { Directory, File, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
+import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import {
   Bookmark,
@@ -18,10 +18,10 @@ import {
   Clock3,
   Copy,
   Download,
-  File as FileIcon,
   FileArchive,
   FileAudio,
   FileCode,
+  File as FileIcon,
   FileImage,
   FileSpreadsheet,
   FileText,
@@ -38,15 +38,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import Animated, {
-  Easing,
-  cancelAnimation,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 import {
   ActivityIndicator,
   Alert,
@@ -64,12 +55,22 @@ import Markdown, {
   MarkdownIt,
   type RenderRules,
 } from "react-native-markdown-display";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import { refractor } from "refractor";
 import jsx from "refractor/jsx";
 import tsx from "refractor/tsx";
 
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
+import { CodePreviewDialog } from "@/components/ui/code-preview-dialog";
 import {
   Drawer,
   DrawerBody,
@@ -99,74 +100,23 @@ import type {
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
+import { openExternalLink } from "@/modules/chat/open-link";
+import { buildPreviewDocument } from "@/modules/preview/html-document";
 import { Asset } from "expo-media-library";
 
 refractor.register(jsx);
 refractor.register(tsx);
 
-const MARKDOWN_PARSER = MarkdownIt({
-  breaks: true,
-  linkify: true,
-  typographer: true,
-});
+const MARKDOWN_PARSER = registerChatMarkdownRules(
+  MarkdownIt({
+    breaks: true,
+    linkify: true,
+    typographer: true,
+  }),
+);
 
 const MARKDOWN_MAX_RENDER_LENGTH = 30_000;
-
-type MarkdownToken = {
-  attrSet: (name: string, value: string) => void;
-  children?: MarkdownToken[];
-  content: string;
-  level: number;
-  type: string;
-};
-
-MARKDOWN_PARSER.core.ruler.after(
-  "inline",
-  "task_lists",
-  (state: { tokens: MarkdownToken[] }) => {
-    for (let index = 0; index < state.tokens.length; index += 1) {
-      const listItem = state.tokens[index];
-
-      if (listItem.type !== "list_item_open") {
-        continue;
-      }
-
-      const list = state.tokens
-        .slice(0, index)
-        .reverse()
-        .find(
-          (token) =>
-            token.level === listItem.level - 1 &&
-            (token.type === "bullet_list_open" ||
-              token.type === "ordered_list_open"),
-        );
-
-      if (list?.type !== "bullet_list_open") {
-        continue;
-      }
-
-      const inline = state.tokens
-        .slice(index + 1)
-        .find(
-          (token) =>
-            token.type === "inline" ||
-            (token.type === "list_item_close" &&
-              token.level === listItem.level),
-        );
-      const firstText =
-        inline?.type === "inline" ? inline.children?.[0] : undefined;
-      const taskMarker = firstText?.content.match(/^\[([ xX])\]\s+/);
-
-      if (!firstText || !taskMarker) {
-        continue;
-      }
-
-      firstText.content = firstText.content.slice(taskMarker[0].length);
-      listItem.attrSet("task", "true");
-      listItem.attrSet("checked", String(taskMarker[1].toLowerCase() === "x"));
-    }
-  },
-);
 
 type ChatMessageProps = {
   canEditAndResend?: boolean;
@@ -319,8 +269,6 @@ type SyntaxNode =
       type: "element";
     };
 
-const ALLOWED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
-
 function trimCodeBlock(content: string) {
   return content.endsWith("\n") ? content.slice(0, -1) : content;
 }
@@ -419,11 +367,13 @@ function CopyableMarkdownBlock({
   children,
   copyLabel,
   copyValue,
+  headerAccessory,
   label,
 }: {
   children: ReactNode;
   copyLabel: string;
   copyValue: string;
+  headerAccessory?: ReactNode;
   label: string;
 }) {
   return (
@@ -432,7 +382,10 @@ function CopyableMarkdownBlock({
         <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
           {label}
         </Text>
-        <CopyButton label={copyLabel} value={copyValue} />
+        <View className="flex-row items-center gap-sp-1">
+          {headerAccessory}
+          <CopyButton label={copyLabel} value={copyValue} />
+        </View>
       </View>
       {children}
     </View>
@@ -440,6 +393,38 @@ function CopyableMarkdownBlock({
 }
 
 const MAX_HIGHLIGHT_LENGTH = 4000;
+const PREVIEWABLE_LANGUAGES = new Set(["htm", "html", "svg", "xml"]);
+
+function isPreviewableLanguage(language: string) {
+  return PREVIEWABLE_LANGUAGES.has(language.toLowerCase());
+}
+
+/** Opens the markup preview in a dialog rather than inline in the message. */
+function PreviewButton({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityHint="Opens the rendered output in a dialog"
+      accessibilityLabel="Preview"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          backgroundColor: theme.backgroundSelected,
+          borderRadius: 999,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+        },
+        pressed ? { opacity: 0.7 } : null,
+      ]}
+    >
+      <Text style={{ color: theme.text, fontSize: 11, fontWeight: "600" }}>
+        Preview
+      </Text>
+    </Pressable>
+  );
+}
 
 function CopyableCodeBlock({
   code,
@@ -449,6 +434,14 @@ function CopyableCodeBlock({
   language?: string;
 }) {
   const theme = useTheme();
+  // Recycling, or a streaming delta that rewrites the fence, closes the dialog
+  // so a preview can never outlive the markup it was built from.
+  const [previewOpen, setPreviewOpen] = useRecyclingState(false, [code]);
+  const previewable = isPreviewableLanguage(language);
+  const previewDocument = useMemo(
+    () => (previewable ? buildPreviewDocument(code, language) : null),
+    [code, language, previewable],
+  );
   const highlighted = useMemo(() => {
     if (
       !language ||
@@ -471,6 +464,15 @@ function CopyableCodeBlock({
     <CopyableMarkdownBlock
       copyLabel="Copy code"
       copyValue={code}
+      headerAccessory={
+        previewable ? (
+          <PreviewButton
+            onPress={() => {
+              setPreviewOpen(true);
+            }}
+          />
+        ) : null
+      }
       label={language || "Code"}
     >
       <ScrollView
@@ -494,6 +496,15 @@ function CopyableCodeBlock({
             : code}
         </Text>
       </ScrollView>
+      {previewOpen && previewDocument ? (
+        <CodePreviewDialog
+          html={previewDocument}
+          language={language}
+          onDismiss={() => {
+            setPreviewOpen(false);
+          }}
+        />
+      ) : null}
     </CopyableMarkdownBlock>
   );
 }
@@ -754,7 +765,9 @@ function getFileTypeIcon(file: WorkspaceFile) {
     return FileCode;
   }
 
-  if (SPREADSHEET_EXTENSIONS.some((extension) => fileName.endsWith(extension))) {
+  if (
+    SPREADSHEET_EXTENSIONS.some((extension) => fileName.endsWith(extension))
+  ) {
     return FileSpreadsheet;
   }
 
@@ -892,7 +905,7 @@ export const ChatMessage = memo(function ChatMessage({
     setCopied(true);
   };
   const handleLinkPress = useCallback((url: string) => {
-    openMarkdownLink(url).catch(console.error);
+    openExternalLink(url).catch(console.error);
     return false;
   }, []);
   const closePreview = () => {
@@ -1086,9 +1099,7 @@ export const ChatMessage = memo(function ChatMessage({
         command={run.termux!.command}
         key={`termux-${anchor.executionId}`}
         output={run.termux!.output}
-        running={
-          run.status === "running" && message.status === "streaming"
-        }
+        running={run.status === "running" && message.status === "streaming"}
         taskId={run.termux!.taskId}
       />,
     );
@@ -1175,9 +1186,7 @@ export const ChatMessage = memo(function ChatMessage({
                   onPress={() => {
                     handleOpenFile(file).catch(console.error);
                   }}
-                  style={({ pressed }) =>
-                    pressed ? { opacity: 0.72 } : null
-                  }
+                  style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
                 >
                   <View className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary dark:bg-secondary-dark">
                     <FileTypeIcon color={theme.textSecondary} size={16} />
@@ -1209,7 +1218,10 @@ export const ChatMessage = memo(function ChatMessage({
             variant={variant}
           >
             <BubbleContent
-              className={fileHeaderConnected ? "rounded-tr-none" : undefined}
+              className={cn(
+                "!px-4",
+                fileHeaderConnected ? "rounded-tr-none" : undefined,
+              )}
             >
               {isAssistant ? (
                 <View className="gap-sp-3">
@@ -1247,7 +1259,10 @@ export const ChatMessage = memo(function ChatMessage({
                             <Check color={theme.textSecondary} size={16} />
                           </View>
                           <View className="min-w-0 flex-1 gap-sp-3 pb-0.5">
-                            <Text selectable style={reasoningMarkdownStyles.body}>
+                            <Text
+                              selectable
+                              style={reasoningMarkdownStyles.body}
+                            >
                               {reasoningText}
                             </Text>
                             <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
@@ -1387,8 +1402,7 @@ export const ChatMessage = memo(function ChatMessage({
                       ))}
                     </View>
                   ) : null}
-                  {message.status === "streaming" &&
-                  !hasRunningTermuxRun ? (
+                  {message.status === "streaming" && !hasRunningTermuxRun ? (
                     <Loading />
                   ) : null}
                 </View>
@@ -2078,24 +2092,6 @@ const getLocalImageFile = async (image: GeneratedImageAttachment) => {
 
   return localFile;
 };
-
-async function openMarkdownLink(url: string) {
-  const protocol = /^([a-z][a-z\d+.-]*):/i.exec(url)?.[1]?.toLowerCase();
-
-  if (!protocol || !ALLOWED_LINK_PROTOCOLS.has(`${protocol}:`)) {
-    Alert.alert("Unable to open link", "This link type is not supported.");
-    return;
-  }
-
-  try {
-    await Linking.openURL(url);
-  } catch (error) {
-    Alert.alert(
-      "Unable to open link",
-      error instanceof Error ? error.message : "No app could open this link.",
-    );
-  }
-}
 
 function TermuxRunCard({
   command,

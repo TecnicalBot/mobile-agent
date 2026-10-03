@@ -1,6 +1,16 @@
-import { Monitor, Smartphone, X } from "lucide-react-native";
-import { useCallback, useState } from "react";
-import { type LayoutChangeEvent, Pressable, Text, View } from "react-native";
+import { Asset } from "expo-media-library";
+import * as MediaLibrary from "expo-media-library";
+import { Download, Monitor, Smartphone, X } from "lucide-react-native";
+import { useCallback, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  type LayoutChangeEvent,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import { captureRef } from "react-native-view-shot";
 import { WebView } from "react-native-webview";
 
 import {
@@ -18,6 +28,13 @@ import { useTheme } from "@/hooks/use-theme";
  * layout, so a responsive page cannot be checked without this.
  */
 const DESKTOP_VIEWPORT_WIDTH = 1280;
+
+/**
+ * Keeps a capture busy indicator on screen long enough to be perceived. The
+ * capture itself is usually faster than a single frame, so without this the
+ * button would appear to do nothing.
+ */
+const MIN_CAPTURE_FEEDBACK_MS = 350;
 
 type Viewport = "desktop" | "mobile";
 
@@ -46,12 +63,65 @@ export function CodePreviewDialog({
   const [frame, setFrame] = useState<{ height: number; width: number } | null>(
     null,
   );
+  const [saving, setSaving] = useState(false);
+  // Points at the frame, i.e. the rounded bordered box. Deliberately not the
+  // inner view: in desktop mode that one is 1280px wide and scaled down, so
+  // capturing it would save a mostly-empty 1280px canvas.
+  const frameRef = useRef<View>(null);
   const desktop = viewport === "desktop";
   // Fall back to unscaled until the first layout pass reports the real frame.
   const scale =
     desktop && frame && frame.width > 0
       ? frame.width / DESKTOP_VIEWPORT_WIDTH
       : 1;
+
+  const handleSave = useCallback(async () => {
+    if (saving || !frameRef.current) {
+      return;
+    }
+
+    setSaving(true);
+    const startedAt = Date.now();
+
+    try {
+      const uri = await captureRef(frameRef, {
+        format: "png",
+        quality: 1,
+        result: "tmpfile",
+      });
+
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Please allow photo access to save this image.",
+        );
+        return;
+      }
+
+      await Asset.create(uri);
+
+      Alert.alert("Image saved", "The preview has been saved to your gallery.");
+    } catch (error) {
+      Alert.alert(
+        "Download failed",
+        error instanceof Error ? error.message : "Failed to save the image.",
+      );
+    } finally {
+      // Hold the spinner long enough to be seen, otherwise the button appears
+      // inert and users tap it repeatedly.
+      const elapsed = Date.now() - startedAt;
+
+      if (elapsed < MIN_CAPTURE_FEEDBACK_MS) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, MIN_CAPTURE_FEEDBACK_MS - elapsed);
+        });
+      }
+
+      setSaving(false);
+    }
+  }, [saving]);
 
   const handleLayout = useCallback(
     ({ nativeEvent }: LayoutChangeEvent) => {
@@ -85,6 +155,11 @@ export function CodePreviewDialog({
                 : "Fits your screen"}
             </Text>
           </View>
+          <SavePreviewButton
+            disabled={saving || !frame}
+            onPress={handleSave}
+            saving={saving}
+          />
           <DrawerClose asChild>
             <Pressable
               accessibilityLabel="Close preview"
@@ -103,6 +178,7 @@ export function CodePreviewDialog({
         <View
           className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card dark:border-border-dark dark:bg-card-dark"
           onLayout={handleLayout}
+          ref={frameRef}
         >
           {frame && frame.width > 0 && frame.height > 0 ? (
             <View
@@ -137,6 +213,39 @@ export function CodePreviewDialog({
         </View>
       </DrawerContent>
     </Drawer>
+  );
+}
+
+/**
+ * Saves the visible preview to the gallery. Disabled until the frame has been
+ * measured, since capturing before then would produce an empty image.
+ */
+function SavePreviewButton({
+  disabled,
+  onPress,
+  saving,
+}: {
+  disabled: boolean;
+  onPress: () => void;
+  saving: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel="Save preview as image"
+      accessibilityRole="button"
+      className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark active:opacity-70"
+      disabled={disabled}
+      onPress={onPress}
+      style={{ opacity: disabled && !saving ? 0.4 : 1 }}
+    >
+      {saving ? (
+        <ActivityIndicator color={theme.text} size="small" />
+      ) : (
+        <Download color={theme.text} size={20} />
+      )}
+    </Pressable>
   );
 }
 

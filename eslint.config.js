@@ -5,7 +5,9 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
+    ignores: ["dist/*", "catalog/skills/**/scripts/**", "catalog/skills/**/eval-viewer/**"],
+  },
+  {
     rules: {
       "react-hooks/immutability": "off",
       "react-hooks/refs": "off",

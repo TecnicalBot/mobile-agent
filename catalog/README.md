@@ -4,9 +4,9 @@ The top-level `version` is the catalog schema version, not a content revision.
 Keep it at `1` when adding or updating entries. Incrementing it requires shipping
 parser support in the app first; older app releases reject unknown versions.
 
-The app fetches `mcp-servers.json` from the `main` branch at runtime and caches
-it in memory for 30 minutes. After a catalog change is merged, users receive it
-when that cache expires or the app restarts; an app rebuild is not required.
+The app fetches each catalog from the `main` branch at runtime and caches it in
+memory for 30 minutes. After a catalog change is merged, users receive it when
+that cache expires or the app restarts; an app rebuild is not required.
 
 Each server supports these fields:
 
@@ -47,3 +47,35 @@ model requires:
 Test the exact URL, size, hash, and device memory requirement before merging.
 Changing a URL without changing its pinned size and hash will make the download
 fail safely.
+
+## Plugin catalog
+
+The app fetches `plugins.json` from the `main` branch at runtime, caches it for
+30 minutes, and falls back to the bundled copy when offline. Each plugin
+requires:
+
+- `id`: Stable, unique lowercase identifier. Do not reuse an old ID.
+- `label`: Name shown in Settings > Plugins.
+- `description`: Short explanation shown below the name.
+- `url`: Public HTTPS URL of the plugin `.js` file.
+- `author`: Optional display name.
+
+Installing a catalog plugin sets its `sourceUrl`, so the app's plugin updater
+refreshes it daily when a newer version is published.
+
+## Skill catalog
+
+The app fetches `skills.json` from the `main` branch at runtime, caches it for
+30 minutes, and falls back to the bundled copy when offline. Each skill
+requires:
+
+- `id`: Stable, unique lowercase identifier. Do not reuse an old ID.
+- `label`: Skill title shown in Settings > Skills (must match the imported
+  skill's title for the "Added" state to appear).
+- `description`: Short explanation shown below the name.
+- `url`: Public HTTPS URL of the skill `SKILL.md` file.
+- `author`: Optional display name.
+- `extraFiles`: Optional array of public HTTPS URLs for related files.
+
+Only catalog HTTPS URLs are accepted; credentials are never embedded in
+catalog entries.

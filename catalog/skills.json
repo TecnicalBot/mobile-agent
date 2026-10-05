@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "shadcn",
+      "label": "shadcn",
+      "description": "Manages shadcn components and projects — adding, searching, fixing, debugging, styling, and composing UI.",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/SKILL.md",
+      "author": "shadcn",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/cli.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/customization.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/mcp.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/registry.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/base-vs-radix.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/chat.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/composition.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/forms.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/icons.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/styling.md"
+      ]
+    }
+  ]
+}

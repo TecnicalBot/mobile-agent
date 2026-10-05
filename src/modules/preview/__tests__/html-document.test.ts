@@ -4,7 +4,26 @@ import {
   buildHtmlPreviewDocument,
   buildPreviewDocument,
   buildSvgPreviewDocument,
+  withDesktopPreviewViewport,
 } from "@/modules/preview/html-document";
+
+describe("withDesktopPreviewViewport", () => {
+  it("replaces wrapper and page viewport declarations without removing other metadata", () => {
+    const document = withDesktopPreviewViewport(
+      buildHtmlPreviewDocument(
+        '<!DOCTYPE html><html><head><meta content="width=device-width" name="viewport"><meta name="description" content="viewport demo"></head><body>Page</body></html>',
+      ),
+      1280,
+      0.25,
+    );
+    expect(document.match(/name="viewport"/g)).toHaveLength(1);
+    expect(document).toContain('content="width=1280, initial-scale=0.25"');
+    expect(document).toContain(
+      '<meta name="description" content="viewport demo">',
+    );
+    expect(document).toContain('<body>Page</body>');
+  });
+});
 
 describe("buildHtmlPreviewDocument", () => {
   it("wraps a fragment in a standalone document", () => {

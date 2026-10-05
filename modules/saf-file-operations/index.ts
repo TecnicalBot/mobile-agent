@@ -7,6 +7,7 @@ export type SafCreatedEntry = {
 };
 
 type SafFileOperationsNativeModule = {
+  saveDownload(sourceUri: string, name: string, mimeType: string): Promise<SafCreatedEntry>;
   createEntry(
     rootUri: string,
     parentUri: string,
@@ -22,6 +23,14 @@ type SafFileOperationsNativeModule = {
     destinationName: string,
   ): Promise<SafCreatedEntry>;
 };
+
+export function saveDownload(sourceUri: string, name: string, mimeType: string) {
+  const module = requireSafFileOperations();
+  if (!module.saveDownload) {
+    throw new Error("Direct downloads require an updated Android build.");
+  }
+  return module.saveDownload(sourceUri, name, mimeType);
+}
 
 const SafFileOperations =
   Platform.OS === "android"

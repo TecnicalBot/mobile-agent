@@ -193,15 +193,6 @@ export default function SkillCatalogScreen() {
         </Card>
       )}
 
-      {skills.length > 0 ? (
-        <Button
-          onPress={() => router.push("/settings/skills/connected" as never)}
-          variant="outline"
-        >
-          View installed ({skills.length})
-        </Button>
-      ) : null}
-
       {catalogError ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
           {catalogError}

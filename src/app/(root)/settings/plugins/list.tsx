@@ -181,15 +181,6 @@ export default function PluginCatalogScreen() {
         </Card>
       )}
 
-      {plugins.length > 0 ? (
-        <Button
-          onPress={() => router.push("/settings/plugins/connected" as never)}
-          variant="outline"
-        >
-          View installed ({plugins.length})
-        </Button>
-      ) : null}
-
       {catalogError ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
           {catalogError}

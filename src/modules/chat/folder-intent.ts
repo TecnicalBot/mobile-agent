@@ -3,8 +3,10 @@ export type FolderIntentMatch = {
   requiresFolderAccess: boolean;
 };
 
-const FOLDER_TARGET_PATTERN =
-  /\b(?:go to|open|browse|list|show|put|save|write|create|generate|make|move|copy|export|import|transfer|send|download|store)\b[\s\S]{0,120}\b(?:downloads?|documents?|folder)\b/i;
+const EXPLICIT_FOLDER_ACCESS_PATTERN =
+  /\b(?:use|select|grant|open|pick|access|choose|set)\b[\s\S]{0,80}\b(?:external folder|device folder|folder session|documents? folder|downloads? folder)\b/i;
+const PATH_FOLDER_PATTERN =
+  /\b(?:\/storage\/|\/sdcard\/|\/mnt\/|content:\/\/)[\s\S]{0,120}\b(?:documents?|downloads?|folder)\b/i;
 const NAMED_FOLDER_PATTERN =
   /\b(?:my\s+)?([a-z0-9][a-z0-9 _-]{0,40})\s+folder\b/i;
 const COMMON_FOLDER_PATTERN = /\b(downloads?|documents?)\b/i;
@@ -19,7 +21,9 @@ export function detectFolderIntent(prompt: string): FolderIntentMatch {
     };
   }
 
-  const requiresFolderAccess = FOLDER_TARGET_PATTERN.test(normalized);
+  const requiresFolderAccess =
+    EXPLICIT_FOLDER_ACCESS_PATTERN.test(normalized) ||
+    PATH_FOLDER_PATTERN.test(normalized);
   const commonMatch = normalized.match(COMMON_FOLDER_PATTERN);
   const namedMatch = normalized.match(NAMED_FOLDER_PATTERN);
   const hintedFolderName =

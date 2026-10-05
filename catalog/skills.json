@@ -19,6 +19,304 @@
         "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/icons.md",
         "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/shadcn/rules/styling.md"
       ]
+    },
+    {
+      "id": "expo-router",
+      "label": "expo-router",
+      "description": "Navigation and routing for Expo Router. Covers file-based routes, groups and dynamic routes, folder organization, Link with previews and context menus, native Stack, page titles, modals and form sheets, NativeTabs, headers and toolbars,...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/form-sheet.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/route-structure.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/search.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/tabs.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/toolbar-and-headers.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-router/references/zoom-transitions.md"
+      ]
+    },
+    {
+      "id": "expo-module",
+      "label": "expo-module",
+      "description": "Guide for creating and writing Expo native modules and views using the Expo Modules API (Swift, Kotlin, TypeScript). Covers module definition DSL, native views, shared objects, config plugins, lifecycle hooks, autolinking, and type syste...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/create-expo-module.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/config-plugin.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/lifecycle.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/module-config.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/native-module.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-module/references/native-view.md"
+      ]
+    },
+    {
+      "id": "expo-dev-client",
+      "label": "expo-dev-client",
+      "description": "Build and distribute Expo development clients locally or via TestFlight for internal testing. For production TestFlight releases and store submission, use the eas-app-stores skill.",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-dev-client/SKILL.md",
+      "author": "Expo",
+      "extraFiles": []
+    },
+    {
+      "id": "expo-upgrade",
+      "label": "expo-upgrade",
+      "description": "Guidelines for upgrading Expo SDK versions and fixing dependency issues",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/expo-av-to-audio.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/expo-av-to-video.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/native-tabs.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/new-architecture.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/react-19.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/react-compiler.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-upgrade/references/react-navigation-to-expo-router.md"
+      ]
+    },
+    {
+      "id": "expo-data-fetching",
+      "label": "expo-data-fetching",
+      "description": "Use when implementing or debugging ANY network request, API call, or data fetching. Covers fetch API, React Query, SWR, error handling, caching, offline support, loading/empty/error screen states, and Expo Router data loaders (`useLoader...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-data-fetching/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-data-fetching/references/offline-and-cancellation.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-data-fetching/references/expo-router-loaders.md"
+      ]
+    },
+    {
+      "id": "expo-animation",
+      "label": "expo-animation",
+      "description": "Build animations in React Native and Expo, making the decisions in the order that determines whether they feel right — should it animate, which thread it runs on, which properties, spring or timing, how the gesture hands off, how it degr...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-animation/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-animation/RECIPES.md"
+      ]
+    },
+    {
+      "id": "expo-ui",
+      "label": "expo-ui",
+      "description": "Build native UI with the @expo/ui package: real SwiftUI on iOS and Jetpack Compose on Android. Default to @expo/ui for sheets (BottomSheet), pickers, sliders, toggles, menus, and grouped-form sections — do NOT reach for Reanimated, @gorh...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/references/drop-in-replacements.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/references/jetpack-compose.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/references/swift-ui.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/references/universal.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-ui/scripts/list-components.js"
+      ]
+    },
+    {
+      "id": "expo-project-structure",
+      "label": "expo-project-structure",
+      "description": "Folder structure for a new Expo app. Use when scaffolding or laying out a new Expo project with Expo Router, or deciding where a file should live in one. For new projects only — never restructure an existing app to match.",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/expo-project-structure/SKILL.md",
+      "author": "Expo",
+      "extraFiles": []
+    },
+    {
+      "id": "eas-workflows",
+      "label": "eas-workflows",
+      "description": "Helps understand and write EAS workflow YAML files for Expo projects. Use this skill when the user asks about CI/CD or workflows in an Expo or EAS context, mentions .eas/workflows/, or wants help with EAS build pipelines or deployment au...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/eas-workflows/SKILL.md",
+      "author": "Expo",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/eas-workflows/scripts/fetch.js",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/eas-workflows/scripts/package.json"
+      ]
+    },
+    {
+      "id": "vercel-react-native-skills",
+      "label": "vercel-react-native-skills",
+      "description": "React Native and Expo best practices for building performant mobile apps. Use when building React Native components, optimizing list performance, implementing animations, or working with native modules. Triggers on tasks involving React...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/SKILL.md",
+      "author": "Vercel",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/AGENTS.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/animation-derived-value.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/animation-gesture-detector-press.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/animation-gpu-properties.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/design-system-compound-components.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/fonts-config-plugin.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/imports-design-system-folder.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/js-hoist-intl.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-callbacks.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-function-references.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-images.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-inline-objects.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-item-expensive.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-item-memo.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-item-types.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/list-performance-virtualize.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/monorepo-native-deps-in-app.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/monorepo-single-dependency-versions.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/navigation-native-navigators.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-native-skills/rules/react-compiler-destructure-functions.md"
+      ]
+    },
+    {
+      "id": "vercel-react-best-practices",
+      "label": "vercel-react-best-practices",
+      "description": "React and Next.js performance optimization guidelines from Vercel Engineering. This skill should be used when writing, reviewing, or refactoring React/Next.js code to ensure optimal performance patterns. Triggers on tasks involving React...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/SKILL.md",
+      "author": "Vercel",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/AGENTS.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/advanced-effect-event-deps.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/advanced-event-handler-refs.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/advanced-init-once.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/advanced-use-latest.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-api-routes.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-cheap-condition-before-await.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-defer-await.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-dependencies.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-parallel.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/async-suspense-boundaries.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-analyzable-paths.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-conditional.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-defer-third-party.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-dynamic-imports.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/bundle-preload.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/client-event-listeners.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/client-localstorage-schema.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md"
+      ]
+    },
+    {
+      "id": "vercel-composition-patterns",
+      "label": "vercel-composition-patterns",
+      "description": "React composition patterns that scale. Use when refactoring components with boolean prop proliferation, building flexible component libraries, or designing reusable APIs. Triggers on tasks involving compound components, render props, con...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/SKILL.md",
+      "author": "Vercel",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/AGENTS.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/architecture-avoid-boolean-props.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/architecture-compound-components.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/patterns-children-over-render-props.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/patterns-explicit-variants.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/react19-no-forwardref.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/state-context-interface.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/state-decouple-implementation.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/state-lift-state.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/_sections.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/vercel-composition-patterns/rules/_template.md"
+      ]
+    },
+    {
+      "id": "brainstorming",
+      "label": "brainstorming",
+      "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/SKILL.md",
+      "author": "obra",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/scripts/frame-template.html",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/scripts/helper.js",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/scripts/server.cjs",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/scripts/start-server.sh",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/scripts/stop-server.sh",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/spec-document-reviewer-prompt.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/brainstorming/visual-companion.md"
+      ]
+    },
+    {
+      "id": "writing-plans",
+      "label": "writing-plans",
+      "description": "Use when you have a spec or requirements for a multi-step task, before touching code",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/writing-plans/SKILL.md",
+      "author": "obra",
+      "extraFiles": []
+    },
+    {
+      "id": "executing-plans",
+      "label": "executing-plans",
+      "description": "Use when executing an implementation plan in the current session as the implementer yourself — your human partner chose inline execution, or no subagent tool is available",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/executing-plans/SKILL.md",
+      "author": "obra",
+      "extraFiles": []
+    },
+    {
+      "id": "systematic-debugging",
+      "label": "systematic-debugging",
+      "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/systematic-debugging/SKILL.md",
+      "author": "obra",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/systematic-debugging/condition-based-waiting.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/systematic-debugging/defense-in-depth.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/systematic-debugging/root-cause-tracing.md"
+      ]
+    },
+    {
+      "id": "test-driven-development",
+      "label": "test-driven-development",
+      "description": "Use when implementing any feature or bugfix, before writing implementation code",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/test-driven-development/SKILL.md",
+      "author": "obra",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/test-driven-development/writing-good-tests.md"
+      ]
+    },
+    {
+      "id": "verification-before-completion",
+      "label": "verification-before-completion",
+      "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/verification-before-completion/SKILL.md",
+      "author": "obra",
+      "extraFiles": []
+    },
+    {
+      "id": "dispatching-parallel-agents",
+      "label": "dispatching-parallel-agents",
+      "description": "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/dispatching-parallel-agents/SKILL.md",
+      "author": "obra",
+      "extraFiles": []
+    },
+    {
+      "id": "requesting-code-review",
+      "label": "requesting-code-review",
+      "description": "Use when completing tasks, implementing major features, or before merging to verify work meets requirements",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/requesting-code-review/SKILL.md",
+      "author": "obra",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/requesting-code-review/code-reviewer.md"
+      ]
+    },
+    {
+      "id": "skill-creator",
+      "label": "skill-creator",
+      "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with va...",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/SKILL.md",
+      "author": "Anthropic",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/agents/analyzer.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/agents/comparator.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/agents/grader.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/eval-viewer/generate_review.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/eval-viewer/viewer.html",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/references/schemas.md",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/aggregate_benchmark.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/generate_report.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/improve_description.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/package_skill.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/quick_validate.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/run_eval.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/run_loop.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/utils.py",
+        "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/skill-creator/scripts/__init__.py"
+      ]
+    },
+    {
+      "id": "design-mobile-apps",
+      "label": "design-mobile-apps",
+      "description": "Use when the user wants to design a mobile app or UI screens, when they mention their Sleek (sleek.design) projects, or when implementing Sleek designs in code (HTML, React Native, SwiftUI).",
+      "url": "https://raw.githubusercontent.com/tecnicalbot/mobile-agent/refs/heads/main/catalog/skills/design-mobile-apps/SKILL.md",
+      "author": "designed-by-ai",
+      "extraFiles": []
     }
   ]
 }

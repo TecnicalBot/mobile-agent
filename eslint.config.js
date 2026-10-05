@@ -18,6 +18,8 @@ module.exports = defineConfig([
       "desktop/out/**",
       "desktop/release/**",
       "oauth-proxy/**",
+      "catalog/skills/**/scripts/**",
+      "catalog/skills/**/eval-viewer/**",
     ],
   },
   {

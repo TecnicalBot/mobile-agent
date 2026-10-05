@@ -23,6 +23,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { downloadText } from "@/core/services/download-service";
 import { buildCodeDocument } from "@/modules/preview/code-document";
 import { withDesktopPreviewViewport } from "@/modules/preview/html-document";
+import { handlePreviewDownloadMessage, PREVIEW_DOWNLOAD_HOOK } from "@/modules/preview/preview-downloads";
 
 /**
  * CSS viewport width used for desktop rendering. Wide enough to trip the
@@ -231,6 +232,8 @@ export function CodePreviewDialog({
                   originWhitelist={["http://*", "https://*"]}
                   scrollEnabled
                   setSupportMultipleWindows={false}
+                  injectedJavaScript={PREVIEW_DOWNLOAD_HOOK}
+                  onMessage={handlePreviewDownloadMessage}
                   source={{ html: previewHtml }}
                   style={{ backgroundColor: theme.backgroundElement, flex: 1 }}
                 />

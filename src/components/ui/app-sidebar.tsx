@@ -41,17 +41,16 @@ import {
   PinOff,
   Settings2,
   Trash2,
-  Upload,
   Users,
 } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
+import { ChatImportDrawer } from "@/components/chat/chat-import-drawer";
+import { ExportChatDrawer } from "@/components/chat/export-chat-drawer";
 import type { Conversation } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
-import { ChatImportDrawer } from "@/components/chat/chat-import-drawer";
-import { ExportChatDrawer } from "@/components/chat/export-chat-drawer";
 
 export function AppSidebar() {
   const theme = useTheme();
@@ -196,7 +195,7 @@ export function AppSidebar() {
                 size="icon"
                 variant="ghost"
               >
-                <Upload color={theme.text} size={20} />
+                <Download color={theme.text} size={20} />
               </Button>
             </SidebarClose>
             <SidebarClose asChild>
@@ -259,9 +258,7 @@ export function AppSidebar() {
                     isActive={agentsActive}
                     leftIcon={
                       <Users
-                        color={
-                          agentsActive ? theme.background : theme.text
-                        }
+                        color={agentsActive ? theme.background : theme.text}
                         size={20}
                       />
                     }

@@ -1,10 +1,27 @@
 const DEFAULT_TITLE = "Preview";
 
+/** Let the browser scale a desktop layout instead of transforming its native view. */
+export function withDesktopPreviewViewport(
+  html: string,
+  width: number,
+  initialScale: number,
+): string {
+  const viewport = `<meta name="viewport" content="width=${width}, initial-scale=${initialScale}">`;
+  // Replace all viewport declarations, including ones supplied by the page.
+  const document = html.replace(
+    /<meta\b(?=[^>]*\bname\s*=\s*["']?viewport\b)[^>]*>/gi,
+    "",
+  );
+  return /<head(?:\s[^>]*)?>/i.test(document)
+    ? document.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${viewport}`)
+    : `${viewport}${document}`;
+}
+
 const BASE_STYLES = `
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
-  margin:0;padding:12px;background:#ffffff;color:#111111;
+  margin:0;padding:0;background:#ffffff;color:#111111;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   font-size:15px;line-height:1.5;overflow-wrap:break-word;word-break:break-word;
 }

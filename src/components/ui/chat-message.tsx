@@ -72,6 +72,10 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { CodePreviewDialog } from "@/components/ui/code-preview-dialog";
 import {
+  FilePreviewDialog,
+  getFilePreviewKind,
+} from "@/components/ui/file-preview-dialog";
+import {
   Drawer,
   DrawerBody,
   DrawerContent,
@@ -100,6 +104,7 @@ import type {
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
 import { openExternalLink } from "@/modules/chat/open-link";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
@@ -498,6 +503,7 @@ function CopyableCodeBlock({
       </ScrollView>
       {previewOpen && previewDocument ? (
         <CodePreviewDialog
+          code={code}
           html={previewDocument}
           language={language}
           onDismiss={() => {
@@ -838,6 +844,8 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const [previewImage, setPreviewImage] =
     useRecyclingState<GeneratedImageAttachment | null>(null, [message.id]);
+  const [previewFile, setPreviewFile] =
+    useRecyclingState<WorkspaceFile | null>(null, [message.id]);
   const [timelineExpanded, setTimelineExpanded] = useRecyclingState(false, [
     message.id,
   ]);
@@ -905,9 +913,17 @@ export const ChatMessage = memo(function ChatMessage({
     setCopied(true);
   };
   const handleLinkPress = useCallback((url: string) => {
+    const workspaceFile = workspaceFileFromUrl(url, workspaceFiles);
+
+    if (workspaceFile) {
+      setPreviewFile(workspaceFile);
+      return false;
+    }
+
     openExternalLink(url).catch(console.error);
+
     return false;
-  }, []);
+  }, [setPreviewFile, workspaceFiles]);
   const closePreview = () => {
     setImageAction(null);
     setPreviewImage(null);
@@ -981,6 +997,11 @@ export const ChatMessage = memo(function ChatMessage({
     setOpeningFileId(workspaceFile.id);
 
     try {
+      if (getFilePreviewKind(workspaceFile)) {
+        setPreviewFile(workspaceFile);
+        return;
+      }
+
       const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
 
       if (!localFile.exists) {
@@ -1660,6 +1681,10 @@ export const ChatMessage = memo(function ChatMessage({
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+      <FilePreviewDialog
+        file={previewFile}
+        onDismiss={() => setPreviewFile(null)}
+      />
     </Message>
   );
 });

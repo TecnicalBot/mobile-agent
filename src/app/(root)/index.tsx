@@ -61,6 +61,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChatErrorBoundary } from "@/components/ui/chat-error-boundary";
 import { ChatMessage } from "@/components/ui/chat-message";
+import { FilePreviewDialog, getFilePreviewKind } from "@/components/ui/file-preview-dialog";
 import {
   Drawer,
   DrawerBody,
@@ -179,7 +180,6 @@ const STARTER_PROMPTS = [
   "Remember that I prefer concise answers",
 ];
 
-const EMPTY_WORKSPACE_FILES: WorkspaceFile[] = [];
 
 function messageKeyExtractor(message: StoredMessage) {
   return message.id;
@@ -371,11 +371,7 @@ export default function Screen() {
         message={message}
         onEditMessage={handleEditMessage}
         onSavePrompt={handleSavePrompt}
-        workspaceFiles={
-          message.metadata?.selectedFileIds?.length
-            ? workspaceFiles
-            : EMPTY_WORKSPACE_FILES
-        }
+        workspaceFiles={workspaceFiles}
       />
     ),
     [
@@ -950,6 +946,7 @@ const ChatInput = memo(function ChatInput({
   const [prompt, setPrompt] = useState("");
   const [composerContentHeight, setComposerContentHeight] = useState(0);
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
+  const [attachmentPreview, setAttachmentPreview] = useState<WorkspaceFile | null>(null);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [agentsDrawerOpen, setAgentsDrawerOpen] = useState(false);
@@ -1740,6 +1737,16 @@ const ChatInput = memo(function ChatInput({
           <View className="gap-sp-2">
             {selectedFiles.map((file) => (
               <Attachment key={file.id} size="xs">
+                <Pressable
+                  accessibilityLabel={`Preview ${file.displayName}`}
+                  accessibilityRole="button"
+                  className="min-w-0 flex-1 flex-row items-center gap-sp-3"
+                  disabled={!getFilePreviewKind(file)}
+                  onPress={() => {
+                    KeyboardController.dismiss();
+                    setAttachmentPreview(file);
+                  }}
+                >
                 <AttachmentMedia className="overflow-hidden bg-secondary dark:bg-secondary-dark">
                   {file.mimeType?.startsWith("image/") ? (
                     <Image
@@ -1762,6 +1769,7 @@ const ChatInput = memo(function ChatInput({
                       : ""}
                   </AttachmentDescription>
                 </AttachmentContent>
+                </Pressable>
                 <AttachmentActions>
                   <AttachmentAction
                     onPress={() => {
@@ -1909,6 +1917,7 @@ const ChatInput = memo(function ChatInput({
         </Text>
       </View>
 
+      <FilePreviewDialog file={attachmentPreview} onDismiss={() => setAttachmentPreview(null)} />
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
         <DrawerContent showCloseButton showHandle size={filesDrawerSize}>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">

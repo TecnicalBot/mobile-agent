@@ -2,12 +2,11 @@ import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useRouter } from "expo-router";
-import * as Sharing from "expo-sharing";
 import {
   ChevronLeft,
   File as FileIcon,
   FileText,
-  Share2,
+  Download,
   Trash2,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -24,7 +23,13 @@ import {
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { LibraryImageGrid } from "@/components/ui/library-image-grid";
+import {
+  FilePreviewDialog,
+  getFilePreviewKind,
+} from "@/components/ui/file-preview-dialog";
 import { Separator } from "@/components/ui/separator";
+import { downloadFile } from "@/core/services/download-service";
 import {
   isTextWorkspaceFile,
   resolveWorkspaceFile,
@@ -49,8 +54,9 @@ export default function LibraryScreen() {
     useChat();
   const [category, setCategory] = useState<LibraryCategory>("all");
   const [openingFileId, setOpeningFileId] = useState<string | null>(null);
-  const [sharingFileId, setSharingFileId] = useState<string | null>(null);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<WorkspaceFile | null>(null);
 
   useEffect(() => {
     refreshWorkspaceFiles().catch(console.error);
@@ -72,6 +78,13 @@ export default function LibraryScreen() {
     setOpeningFileId(workspaceFile.id);
 
     try {
+      // Previewable kinds (images, html, csv, text) open in the in-app
+      // dialog; everything else still goes to the external handler.
+      if (getFilePreviewKind(workspaceFile)) {
+        setPreviewFile(workspaceFile);
+        return;
+      }
+
       const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
 
       if (!localFile.exists) {
@@ -112,48 +125,30 @@ export default function LibraryScreen() {
     }
   };
 
-  const handleShareFile = async (workspaceFile: WorkspaceFile) => {
-    setSharingFileId(workspaceFile.id);
+  const handleDownloadFile = async (workspaceFile: WorkspaceFile) => {
+    setDownloadingFileId(workspaceFile.id);
 
     try {
-      const available = await Sharing.isAvailableAsync();
-
-      if (!available) {
-        Alert.alert(
-          "Share unavailable",
-          "Sharing is not available on this device.",
-        );
-        return;
-      }
-
       const localFile = resolveWorkspaceFile(workspaceFile.relativePath);
 
       if (!localFile.exists) {
         throw new Error("This file is no longer available in the workspace.");
       }
 
-      const mimeType = isTextWorkspaceFile(workspaceFile)
-        ? "text/plain"
-        : workspaceFile.mimeType || localFile.type || "*/*";
-
-      await Sharing.shareAsync(localFile.uri, {
-        dialogTitle: `Share ${workspaceFile.displayName}`,
-        mimeType,
-        ...(isTextWorkspaceFile(workspaceFile)
-          ? { UTI: "public.plain-text" as const }
-          : {}),
-      });
+      const mimeType = workspaceFile.mimeType || localFile.type || "application/octet-stream";
+      const result = await downloadFile(localFile.uri, workspaceFile.displayName, mimeType);
+      if (result) Alert.alert("Downloaded", `${result.name} has been saved to Downloads.`);
     } catch (error) {
       if (error instanceof Error && /cancel/i.test(error.message)) {
         return;
       }
 
       Alert.alert(
-        "Share failed",
-        error instanceof Error ? error.message : "Failed to share the file.",
+        "Download failed",
+        error instanceof Error ? error.message : "Failed to download the file.",
       );
     } finally {
-      setSharingFileId(null);
+      setDownloadingFileId(null);
     }
   };
 
@@ -185,7 +180,7 @@ export default function LibraryScreen() {
 
   return (
     <Container
-      scroll
+      scroll={category !== "images"}
       contentClassName="gap-sp-4 py-sp-4"
       includeBottomTabInset={false}
     >
@@ -239,6 +234,14 @@ export default function LibraryScreen() {
       </View>
 
       {filteredFiles.length > 0 ? (
+        category === "images" ? (
+          <View className="min-h-0 flex-1 -mx-1">
+            <LibraryImageGrid
+              files={filteredFiles}
+              onOpen={(file) => { void handleOpenFile(file); }}
+            />
+          </View>
+        ) : (
         <Card className="overflow-hidden">
           {filteredFiles.map((file, index) => (
             <View key={file.id}>
@@ -246,13 +249,13 @@ export default function LibraryScreen() {
               <LibraryFileRow
                 file={file}
                 opening={openingFileId === file.id}
-                sharing={sharingFileId === file.id}
+                downloading={downloadingFileId === file.id}
                 deleting={deletingFileId === file.id}
                 onOpen={() => {
                   handleOpenFile(file).catch(console.error);
                 }}
-                onShare={() => {
-                  handleShareFile(file).catch(console.error);
+                onDownload={() => {
+                  handleDownloadFile(file).catch(console.error);
                 }}
                 onDelete={() => {
                   handleDeleteFile(file);
@@ -261,6 +264,7 @@ export default function LibraryScreen() {
             </View>
           ))}
         </Card>
+        )
       ) : (
         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
           {category === "all"
@@ -268,6 +272,10 @@ export default function LibraryScreen() {
             : `No ${category} in the workspace yet.`}
         </Text>
       )}
+      <FilePreviewDialog
+        file={previewFile}
+        onDismiss={() => setPreviewFile(null)}
+      />
     </Container>
   );
 }
@@ -277,17 +285,17 @@ function LibraryFileRow({
   file,
   onDelete,
   onOpen,
-  onShare,
+  onDownload,
   opening,
-  sharing,
+  downloading,
 }: {
   deleting: boolean;
   file: WorkspaceFile;
   onDelete: () => void;
   onOpen: () => void;
-  onShare: () => void;
+  onDownload: () => void;
   opening: boolean;
-  sharing: boolean;
+  downloading: boolean;
 }) {
   const theme = useTheme();
   const isImage = file.mimeType?.startsWith("image/");
@@ -340,10 +348,10 @@ function LibraryFileRow({
         ) : null}
       </Pressable>
       <RowAction
-        accessibilityLabel={`Share ${file.displayName}`}
-        busy={sharing}
-        icon={<Share2 color={theme.textSecondary} size={18} />}
-        onPress={onShare}
+        accessibilityLabel={`Download ${file.displayName}`}
+        busy={downloading}
+        icon={<Download color={theme.textSecondary} size={18} />}
+        onPress={onDownload}
       />
       <RowAction
         accessibilityLabel={`Delete ${file.displayName}`}

@@ -13,7 +13,7 @@ export function createCreateFileTool({
 
   return tool({
     description:
-      "Create a user-visible text file in the shared workspace. Use only when the user explicitly asks to create, save, or export a file. Do not use for scratch work, internal notes, future context, or as a duplicate of a response that belongs in chat.",
+      "Create a user-visible text file in the shared workspace. Use only when the user explicitly asks to create, save, or export a file. Do not use for scratch work, internal notes, future context, or as a duplicate of a response that belongs in chat. To link the created file in your response, use the returned link as the markdown destination: [displayName](link).",
     inputSchema: z.object({
       name: z.string().min(1),
       content: z.string().default(""),
@@ -32,6 +32,7 @@ export function createCreateFileTool({
         const output = {
           fileId: file.id,
           displayName: file.displayName,
+          link: `workspace://${file.id}`,
           size: file.size,
         };
 

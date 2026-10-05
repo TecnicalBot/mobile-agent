@@ -1,7 +1,7 @@
-import { Asset } from "expo-media-library";
 import * as MediaLibrary from "expo-media-library";
-import { Download, Monitor, Smartphone, X } from "lucide-react-native";
-import { useCallback, useRef, useState } from "react";
+import { Asset } from "expo-media-library";
+import { Download, Monitor, Smartphone, X, Code, Eye } from "lucide-react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,9 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { useTheme } from "@/hooks/use-theme";
+import { downloadText } from "@/core/services/download-service";
+import { buildCodeDocument } from "@/modules/preview/code-document";
+import { withDesktopPreviewViewport } from "@/modules/preview/html-document";
 
 /**
  * CSS viewport width used for desktop rendering. Wide enough to trip the
@@ -37,10 +40,13 @@ const DESKTOP_VIEWPORT_WIDTH = 1280;
 const MIN_CAPTURE_FEEDBACK_MS = 350;
 
 type Viewport = "desktop" | "mobile";
+type ViewMode = "code" | "preview";
 
 export type CodePreviewDialogProps = {
   /** Complete HTML document, as built by `buildPreviewDocument`. */
   html: string;
+  /** Raw fenced code, shown when the user switches to the code view. */
+  code: string;
   language: string;
   onDismiss: () => void;
 };
@@ -48,25 +54,23 @@ export type CodePreviewDialogProps = {
 /**
  * Full-screen rendered output for a markup code fence.
  *
- * `react-native-webview` has no notion of a viewport that differs from the view
- * itself, so "desktop" is a real 1280px-wide web view scaled down with a
- * transform. Media queries and `vw` units therefore resolve against 1280px,
- * which a squeezed-in inline web view could never show.
+ * Desktop uses a 1280px browser viewport scaled to the measured frame width.
+ * The native WebView stays frame-sized so clipping and scrolling agree.
  */
 export function CodePreviewDialog({
   html,
+  code,
   language,
   onDismiss,
 }: CodePreviewDialogProps) {
   const theme = useTheme();
   const [viewport, setViewport] = useState<Viewport>("mobile");
+  const [mode, setMode] = useState<ViewMode>("preview");
   const [frame, setFrame] = useState<{ height: number; width: number } | null>(
     null,
   );
   const [saving, setSaving] = useState(false);
-  // Points at the frame, i.e. the rounded bordered box. Deliberately not the
-  // inner view: in desktop mode that one is 1280px wide and scaled down, so
-  // capturing it would save a mostly-empty 1280px canvas.
+  // Capture only the page frame, without the drawer controls.
   const frameRef = useRef<View>(null);
   const desktop = viewport === "desktop";
   // Fall back to unscaled until the first layout pass reports the real frame.
@@ -74,6 +78,17 @@ export function CodePreviewDialog({
     desktop && frame && frame.width > 0
       ? frame.width / DESKTOP_VIEWPORT_WIDTH
       : 1;
+  const previewHtml = useMemo(
+    () =>
+      desktop
+        ? withDesktopPreviewViewport(html, DESKTOP_VIEWPORT_WIDTH, scale)
+        : html,
+    [desktop, html, scale],
+  );
+  const codeHtml = useMemo(
+    () => mode === "code" ? buildCodeDocument(code, language, theme) : "",
+    [code, language, mode, theme],
+  );
 
   const handleSave = useCallback(async () => {
     if (saving || !frameRef.current) {
@@ -84,6 +99,17 @@ export function CodePreviewDialog({
     const startedAt = Date.now();
 
     try {
+      if (mode === "code") {
+        const extension = ["html", "htm", "svg", "xml"].includes(language.toLowerCase())
+          ? language.toLowerCase() : "txt";
+        const name = `code-${Date.now()}.${extension}`;
+        const mimeType = extension === "svg" ? "image/svg+xml"
+          : extension === "xml" ? "application/xml"
+          : extension === "txt" ? "text/plain" : "text/html";
+        const result = await downloadText(code, name, mimeType);
+        if (result) Alert.alert("Code saved", `${result.name} has been saved to Downloads.`);
+        return;
+      }
       const uri = await captureRef(frameRef, {
         format: "png",
         quality: 1,
@@ -106,7 +132,7 @@ export function CodePreviewDialog({
     } catch (error) {
       Alert.alert(
         "Download failed",
-        error instanceof Error ? error.message : "Failed to save the image.",
+        error instanceof Error ? error.message : "Failed to save the file.",
       );
     } finally {
       // Hold the spinner long enough to be seen, otherwise the button appears
@@ -121,19 +147,16 @@ export function CodePreviewDialog({
 
       setSaving(false);
     }
-  }, [saving]);
+  }, [code, language, mode, saving]);
 
-  const handleLayout = useCallback(
-    ({ nativeEvent }: LayoutChangeEvent) => {
-      const { height, width } = nativeEvent.layout;
-      setFrame((previous) =>
-        previous && previous.width === width && previous.height === height
-          ? previous
-          : { height, width },
-      );
-    },
-    [],
-  );
+  const handleLayout = useCallback(({ nativeEvent }: LayoutChangeEvent) => {
+    const { height, width } = nativeEvent.layout;
+    setFrame((previous) =>
+      previous && previous.width === width && previous.height === height
+        ? previous
+        : { height, width },
+    );
+  }, []);
 
   return (
     <Drawer
@@ -150,12 +173,17 @@ export function CodePreviewDialog({
           <View className="flex-1 gap-1">
             <DrawerTitle>Preview</DrawerTitle>
             <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              {language.toUpperCase()} · {desktop
-                ? `${DESKTOP_VIEWPORT_WIDTH}px desktop viewport`
-                : "Fits your screen"}
+              {language.toUpperCase()} ·{" "}
+              {mode === "code"
+                ? "Source"
+                : desktop
+                  ? `${DESKTOP_VIEWPORT_WIDTH}px desktop viewport`
+                  : "Fits your screen"}
             </Text>
           </View>
+          <ViewModeToggle value={mode} onChange={setMode} disabled={saving} />
           <SavePreviewButton
+            mode={mode}
             disabled={saving || !frame}
             onPress={handleSave}
             saving={saving}
@@ -169,7 +197,9 @@ export function CodePreviewDialog({
             </Pressable>
           </DrawerClose>
         </View>
-        <ViewportToggle value={viewport} onChange={setViewport} />
+        {mode === "preview" ? (
+          <ViewportToggle value={viewport} onChange={setViewport} />
+        ) : null}
         {/*
           `flex-1` with a zero basis, so this frame's size comes from the drawer
           and never from the page inside it. That keeps the measured width — and
@@ -181,34 +211,31 @@ export function CodePreviewDialog({
           ref={frameRef}
         >
           {frame && frame.width > 0 && frame.height > 0 ? (
-            <View
-              style={
-                desktop
-                  ? {
-                      // Anchor the oversized native view before scaling. A
-                      // centre-origin transform can move it outside the clip.
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      height: frame.height / scale,
-                      flexShrink: 0,
-                      transformOrigin: "top left",
-                      transform: [{ scale }],
-                      width: DESKTOP_VIEWPORT_WIDTH,
-                    }
-                  : { flex: 1 }
-              }
-            >
+            mode === "code" ? (
               <WebView
-                key={viewport}
-                allowsInlineMediaPlayback
-                originWhitelist={["http://*", "https://*"]}
+                key="source"
+                javaScriptEnabled={false}
+                originWhitelist={["about:blank"]}
                 scrollEnabled
-                setSupportMultipleWindows={false}
-                source={{ html }}
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator
+                showsVerticalScrollIndicator
+                source={{ html: codeHtml }}
                 style={{ backgroundColor: theme.backgroundElement, flex: 1 }}
               />
-            </View>
+            ) : (
+              <View style={{ flex: 1 }}>
+                <WebView
+                  key={viewport}
+                  allowsInlineMediaPlayback
+                  originWhitelist={["http://*", "https://*"]}
+                  scrollEnabled
+                  setSupportMultipleWindows={false}
+                  source={{ html: previewHtml }}
+                  style={{ backgroundColor: theme.backgroundElement, flex: 1 }}
+                />
+              </View>
+            )
           ) : null}
         </View>
       </DrawerContent>
@@ -217,14 +244,16 @@ export function CodePreviewDialog({
 }
 
 /**
- * Saves the visible preview to the gallery. Disabled until the frame has been
- * measured, since capturing before then would produce an empty image.
+ * Saves raw source in code mode and the visible preview to the gallery otherwise.
+ * Disabled until the frame is measured to avoid capturing an empty image.
  */
 function SavePreviewButton({
+  mode,
   disabled,
   onPress,
   saving,
 }: {
+  mode: ViewMode;
   disabled: boolean;
   onPress: () => void;
   saving: boolean;
@@ -233,7 +262,7 @@ function SavePreviewButton({
 
   return (
     <Pressable
-      accessibilityLabel="Save preview as image"
+      accessibilityLabel={mode === "code" ? "Download source code" : "Save preview as image"}
       accessibilityRole="button"
       className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark active:opacity-70"
       disabled={disabled}
@@ -245,6 +274,30 @@ function SavePreviewButton({
       ) : (
         <Download color={theme.text} size={20} />
       )}
+    </Pressable>
+  );
+}
+
+function ViewModeToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ViewMode;
+  onChange: (value: ViewMode) => void;
+  disabled: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={value === "preview" ? "Show code" : "Show preview"}
+      accessibilityRole="button"
+      className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark active:opacity-70"
+      disabled={disabled}
+      onPress={() => onChange(value === "preview" ? "code" : "preview")}
+    >
+      {value === "preview" ? <Code color={theme.text} size={20} /> : <Eye color={theme.text} size={20} />}
     </Pressable>
   );
 }
@@ -281,7 +334,9 @@ function ViewportToggle({
             }}
             className="h-11 flex-1 flex-row items-center justify-center gap-2 rounded-lg active:opacity-70"
             style={{
-              backgroundColor: selected ? theme.backgroundSelected : "transparent",
+              backgroundColor: selected
+                ? theme.backgroundSelected
+                : "transparent",
             }}
           >
             {option.value === "mobile" ? (

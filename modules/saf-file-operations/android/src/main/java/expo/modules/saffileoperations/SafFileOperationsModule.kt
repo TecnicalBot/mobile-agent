@@ -2,8 +2,15 @@ package expo.modules.saffileoperations
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.ContentValues
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.media.MediaScannerConnection
+import java.io.File
+import java.io.FileInputStream
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -11,6 +18,58 @@ import expo.modules.kotlin.modules.ModuleDefinition
 class SafFileOperationsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SafFileOperations")
+
+    AsyncFunction("saveDownload") { sourceUri: String, name: String, mimeType: String ->
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      require(name.isNotBlank() && !name.contains('/') && !name.contains('\\')) {
+        "Provide a valid download filename."
+      }
+      val source = Uri.parse(sourceUri)
+      val resolver = context.contentResolver
+      val input = if (source.scheme == "file") FileInputStream(File(requireNotNull(source.path)))
+        else resolver.openInputStream(source)
+      requireNotNull(input) { "The source file could not be opened." }
+      input.use { stream ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.MIME_TYPE, mimeType)
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+          }
+          val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create the download.")
+          try {
+            requireNotNull(resolver.openOutputStream(uri)).use { stream.copyTo(it) }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            mapOf("uri" to uri.toString(), "name" to name)
+          } catch (error: Exception) {
+            resolver.delete(uri, null, null)
+            throw error
+          }
+        } else {
+          val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+          directory.mkdirs()
+          var file = File(directory, name)
+          val extension = file.extension.let { if (it.isEmpty()) "" else ".$it" }
+          val base = file.nameWithoutExtension
+          var suffix = 1
+          while (!file.createNewFile()) {
+            file = File(directory, "$base (${suffix++})$extension")
+          }
+          try {
+            file.outputStream().use { stream.copyTo(it) }
+            MediaScannerConnection.scanFile(context, arrayOf(file.path), arrayOf(mimeType), null)
+            mapOf("uri" to Uri.fromFile(file).toString(), "name" to file.name)
+          } catch (error: Exception) {
+            file.delete()
+            throw error
+          }
+        }
+      }
+    }
 
     AsyncFunction("createEntry") {
         rootUri: String,

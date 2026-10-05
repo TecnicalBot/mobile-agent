@@ -1,6 +1,6 @@
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import { ChevronLeft, Copy, FileDown, Trash2 } from "lucide-react-native";
+import { ChevronLeft, Copy, FileDown, Plus, Trash2 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -10,13 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import type { SkillConfig } from "@/core/types/app-state";
 
-export default function SettingsSkillsScreen() {
+export default function ConnectedSkillsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { ready } = useAppState();
   const { deleteSkill, exportSkillMarkdown, skills, updateSkill } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,10 @@ export default function SettingsSkillsScreen() {
     () => skills.filter((skill) => skill.enabled).length,
     [skills],
   );
+
+  if (ready && skills.length === 0) {
+    return <Redirect href={"/settings/skills/list" as never} />;
+  }
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
@@ -58,9 +64,7 @@ export default function SettingsSkillsScreen() {
       <View className="flex-row items-center gap-sp-2">
         <Button
           leftIcon={<ChevronLeft color={theme.text} size={16} />}
-          onPress={() => {
-            router.push("/settings");
-          }}
+          onPress={() => router.push("/settings")}
           size="icon-xs"
           variant="ghost"
         />
@@ -82,40 +86,51 @@ export default function SettingsSkillsScreen() {
         </Button>
       </View>
 
-      {skills.length === 0 ? (
+      {!ready ? (
         <Card className="px-sp-4 py-sp-4">
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            No skills configured.
+            Loading skills…
           </Text>
         </Card>
       ) : (
-        <Card className="overflow-hidden">
-          {skills.map((skill, index) => (
-            <View key={skill.id}>
-              <SkillRow
-                busyKey={busyKey}
-                onDelete={() =>
-                  runAction(`delete:${skill.id}`, async () => {
-                    await deleteSkill(skill.id);
-                  })
-                }
-                onExport={() =>
-                  runAction(`export:${skill.id}`, () =>
-                    copySkillMarkdown(skill.id),
-                  )
-                }
-                onOpen={() => router.push(`/settings/skills/${skill.id}` as never)}
-                onToggle={(enabled) =>
-                  runAction(`toggle:${skill.id}`, async () => {
-                    await updateSkill(skill.id, { enabled });
-                  })
-                }
-                skill={skill}
-              />
-              {index < skills.length - 1 ? <Separator /> : null}
-            </View>
-          ))}
-        </Card>
+        <>
+          <Card className="overflow-hidden">
+            {skills.map((skill, index) => (
+              <View key={skill.id}>
+                <SkillRow
+                  busyKey={busyKey}
+                  onDelete={() =>
+                    runAction(`delete:${skill.id}`, async () => {
+                      await deleteSkill(skill.id);
+                    })
+                  }
+                  onExport={() =>
+                    runAction(`export:${skill.id}`, () =>
+                      copySkillMarkdown(skill.id),
+                    )
+                  }
+                  onOpen={() =>
+                    router.push(`/settings/skills/${skill.id}` as never)
+                  }
+                  onToggle={(enabled) =>
+                    runAction(`toggle:${skill.id}`, async () => {
+                      await updateSkill(skill.id, { enabled });
+                    })
+                  }
+                  skill={skill}
+                />
+                {index < skills.length - 1 ? <Separator /> : null}
+              </View>
+            ))}
+          </Card>
+          <Button
+            leftIcon={<Plus color={theme.text} size={16} />}
+            onPress={() => router.push("/settings/skills/list" as never)}
+            variant="outline"
+          >
+            Add more
+          </Button>
+        </>
       )}
 
       {error ? (

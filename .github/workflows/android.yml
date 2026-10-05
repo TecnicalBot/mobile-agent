@@ -40,12 +40,12 @@ jobs:
 
           echo "VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
 
-          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
+          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Version unchanged. Skipping release."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Version changed. Creating release."
+            echo "Creating/re-publishing release."
           fi
 
       - name: Set up pnpm

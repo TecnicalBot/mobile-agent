@@ -291,6 +291,17 @@ export default function Screen() {
     setEditNonce((current) => current + 1);
     setEditingMessageId(latestUserMessageIdRef.current);
   }, []);
+  const handleRegenerate = useCallback(
+    (instruction: string) => {
+      sendMessage({ content: instruction }).catch((error: unknown) => {
+        Alert.alert(
+          "Regenerate failed",
+          error instanceof Error ? error.message : "Failed to regenerate.",
+        );
+      });
+    },
+    [sendMessage],
+  );
   const handleSavePrompt = useCallback(
     (content: string) => {
       router.push({
@@ -373,6 +384,7 @@ export default function Screen() {
         }
         message={message}
         onEditMessage={handleEditMessage}
+        onRegenerate={handleRegenerate}
         onSavePrompt={handleSavePrompt}
         workspaceFiles={workspaceFiles}
       />
@@ -380,6 +392,7 @@ export default function Screen() {
     [
       currentConversationBusy,
       handleEditMessage,
+      handleRegenerate,
       handleSavePrompt,
       latestUserMessageId,
       workspaceFiles,

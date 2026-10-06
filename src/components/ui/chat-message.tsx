@@ -53,8 +53,8 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  type TextStyle,
   TextInput,
+  type TextStyle,
   View,
 } from "react-native";
 import Markdown, {
@@ -116,8 +116,8 @@ import { openExternalLink } from "@/modules/chat/open-link";
 import {
   DEFAULT_REGENERATE_PRESETS,
   loadCustomPresets,
-  saveCustomPresets,
   type RegeneratePreset,
+  saveCustomPresets,
 } from "@/modules/chat/regenerate-presets";
 import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
@@ -987,9 +987,7 @@ export const ChatMessage = memo(function ChatMessage({
 
   const handleDeleteCustomPreset = useCallback(
     (id: string) => {
-      persistCustomPresets(
-        customPresets.filter((preset) => preset.id !== id),
-      );
+      persistCustomPresets(customPresets.filter((preset) => preset.id !== id));
     },
     [customPresets, persistCustomPresets],
   );
@@ -1613,7 +1611,7 @@ export const ChatMessage = memo(function ChatMessage({
           memoryEvents.length > 0 ||
           executionTimeline.length > 0 ||
           generatedImages.length > 0) ? (
-          <MessageFooter className="ml-2 -mt-2 gap-0">
+          <MessageFooter className="ml-2 -mt-2">
             <Button
               accessibilityLabel={copied ? "Copied" : "Copy"}
               leftIcon={
@@ -1829,34 +1827,32 @@ export const ChatMessage = memo(function ChatMessage({
             <DrawerTitle>Regenerate response</DrawerTitle>
           </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-            {[...DEFAULT_REGENERATE_PRESETS, ...customPresets].map(
-              (preset) => (
-                <View
-                  key={preset.id}
-                  className="flex-row items-center justify-between gap-sp-3 rounded-ui border border-border bg-card px-sp-3 py-sp-3 dark:border-border-dark dark:bg-card-dark"
+            {[...DEFAULT_REGENERATE_PRESETS, ...customPresets].map((preset) => (
+              <View
+                key={preset.id}
+                className="flex-row items-center justify-between gap-sp-3 rounded-ui border border-border bg-card px-sp-3 py-sp-3 dark:border-border-dark dark:bg-card-dark"
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  className="flex-1"
+                  onPress={() => handlePickPreset(preset)}
                 >
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    {preset.label}
+                  </Text>
+                </Pressable>
+                {preset.custom ? (
                   <Pressable
+                    accessibilityLabel={`Delete ${preset.label}`}
                     accessibilityRole="button"
-                    className="flex-1"
-                    onPress={() => handlePickPreset(preset)}
+                    hitSlop={8}
+                    onPress={() => handleDeleteCustomPreset(preset.id)}
                   >
-                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                      {preset.label}
-                    </Text>
+                    <Trash2 color={theme.textSecondary} size={18} />
                   </Pressable>
-                  {preset.custom ? (
-                    <Pressable
-                      accessibilityLabel={`Delete ${preset.label}`}
-                      accessibilityRole="button"
-                      hitSlop={8}
-                      onPress={() => handleDeleteCustomPreset(preset.id)}
-                    >
-                      <Trash2 color={theme.textSecondary} size={18} />
-                    </Pressable>
-                  ) : null}
-                </View>
-              ),
-            )}
+                ) : null}
+              </View>
+            ))}
             <View className="flex-row items-center gap-sp-2">
               <TextInput
                 className="min-h-11 flex-1 rounded-lg border border-border bg-transparent px-3 py-2.5 font-sans text-sm text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"

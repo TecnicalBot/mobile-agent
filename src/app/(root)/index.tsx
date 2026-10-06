@@ -94,6 +94,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
 import { VoiceInputBar } from "@/components/ui/voice-input-bar";
+import { CHAT_TEXT_STYLE } from "@/constants/chat-typography";
 import { isFolderPickerCancellation } from "@/core/services/external-folder/external-folder-service";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
@@ -1933,7 +1934,7 @@ const ChatInput = memo(function ChatInput({
                 level={currentLevel}
                 onCancel={voiceInput.cancel}
                 onConfirm={voiceInput.finish}
-                processing={voiceInput.status === "processing"}
+                processing={voiceInput.status === "processing" || voiceInput.status === "starting"}
               />
             ) : (
               <>
@@ -1956,7 +1957,7 @@ const ChatInput = memo(function ChatInput({
                     returnKeyType="default"
                     scrollEnabled={composerScrollEnabled}
                     submitBehavior="newline"
-                    style={{ height: composerInputHeight }}
+                    style={{ height: composerInputHeight, ...CHAT_TEXT_STYLE }}
                     value={prompt}
                   />
                 </TextInputWrapper>

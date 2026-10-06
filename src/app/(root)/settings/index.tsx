@@ -143,6 +143,12 @@ export default function SettingsScreen() {
 
       <Card className="overflow-hidden">
         <SettingsLinkRow
+          label="Voice input"
+          onPress={() => router.push("/settings/voice" as never)}
+          value="System / Whisper"
+        />
+        <Separator />
+        <SettingsLinkRow
           label="Providers"
           onPress={() => {
             router.push("/settings/providers");

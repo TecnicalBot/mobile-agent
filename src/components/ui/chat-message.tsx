@@ -7,6 +7,7 @@ import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
+import * as Speech from "expo-speech";
 import {
   Bookmark,
   Brain,
@@ -28,7 +29,12 @@ import {
   FileVideo,
   Loader,
   Pencil,
+  Play,
+  Plus,
+  RefreshCw,
   Share2,
+  Square,
+  Trash2,
 } from "lucide-react-native";
 import {
   memo,
@@ -48,6 +54,7 @@ import {
   StyleSheet,
   Text,
   type TextStyle,
+  TextInput,
   View,
 } from "react-native";
 import Markdown, {
@@ -106,6 +113,12 @@ import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
 import { openExternalLink } from "@/modules/chat/open-link";
+import {
+  DEFAULT_REGENERATE_PRESETS,
+  loadCustomPresets,
+  saveCustomPresets,
+  type RegeneratePreset,
+} from "@/modules/chat/regenerate-presets";
 import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
 import { Asset } from "expo-media-library";
@@ -127,6 +140,7 @@ type ChatMessageProps = {
   canEditAndResend?: boolean;
   message: StoredMessage;
   onEditMessage?: (content: string) => void;
+  onRegenerate?: (instruction: string) => void;
   onSavePrompt?: (content: string) => void;
   workspaceFiles: WorkspaceFile[];
 };
@@ -819,10 +833,15 @@ export const ChatMessage = memo(function ChatMessage({
   canEditAndResend = false,
   message,
   onEditMessage,
+  onRegenerate,
   onSavePrompt,
   workspaceFiles,
 }: ChatMessageProps) {
   const theme = useTheme();
+  const [speaking, setSpeaking] = useRecyclingState(false, [message.id]);
+  const [regenerateOpen, setRegenerateOpen] = useState(false);
+  const [customPresets, setCustomPresets] = useState<RegeneratePreset[]>([]);
+  const [customPresetDraft, setCustomPresetDraft] = useState("");
   const [copied, setCopied] = useRecyclingState(false, [message.id]);
   const [imageAction, setImageAction] = useRecyclingState<
     "download" | "share" | null
@@ -890,6 +909,97 @@ export const ChatMessage = memo(function ChatMessage({
       theme.backgroundSelected,
       theme.textSecondary,
     ],
+  );
+
+  useEffect(() => {
+    if (!regenerateOpen) {
+      return;
+    }
+
+    let cancelled = false;
+
+    loadCustomPresets()
+      .then((presets) => {
+        if (!cancelled) {
+          setCustomPresets(presets);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [regenerateOpen]);
+
+  useEffect(() => {
+    return () => {
+      Speech.stop().catch(() => {});
+    };
+  }, []);
+
+  const handleToggleSpeech = useCallback(() => {
+    if (speaking) {
+      Speech.stop().catch(() => {});
+      setSpeaking(false);
+      return;
+    }
+
+    const content = message.content.trim();
+
+    if (!content) {
+      return;
+    }
+
+    Speech.stop().catch(() => {});
+    Speech.speak(content, {
+      onDone: () => setSpeaking(false),
+      onError: () => setSpeaking(false),
+      onStopped: () => setSpeaking(false),
+    });
+    setSpeaking(true);
+  }, [message.content, setSpeaking, speaking]);
+
+  const persistCustomPresets = useCallback((presets: RegeneratePreset[]) => {
+    setCustomPresets(presets);
+    saveCustomPresets(presets).catch(console.error);
+  }, []);
+
+  const handleAddCustomPreset = useCallback(() => {
+    const label = customPresetDraft.trim();
+
+    if (!label) {
+      return;
+    }
+
+    const next = [
+      ...customPresets,
+      {
+        id: `custom-${Date.now()}`,
+        label,
+        instruction: label,
+        custom: true,
+      },
+    ];
+
+    persistCustomPresets(next);
+    setCustomPresetDraft("");
+  }, [customPresetDraft, customPresets, persistCustomPresets]);
+
+  const handleDeleteCustomPreset = useCallback(
+    (id: string) => {
+      persistCustomPresets(
+        customPresets.filter((preset) => preset.id !== id),
+      );
+    },
+    [customPresets, persistCustomPresets],
+  );
+
+  const handlePickPreset = useCallback(
+    (preset: RegeneratePreset) => {
+      setRegenerateOpen(false);
+      onRegenerate?.(preset.instruction);
+    },
+    [onRegenerate],
   );
 
   useEffect(() => {
@@ -1520,6 +1630,32 @@ export const ChatMessage = memo(function ChatMessage({
               className="h-9 w-9 px-0"
               variant="ghost"
             />
+            {message.content.trim() ? (
+              <Button
+                accessibilityLabel={speaking ? "Stop" : "Play"}
+                leftIcon={
+                  speaking ? (
+                    <Square color={theme.textSecondary} size={18} />
+                  ) : (
+                    <Play color={theme.textSecondary} size={18} />
+                  )
+                }
+                onPress={handleToggleSpeech}
+                size="icon-xs"
+                className="h-9 w-9 px-0"
+                variant="ghost"
+              />
+            ) : null}
+            {message.content.trim() && onRegenerate ? (
+              <Button
+                accessibilityLabel="Regenerate response"
+                leftIcon={<RefreshCw color={theme.textSecondary} size={18} />}
+                onPress={() => setRegenerateOpen(true)}
+                size="icon-xs"
+                className="h-9 w-9 px-0"
+                variant="ghost"
+              />
+            ) : null}
             {memoryEventLabel ? (
               <Button
                 accessibilityLabel={memoryEventLabel}
@@ -1681,6 +1817,66 @@ export const ChatMessage = memo(function ChatMessage({
               Share
             </Button>
           </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+      <Drawer
+        direction="bottom"
+        onOpenChange={setRegenerateOpen}
+        open={regenerateOpen}
+      >
+        <DrawerContent showCloseButton showHandle size={560}>
+          <DrawerHeader>
+            <DrawerTitle>Regenerate response</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+            {[...DEFAULT_REGENERATE_PRESETS, ...customPresets].map(
+              (preset) => (
+                <View
+                  key={preset.id}
+                  className="flex-row items-center justify-between gap-sp-3 rounded-ui border border-border bg-card px-sp-3 py-sp-3 dark:border-border-dark dark:bg-card-dark"
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    className="flex-1"
+                    onPress={() => handlePickPreset(preset)}
+                  >
+                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      {preset.label}
+                    </Text>
+                  </Pressable>
+                  {preset.custom ? (
+                    <Pressable
+                      accessibilityLabel={`Delete ${preset.label}`}
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={() => handleDeleteCustomPreset(preset.id)}
+                    >
+                      <Trash2 color={theme.textSecondary} size={18} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ),
+            )}
+            <View className="flex-row items-center gap-sp-2">
+              <TextInput
+                className="min-h-11 flex-1 rounded-lg border border-border bg-transparent px-3 py-2.5 font-sans text-sm text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"
+                onChangeText={setCustomPresetDraft}
+                onSubmitEditing={handleAddCustomPreset}
+                placeholder="Add your own preset…"
+                placeholderTextColor={theme.textSecondary}
+                returnKeyType="done"
+                selectionColor={theme.backgroundSelected}
+                value={customPresetDraft}
+              />
+              <Button
+                accessibilityLabel="Add preset"
+                leftIcon={<Plus color={theme.background} size={18} />}
+                onPress={handleAddCustomPreset}
+                size="icon"
+                variant="default"
+              />
+            </View>
+          </DrawerBody>
         </DrawerContent>
       </Drawer>
       <FilePreviewDialog

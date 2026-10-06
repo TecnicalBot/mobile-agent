@@ -14,6 +14,7 @@ import {
   Edit,
   FolderOpen,
   Info,
+  Mic,
   Paperclip,
   Send,
   Server,
@@ -45,6 +46,11 @@ import {
   KeyboardAvoidingView,
   KeyboardController,
 } from "react-native-keyboard-controller";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { Container } from "@/components/shared/container";
@@ -87,6 +93,7 @@ import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceInputBar } from "@/components/ui/voice-input-bar";
 import { isFolderPickerCancellation } from "@/core/services/external-folder/external-folder-service";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import type {
@@ -106,6 +113,7 @@ import { useChat } from "@/hooks/use-chat";
 import { useChatInfo } from "@/hooks/use-chat-info";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
@@ -1061,6 +1069,25 @@ const ChatInput = memo(function ChatInput({
   const composerScrollEnabled = composerContentHeight > maxComposerInputHeight;
 
   const composerTrigger = useMemo(() => getComposerTrigger(prompt), [prompt]);
+
+  const voiceInput = useVoiceInput({
+    onCancel: () => {},
+    onFinal: (transcript) => {
+      const clean = transcript.trim();
+      if (!clean) {
+        return;
+      }
+      setPrompt((current) => (current ? `${current} ${clean}` : clean));
+      // The composer input remounts once voice mode closes, so focus on the
+      // next frame after that render commits.
+      requestAnimationFrame(() => {
+        composerRef.current?.focus();
+      });
+    },
+  });
+  const voiceActive = voiceInput.active;
+  const currentLevel = voiceInput.levels.at(-1) ?? 0;
+
   const modelGroups = useMemo(() => {
     const groups = new Map<string, typeof activeModels>();
 
@@ -1893,102 +1920,147 @@ const ChatInput = memo(function ChatInput({
             />
           </Svg>
         </View>
-        <View className="relative rounded-3xl bg-white dark:bg-card-dark">
-          <TextInputWrapper
-            style={{ height: composerInputHeight, width: "100%" }}
-            onPaste={(payload) => {
-              handlePaste(payload).catch(console.error);
-            }}
+        <View className="relative overflow-hidden rounded-3xl bg-white dark:bg-card-dark">
+          <Animated.View
+            key={voiceActive ? "voice" : "text"}
+            entering={FadeIn.duration(180)}
+            exiting={FadeOut.duration(120)}
+            layout={LinearTransition.duration(220)}
+            style={{ width: "100%" }}
           >
-            <Textarea
-              ref={composerRef}
-              className="min-h-0 rounded-full border-0 bg-transparent px-4 py-3 text-base dark:bg-transparent"
-              onChangeText={setPrompt}
-              onContentSizeChange={(event) => {
-                setComposerContentHeight(event.nativeEvent.contentSize.height);
-              }}
-              placeholder="Type a message..."
-              returnKeyType="default"
-              scrollEnabled={composerScrollEnabled}
-              submitBehavior="newline"
-              style={{ height: composerInputHeight }}
-              value={prompt}
-            />
-          </TextInputWrapper>
+            {voiceActive ? (
+              <VoiceInputBar
+                level={currentLevel}
+                onCancel={voiceInput.cancel}
+                onConfirm={voiceInput.finish}
+                processing={voiceInput.status === "processing"}
+              />
+            ) : (
+              <>
+                <TextInputWrapper
+                  style={{ height: composerInputHeight, width: "100%" }}
+                  onPaste={(payload) => {
+                    handlePaste(payload).catch(console.error);
+                  }}
+                >
+                  <Textarea
+                    ref={composerRef}
+                    className="min-h-0 rounded-full border-0 bg-transparent px-4 py-3 text-base dark:bg-transparent"
+                    onChangeText={setPrompt}
+                    onContentSizeChange={(event) => {
+                      setComposerContentHeight(
+                        event.nativeEvent.contentSize.height,
+                      );
+                    }}
+                    placeholder="Type a message..."
+                    returnKeyType="default"
+                    scrollEnabled={composerScrollEnabled}
+                    submitBehavior="newline"
+                    style={{ height: composerInputHeight }}
+                    value={prompt}
+                  />
+                </TextInputWrapper>
 
-          <View className="h-[56px] flex-row items-center gap-2 px-2 pb-2">
-            <Pressable
-              accessibilityRole="button"
-              className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
-              onPress={() => {
-                setApprovalModeDrawerOpen(true);
-              }}
-              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-            >
-              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
-                {toolApprovalMode === "ask" ? "Ask" : "Allow"}
-              </Text>
-              <ChevronDown color={theme.textSecondary} size={14} />
-            </Pressable>
+                <View className="h-[56px] flex-row items-center gap-2 px-2 pb-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
+                    onPress={() => {
+                      setApprovalModeDrawerOpen(true);
+                    }}
+                    style={({ pressed }) =>
+                      pressed ? { opacity: 0.82 } : null
+                    }
+                  >
+                    <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                      {toolApprovalMode === "ask" ? "Ask" : "Allow"}
+                    </Text>
+                    <ChevronDown color={theme.textSecondary} size={14} />
+                  </Pressable>
 
-            <Pressable
-              accessibilityLabel="Select agent"
-              accessibilityRole="button"
-              className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
-              onPress={() => {
-                setAgentsDrawerOpen(true);
-              }}
-              style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
-            >
-              <ClipboardList color={theme.textSecondary} size={14} />
-              <Text
-                className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
-                numberOfLines={1}
-              >
-                {conversationAgentName === "build"
-                  ? "Build"
-                  : conversationAgentName === "plan"
-                    ? "Plan"
-                    : conversationAgentName}
-              </Text>
-              <ChevronDown color={theme.textSecondary} size={14} />
-            </Pressable>
+                  <Pressable
+                    accessibilityLabel="Select agent"
+                    accessibilityRole="button"
+                    className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
+                    onPress={() => {
+                      setAgentsDrawerOpen(true);
+                    }}
+                    style={({ pressed }) =>
+                      pressed ? { opacity: 0.82 } : null
+                    }
+                  >
+                    <ClipboardList color={theme.textSecondary} size={14} />
+                    <Text
+                      className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
+                      numberOfLines={1}
+                    >
+                      {conversationAgentName === "build"
+                        ? "Build"
+                        : conversationAgentName === "plan"
+                          ? "Plan"
+                          : conversationAgentName}
+                    </Text>
+                    <ChevronDown color={theme.textSecondary} size={14} />
+                  </Pressable>
 
-            <View className="flex-1" />
-            <Pressable
-              accessibilityLabel={loading ? "Stop generating" : "Send message"}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: sendDisabled }}
-              className="h-12 w-12 items-center justify-center rounded-full bg-foreground dark:bg-foreground-dark"
-              disabled={sendDisabled}
-              hitSlop={8}
-              onPress={() => {
-                if (sendDisabled) return;
-                if (loading) {
-                  onStop().catch(console.error);
-                  return;
-                }
-                if (editDraft !== null) {
-                  const cleanEditPrompt = prompt.trim();
-                  if (!cleanEditPrompt) return;
-                  KeyboardController.dismiss();
-                  composerRef.current?.blur();
-                  onEditSend(cleanEditPrompt).catch(console.error);
-                  return;
-                }
-                handleGenerate().catch(console.error);
-              }}
-              style={({ pressed }) => ({
-                opacity: sendDisabled ? 0.5 : pressed ? 0.85 : 1,
-              })}
-            >
-              {loading ? (
-                <StopCircle color={theme.background} size={18} />
-              ) : (
-                <Send color={theme.background} size={18} />
-              )}
-            </Pressable>
-          </View>
+                  <View className="flex-1" />
+                  {!loading ? (
+                    <Pressable
+                      accessibilityLabel="Start voice input"
+                      accessibilityRole="button"
+                      className="h-12 w-12 items-center justify-center rounded-full bg-[#F0F0F3] dark:bg-secondary-dark"
+                      hitSlop={8}
+                      onPress={() => {
+                        KeyboardController.dismiss();
+                        composerRef.current?.blur();
+                        voiceInput.start().catch(console.error);
+                      }}
+                      style={({ pressed }) =>
+                        pressed ? { opacity: 0.82 } : null
+                      }
+                    >
+                      <Mic color={theme.text} size={20} />
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    accessibilityLabel={
+                      loading ? "Stop generating" : "Send message"
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: sendDisabled }}
+                    className="h-12 w-12 items-center justify-center rounded-full bg-foreground dark:bg-foreground-dark"
+                    disabled={sendDisabled}
+                    hitSlop={8}
+                    onPress={() => {
+                      if (sendDisabled) return;
+                      if (loading) {
+                        onStop().catch(console.error);
+                        return;
+                      }
+                      if (editDraft !== null) {
+                        const cleanEditPrompt = prompt.trim();
+                        if (!cleanEditPrompt) return;
+                        KeyboardController.dismiss();
+                        composerRef.current?.blur();
+                        onEditSend(cleanEditPrompt).catch(console.error);
+                        return;
+                      }
+                      handleGenerate().catch(console.error);
+                    }}
+                    style={({ pressed }) => ({
+                      opacity: sendDisabled ? 0.5 : pressed ? 0.85 : 1,
+                    })}
+                  >
+                    {loading ? (
+                      <StopCircle color={theme.background} size={18} />
+                    ) : (
+                      <Send color={theme.background} size={18} />
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Animated.View>
         </View>
 
         <Text className="px-sp-1 font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">

@@ -72,10 +72,6 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { CodePreviewDialog } from "@/components/ui/code-preview-dialog";
 import {
-  FilePreviewDialog,
-  getFilePreviewKind,
-} from "@/components/ui/file-preview-dialog";
-import {
   Drawer,
   DrawerBody,
   DrawerContent,
@@ -89,6 +85,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  FilePreviewDialog,
+  getFilePreviewKind,
+} from "@/components/ui/file-preview-dialog";
 import { Loading } from "@/components/ui/loading";
 import { Message, MessageFooter } from "@/components/ui/message";
 import {
@@ -104,9 +104,9 @@ import type {
 } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
-import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
 import { openExternalLink } from "@/modules/chat/open-link";
+import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
 import { Asset } from "expo-media-library";
 
@@ -844,8 +844,10 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const [previewImage, setPreviewImage] =
     useRecyclingState<GeneratedImageAttachment | null>(null, [message.id]);
-  const [previewFile, setPreviewFile] =
-    useRecyclingState<WorkspaceFile | null>(null, [message.id]);
+  const [previewFile, setPreviewFile] = useRecyclingState<WorkspaceFile | null>(
+    null,
+    [message.id],
+  );
   const [timelineExpanded, setTimelineExpanded] = useRecyclingState(false, [
     message.id,
   ]);
@@ -912,18 +914,21 @@ export const ChatMessage = memo(function ChatMessage({
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
   };
-  const handleLinkPress = useCallback((url: string) => {
-    const workspaceFile = workspaceFileFromUrl(url, workspaceFiles);
+  const handleLinkPress = useCallback(
+    (url: string) => {
+      const workspaceFile = workspaceFileFromUrl(url, workspaceFiles);
 
-    if (workspaceFile) {
-      setPreviewFile(workspaceFile);
+      if (workspaceFile) {
+        setPreviewFile(workspaceFile);
+        return false;
+      }
+
+      openExternalLink(url).catch(console.error);
+
       return false;
-    }
-
-    openExternalLink(url).catch(console.error);
-
-    return false;
-  }, [setPreviewFile, workspaceFiles]);
+    },
+    [setPreviewFile, workspaceFiles],
+  );
   const closePreview = () => {
     setImageAction(null);
     setPreviewImage(null);
@@ -1241,6 +1246,7 @@ export const ChatMessage = memo(function ChatMessage({
             <BubbleContent
               className={cn(
                 "!px-4",
+                isAssistant ? "!py-0" : undefined,
                 fileHeaderConnected ? "rounded-tr-none" : undefined,
               )}
             >
@@ -1497,63 +1503,59 @@ export const ChatMessage = memo(function ChatMessage({
           memoryEvents.length > 0 ||
           executionTimeline.length > 0 ||
           generatedImages.length > 0) ? (
-          <MessageFooter>
+          <MessageFooter className="ml-2 -mt-2 gap-0">
             <Button
+              accessibilityLabel={copied ? "Copied" : "Copy"}
               leftIcon={
                 copied ? (
-                  <Check color={theme.textSecondary} size={14} />
+                  <Check color={theme.textSecondary} size={18} />
                 ) : (
-                  <Copy color={theme.textSecondary} size={14} />
+                  <Copy color={theme.textSecondary} size={18} />
                 )
               }
               onPress={() => {
                 handleCopy().catch(console.error);
               }}
-              size="xs"
-              textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+              size="icon-xs"
+              className="h-9 w-9 px-0"
               variant="ghost"
-            >
-              {copied ? "Copied" : "Copy"}
-            </Button>
+            />
             {memoryEventLabel ? (
               <Button
-                leftIcon={<Brain color={theme.textSecondary} size={14} />}
+                accessibilityLabel={memoryEventLabel}
+                leftIcon={<Brain color={theme.textSecondary} size={18} />}
                 onPress={() => {
                   setMemoryExpanded((current) => !current);
                 }}
                 rightIcon={
-                  <ChevronDown color={theme.textSecondary} size={14} />
+                  <ChevronDown color={theme.textSecondary} size={18} />
                 }
-                size="xs"
-                textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+                size="icon-xs"
+                className="h-9 w-9 px-0"
                 variant="ghost"
-              >
-                {memoryEventLabel}
-              </Button>
+              />
             ) : null}
             {message.content.trim() && onSavePrompt ? (
               <Button
-                leftIcon={<Bookmark color={theme.textSecondary} size={14} />}
+                accessibilityLabel="Save prompt"
+                leftIcon={<Bookmark color={theme.textSecondary} size={18} />}
                 onPress={() => onSavePrompt(message.content)}
-                size="xs"
-                textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+                size="icon-xs"
+                className="h-9 w-9 px-0"
                 variant="ghost"
-              >
-                Save prompt
-              </Button>
+              />
             ) : null}
             {timelineLabel ? (
               <Button
-                leftIcon={<Clock3 color={theme.textSecondary} size={14} />}
+                accessibilityLabel={timelineLabel}
+                leftIcon={<Clock3 color={theme.textSecondary} size={18} />}
                 onPress={() => {
                   setTimelineExpanded(true);
                 }}
-                size="xs"
-                textClassName="text-muted-foreground dark:text-muted-foreground-dark"
+                size="icon-xs"
+                className="h-9 w-9 px-0"
                 variant="ghost"
-              >
-                {timelineLabel}
-              </Button>
+              />
             ) : null}
           </MessageFooter>
         ) : null}

@@ -45,6 +45,7 @@ import {
   KeyboardAvoidingView,
   KeyboardController,
 } from "react-native-keyboard-controller";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
@@ -61,7 +62,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChatErrorBoundary } from "@/components/ui/chat-error-boundary";
 import { ChatMessage } from "@/components/ui/chat-message";
-import { FilePreviewDialog, getFilePreviewKind } from "@/components/ui/file-preview-dialog";
 import {
   Drawer,
   DrawerBody,
@@ -71,6 +71,10 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  FilePreviewDialog,
+  getFilePreviewKind,
+} from "@/components/ui/file-preview-dialog";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -179,7 +183,6 @@ const STARTER_PROMPTS = [
   "Brainstorm ideas for a side project",
   "Remember that I prefer concise answers",
 ];
-
 
 function messageKeyExtractor(message: StoredMessage) {
   return message.id;
@@ -396,7 +399,7 @@ export default function Screen() {
     <ChatErrorBoundary>
       <KeyboardAvoidingView behavior="padding" className="flex-1">
         <Container
-          contentClassName="flex-1 gap-sp-4 !px-4"
+          contentClassName="flex-1 gap-sp-1 !px-4"
           includeBottomTabInset={false}
         >
           <View className="flex-row items-center justify-between gap-sp-3">
@@ -425,142 +428,181 @@ export default function Screen() {
             </Button>
           </View>
 
-          <MessageScrollerProvider
-            key={currentConversation?.id ?? "new-chat"}
-            initialScrollToEnd
-          >
-            <MessageScroller className="flex-1 rounded-none border-0">
-              {!ready ? (
-                <View
-                  accessibilityLiveRegion="polite"
-                  className="flex-1 items-center justify-center gap-sp-3"
-                >
-                  <ActivityIndicator color={theme.textSecondary} size="small" />
-                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                    Loading chat…
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <MessageScrollerList
-                    contentContainerClassName="py-sp-3 pb-12"
-                    data={messages}
-                    getItemType={messageItemType}
-                    keyExtractor={messageKeyExtractor}
-                    renderItem={renderMessage}
-                    showsVerticalScrollIndicator={false}
-                    ListEmptyComponent={
-                      currentModel ? (
-                        <View className="gap-sp-3 py-sp-5">
-                          <View>
-                            {STARTER_PROMPTS.map((prompt) => (
-                              <Button
-                                key={prompt}
-                                className="justify-start"
-                                onPress={() =>
-                                  sendMessage({
-                                    content: prompt,
-                                  }).catch(console.error)
-                                }
-                                variant="ghost"
-                              >
-                                {prompt}
-                              </Button>
-                            ))}
+          <View className="relative flex-1">
+            <MessageScrollerProvider
+              key={currentConversation?.id ?? "new-chat"}
+              initialScrollToEnd
+            >
+              <MessageScroller className="flex-1 rounded-none border-0">
+                {!ready ? (
+                  <View
+                    accessibilityLiveRegion="polite"
+                    className="flex-1 items-center justify-center gap-sp-3"
+                  >
+                    <ActivityIndicator
+                      color={theme.textSecondary}
+                      size="small"
+                    />
+                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                      Loading chat…
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <MessageScrollerList
+                      contentContainerClassName="py-sp-3 pb-2"
+                      data={messages}
+                      getItemType={messageItemType}
+                      keyExtractor={messageKeyExtractor}
+                      renderItem={renderMessage}
+                      showsVerticalScrollIndicator={false}
+                      ListEmptyComponent={
+                        currentModel ? (
+                          <View className="gap-sp-3 py-sp-5">
+                            <View>
+                              {STARTER_PROMPTS.map((prompt) => (
+                                <Button
+                                  key={prompt}
+                                  className="justify-start"
+                                  onPress={() =>
+                                    sendMessage({
+                                      content: prompt,
+                                    }).catch(console.error)
+                                  }
+                                  variant="ghost"
+                                >
+                                  {prompt}
+                                </Button>
+                              ))}
+                            </View>
                           </View>
-                        </View>
-                      ) : (
-                        <View className="px-sp-2 py-sp-8">
-                          <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
-                            Connect a model to start chatting.
-                          </Text>
-                        </View>
-                      )
-                    }
-                    ListFooterComponent={MessageListFooter}
-                  />
-                  {messages.length > 0 ? (
-                    <MessageScrollerButton
-                      accessibilityLabel="Jump to latest"
-                      className="h-10 w-10 rounded-full px-0"
-                    >
-                      <ArrowDown color={theme.text} size={18} />
-                    </MessageScrollerButton>
-                  ) : null}
-                </>
-              )}
-            </MessageScroller>
+                        ) : (
+                          <View className="px-sp-2 py-sp-8">
+                            <Text className="font-sans text-base text-muted-foreground dark:text-muted-foreground-dark">
+                              Connect a model to start chatting.
+                            </Text>
+                          </View>
+                        )
+                      }
+                      ListFooterComponent={MessageListFooter}
+                    />
+                    {messages.length > 0 ? (
+                      <MessageScrollerButton
+                        accessibilityLabel="Jump to latest"
+                        className="h-10 w-10 rounded-full px-0"
+                      >
+                        <ArrowDown color={theme.text} size={18} />
+                      </MessageScrollerButton>
+                    ) : null}
+                  </>
+                )}
+              </MessageScroller>
 
-            {error ? (
-              <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-                {error}
-              </Text>
-            ) : null}
+              {error ? (
+                <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                  {error}
+                </Text>
+              ) : null}
 
-            {!currentModel && ready ? (
-              <Button
-                onPress={() => {
-                  router.push("/settings");
-                }}
-                variant="outline"
-              >
-                Open settings
-              </Button>
-            ) : null}
+              {!currentModel && ready ? (
+                <Button
+                  onPress={() => {
+                    router.push("/settings");
+                  }}
+                  variant="outline"
+                >
+                  Open settings
+                </Button>
+              ) : null}
 
-            <ChatInput
-              canSend={ready && currentModel !== null}
-              currentModelLabel={
-                currentModel
-                  ? `${currentModel.providerLabel} · ${currentModel.label}`
-                  : null
-              }
-              activeModels={chatInputModelOptions}
-              currentModelRef={currentModel?.ref ?? null}
-              editDraft={editDraft}
-              editNonce={editNonce}
-              importFiles={importFiles}
-              loading={currentConversationBusy}
-              onEditSend={handleEditSend}
-              onCreateConversation={createConversation}
-              onOpenSettings={handleOpenSettings}
-              currentExternalFolderSession={currentExternalFolderSession}
-              onSend={sendMessage}
-              onStop={stopSending}
-              pickConversationFolder={pickConversationFolder}
-              clearConversationFolder={clearConversationFolder}
-              clearWorkspaceFiles={clearWorkspaceFiles}
-              deleteWorkspaceFile={deleteWorkspaceFile}
-              refreshWorkspaceFiles={refreshWorkspaceFiles}
-              selectModel={selectModel}
-              selectedFileIds={currentSelectedFileIds}
-              setSelectedFileIds={setCurrentSelectedFileIds}
-              selectedSkillIds={currentSelectedSkillIds}
-              setSelectedSkillIds={setCurrentSelectedSkillIds}
-              skills={skills}
-              supportsImageGeneration={currentModelSupportsImageGeneration}
-              supportsImageInput={currentModelSupportsImageInput}
-              supportsTools={currentModelSupportsTools}
-              mcpServers={mcpServers}
-              selectedMcpServerIds={currentSelectedMcpServerIds}
-              setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
-              onOpenMcpSettings={handleOpenMcpSettings}
-              reasoningEffort={reasoningEffort}
-              savedPrompts={savedPrompts}
-              setReasoningEffort={setReasoningEffort}
-              toolApprovalMode={toolApprovalMode}
-              updateToolApprovalMode={updateToolApprovalMode}
-              workspaceFiles={workspaceFiles}
-              agents={agents}
-              currentSelectedAgentId={currentSelectedAgentId}
-              conversationAgentName={conversationAgentName}
-              setConversationAgent={setConversationAgent}
-              currentConversationId={currentConversation?.id ?? null}
-              onOpenAgentSettings={() =>
-                router.push("/settings/agents" as never)
-              }
-            />
-          </MessageScrollerProvider>
+              <ChatInput
+                canSend={ready && currentModel !== null}
+                currentModelLabel={
+                  currentModel
+                    ? `${currentModel.providerLabel} · ${currentModel.label}`
+                    : null
+                }
+                activeModels={chatInputModelOptions}
+                currentModelRef={currentModel?.ref ?? null}
+                editDraft={editDraft}
+                editNonce={editNonce}
+                importFiles={importFiles}
+                loading={currentConversationBusy}
+                onEditSend={handleEditSend}
+                onCreateConversation={createConversation}
+                onOpenSettings={handleOpenSettings}
+                currentExternalFolderSession={currentExternalFolderSession}
+                onSend={sendMessage}
+                onStop={stopSending}
+                pickConversationFolder={pickConversationFolder}
+                clearConversationFolder={clearConversationFolder}
+                clearWorkspaceFiles={clearWorkspaceFiles}
+                deleteWorkspaceFile={deleteWorkspaceFile}
+                refreshWorkspaceFiles={refreshWorkspaceFiles}
+                selectModel={selectModel}
+                selectedFileIds={currentSelectedFileIds}
+                setSelectedFileIds={setCurrentSelectedFileIds}
+                selectedSkillIds={currentSelectedSkillIds}
+                setSelectedSkillIds={setCurrentSelectedSkillIds}
+                skills={skills}
+                supportsImageGeneration={currentModelSupportsImageGeneration}
+                supportsImageInput={currentModelSupportsImageInput}
+                supportsTools={currentModelSupportsTools}
+                mcpServers={mcpServers}
+                selectedMcpServerIds={currentSelectedMcpServerIds}
+                setSelectedMcpServerIds={setCurrentSelectedMcpServerIds}
+                onOpenMcpSettings={handleOpenMcpSettings}
+                reasoningEffort={reasoningEffort}
+                savedPrompts={savedPrompts}
+                setReasoningEffort={setReasoningEffort}
+                toolApprovalMode={toolApprovalMode}
+                updateToolApprovalMode={updateToolApprovalMode}
+                workspaceFiles={workspaceFiles}
+                agents={agents}
+                currentSelectedAgentId={currentSelectedAgentId}
+                conversationAgentName={conversationAgentName}
+                setConversationAgent={setConversationAgent}
+                currentConversationId={currentConversation?.id ?? null}
+                onOpenAgentSettings={() =>
+                  router.push("/settings/agents" as never)
+                }
+              />
+            </MessageScrollerProvider>
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 90,
+              }}
+            >
+              <Svg height={90} width="100%">
+                <Defs>
+                  <LinearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1">
+                    <Stop
+                      offset="0"
+                      stopColor={theme.background}
+                      stopOpacity={1}
+                    />
+                    <Stop
+                      offset="1"
+                      stopColor={theme.background}
+                      stopOpacity={0}
+                    />
+                  </LinearGradient>
+                </Defs>
+                <Rect
+                  x="0"
+                  y="0"
+                  width="100%"
+                  height={90}
+                  fill="url(#fadeTop)"
+                />
+              </Svg>
+            </View>
+          </View>
 
           <Drawer dismissible={false} open={pendingToolApproval !== null}>
             <DrawerContent
@@ -946,7 +988,8 @@ const ChatInput = memo(function ChatInput({
   const [prompt, setPrompt] = useState("");
   const [composerContentHeight, setComposerContentHeight] = useState(0);
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
-  const [attachmentPreview, setAttachmentPreview] = useState<WorkspaceFile | null>(null);
+  const [attachmentPreview, setAttachmentPreview] =
+    useState<WorkspaceFile | null>(null);
   const [modelsDrawerOpen, setModelsDrawerOpen] = useState(false);
   const [reasoningDrawerOpen, setReasoningDrawerOpen] = useState(false);
   const [agentsDrawerOpen, setAgentsDrawerOpen] = useState(false);
@@ -1747,28 +1790,28 @@ const ChatInput = memo(function ChatInput({
                     setAttachmentPreview(file);
                   }}
                 >
-                <AttachmentMedia className="overflow-hidden bg-secondary dark:bg-secondary-dark">
-                  {file.mimeType?.startsWith("image/") ? (
-                    <Image
-                      contentFit="cover"
-                      source={{
-                        uri: resolveWorkspaceFile(file.relativePath).uri,
-                      }}
-                      style={{ height: 48, width: 48 }}
-                    />
-                  ) : (
-                    <Paperclip color={theme.text} size={18} />
-                  )}
-                </AttachmentMedia>
-                <AttachmentContent>
-                  <AttachmentTitle>{file.displayName}</AttachmentTitle>
-                  <AttachmentDescription>
-                    {file.mimeType ?? "Unknown type"}
-                    {typeof file.size === "number"
-                      ? ` · ${file.size} bytes`
-                      : ""}
-                  </AttachmentDescription>
-                </AttachmentContent>
+                  <AttachmentMedia className="overflow-hidden bg-secondary dark:bg-secondary-dark">
+                    {file.mimeType?.startsWith("image/") ? (
+                      <Image
+                        contentFit="cover"
+                        source={{
+                          uri: resolveWorkspaceFile(file.relativePath).uri,
+                        }}
+                        style={{ height: 48, width: 48 }}
+                      />
+                    ) : (
+                      <Paperclip color={theme.text} size={18} />
+                    )}
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle>{file.displayName}</AttachmentTitle>
+                    <AttachmentDescription>
+                      {file.mimeType ?? "Unknown type"}
+                      {typeof file.size === "number"
+                        ? ` · ${file.size} bytes`
+                        : ""}
+                    </AttachmentDescription>
+                  </AttachmentContent>
                 </Pressable>
                 <AttachmentActions>
                   <AttachmentAction
@@ -1811,7 +1854,33 @@ const ChatInput = memo(function ChatInput({
           </View>
         ) : null}
 
-        <View className="relative rounded-3xl border border-border bg-input dark:border-border-dark dark:bg-input-dark">
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: -40,
+            height: 40,
+          }}
+        >
+          <Svg height={40} width="100%">
+            <Defs>
+              <LinearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={theme.background} stopOpacity={0} />
+                <Stop offset="1" stopColor={theme.background} stopOpacity={1} />
+              </LinearGradient>
+            </Defs>
+            <Rect
+              x="0"
+              y="0"
+              width="100%"
+              height={40}
+              fill="url(#fadeBottom)"
+            />
+          </Svg>
+        </View>
+        <View className="relative rounded-3xl bg-white dark:bg-card-dark">
           <TextInputWrapper
             style={{ height: composerInputHeight, width: "100%" }}
             onPaste={(payload) => {
@@ -1820,7 +1889,7 @@ const ChatInput = memo(function ChatInput({
           >
             <Textarea
               ref={composerRef}
-              className="min-h-0 rounded-full border-0 bg-transparent px-0 py-0 dark:bg-transparent"
+              className="min-h-0 rounded-full border-0 bg-transparent px-4 py-3 text-base dark:bg-transparent"
               onChangeText={setPrompt}
               onContentSizeChange={(event) => {
                 setComposerContentHeight(event.nativeEvent.contentSize.height);
@@ -1834,16 +1903,16 @@ const ChatInput = memo(function ChatInput({
             />
           </TextInputWrapper>
 
-          <View className="h-[52px] flex-row items-center gap-2 px-2 pb-2">
+          <View className="h-[56px] flex-row items-center gap-2 px-2 pb-2">
             <Pressable
               accessibilityRole="button"
-              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+              className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
               onPress={() => {
                 setApprovalModeDrawerOpen(true);
               }}
               style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
             >
-              <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
+              <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
                 {toolApprovalMode === "ask" ? "Ask" : "Allow"}
               </Text>
               <ChevronDown color={theme.textSecondary} size={14} />
@@ -1852,7 +1921,7 @@ const ChatInput = memo(function ChatInput({
             <Pressable
               accessibilityLabel="Select agent"
               accessibilityRole="button"
-              className="flex-row items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 dark:border-border-dark dark:bg-card-dark"
+              className="flex-row items-center gap-1 rounded-full bg-[#F0F0F3] px-4 py-2 dark:bg-secondary-dark"
               onPress={() => {
                 setAgentsDrawerOpen(true);
               }}
@@ -1860,7 +1929,7 @@ const ChatInput = memo(function ChatInput({
             >
               <ClipboardList color={theme.textSecondary} size={14} />
               <Text
-                className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark"
+                className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark"
                 numberOfLines={1}
               >
                 {conversationAgentName === "build"
@@ -1917,7 +1986,10 @@ const ChatInput = memo(function ChatInput({
         </Text>
       </View>
 
-      <FilePreviewDialog file={attachmentPreview} onDismiss={() => setAttachmentPreview(null)} />
+      <FilePreviewDialog
+        file={attachmentPreview}
+        onDismiss={() => setAttachmentPreview(null)}
+      />
       <Drawer onOpenChange={setFilesDrawerOpen} open={filesDrawerOpen}>
         <DrawerContent showCloseButton showHandle size={filesDrawerSize}>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">

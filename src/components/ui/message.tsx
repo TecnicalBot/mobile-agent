@@ -137,7 +137,7 @@ export const MessageFooter = forwardRef<
     <View
       ref={ref}
       className={cn(
-        "max-w-full flex-row flex-wrap items-center gap-1",
+        "max-w-full flex-row flex-wrap items-center gap-sp-4",
         align === "end" ? "self-end" : "self-start",
         className,
       )}

@@ -3,17 +3,18 @@ import {
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking } from "react-native";
+import { Alert, AppState, Linking } from "react-native";
+import { loadVoiceEngine } from "@/modules/voice/models";
+import {
+  startLocalVoiceSession,
+  type LocalVoiceSession,
+} from "@/modules/voice/local-session";
 
 const RECOGNITION_LANG = "en-US";
 
 const HISTORY_LENGTH = 48;
 
-export type VoiceInputStatus =
-  | "idle"
-  | "starting"
-  | "listening"
-  | "processing";
+export type VoiceInputStatus = "idle" | "starting" | "listening" | "processing";
 
 function normalizeLevel(value: number) {
   // The native volumechange event ranges from -2 (inaudible) to 10 (loud).
@@ -46,6 +47,11 @@ export function useVoiceInput({
   const activeRef = useRef(false);
   const finishedRef = useRef(false);
   const errorShownRef = useRef(false);
+  const startingRef = useRef(false);
+  const localRef = useRef<LocalVoiceSession | null>(null);
+  const localModeRef = useRef(false);
+  const generationRef = useRef(0);
+  const processingRef = useRef(false);
 
   const onFinalRef = useRef(onFinal);
   const onCancelRef = useRef(onCancel);
@@ -79,13 +85,41 @@ export function useVoiceInput({
   }, []);
 
   const stop = useCallback(() => {
-    if (!activeRef.current) {
+    if (!activeRef.current || startingRef.current || processingRef.current) {
       return;
     }
 
+    processingRef.current = true;
     setStatus("processing");
+    if (localModeRef.current) {
+      const session = localRef.current;
+      const generation = generationRef.current;
+      if (!session) return;
+      session
+        .finish()
+        .then((text) => {
+          if (generation !== generationRef.current) return;
+          transcriptRef.current = text;
+          commit();
+        })
+        .catch((error: unknown) => {
+          if (generation !== generationRef.current) return;
+          Alert.alert(
+            "Transcription failed",
+            error instanceof Error ? error.message : String(error),
+          );
+          commit();
+        })
+        .finally(() => {
+          if (localRef.current === session) localRef.current = null;
+        });
+      return;
+    }
     ExpoSpeechRecognitionModule.stop();
-  }, []);
+  }, [commit]);
+
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
 
   const cancel = useCallback(() => {
     if (!activeRef.current) {
@@ -93,6 +127,7 @@ export function useVoiceInput({
     }
 
     finishedRef.current = true;
+    generationRef.current++;
     activeRef.current = false;
     setActive(false);
     setStatus("idle");
@@ -100,16 +135,34 @@ export function useVoiceInput({
     committedRef.current = "";
     setTranscript("");
     setLevels([]);
-    ExpoSpeechRecognitionModule.abort();
+    if (localModeRef.current) {
+      const session = localRef.current;
+      session
+        ?.cancel()
+        .catch(console.error)
+        .finally(() => {
+          if (localRef.current === session) localRef.current = null;
+        });
+    } else {
+      ExpoSpeechRecognitionModule.abort();
+    }
     onCancelRef.current();
   }, []);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "background" && activeRef.current) cancel();
+    });
+    return () => subscription.remove();
+  }, [cancel]);
+
   useSpeechRecognitionEvent("start", () => {
+    if (localModeRef.current || !activeRef.current) return;
     setStatus((current) => (current === "processing" ? current : "listening"));
   });
 
   useSpeechRecognitionEvent("result", (event) => {
-    if (!activeRef.current || finishedRef.current) {
+    if (localModeRef.current || !activeRef.current || finishedRef.current) {
       return;
     }
 
@@ -141,6 +194,7 @@ export function useVoiceInput({
   });
 
   useSpeechRecognitionEvent("volumechange", (event) => {
+    if (localModeRef.current || !activeRef.current) return;
     const level = normalizeLevel(event.value);
     setLevels((current) => {
       if (current.length >= HISTORY_LENGTH) {
@@ -151,6 +205,7 @@ export function useVoiceInput({
   });
 
   useSpeechRecognitionEvent("error", (event) => {
+    if (localModeRef.current || !activeRef.current) return;
     // A no-speech / timeout just means the user stayed silent, and an abort is
     // our own doing.
     if (
@@ -173,19 +228,55 @@ export function useVoiceInput({
   });
 
   useSpeechRecognitionEvent("end", () => {
+    if (localModeRef.current) return;
     commit();
   });
 
   const start = useCallback(async () => {
-    if (activeRef.current) {
+    if (activeRef.current || startingRef.current || localRef.current) {
       return;
     }
 
+    startingRef.current = true;
+    const generation = ++generationRef.current;
+    processingRef.current = false;
     errorShownRef.current = false;
     setStatus("starting");
 
     try {
-      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const engine = await loadVoiceEngine();
+      if (generation !== generationRef.current) return;
+      localModeRef.current = engine !== "system";
+      if (engine !== "system") {
+        transcriptRef.current = "";
+        committedRef.current = "";
+        setTranscript("");
+        setLevels([]);
+        finishedRef.current = false;
+        activeRef.current = true;
+        setActive(true);
+        const session = await startLocalVoiceSession(
+          engine,
+          (level) => {
+            if (generation !== generationRef.current) return;
+            setLevels((current) => [
+              ...current.slice(-(HISTORY_LENGTH - 1)),
+              level,
+            ]);
+          },
+          () => stopRef.current(),
+        );
+        if (generation !== generationRef.current) {
+          await session.cancel();
+          return;
+        }
+        localRef.current = session;
+        setStatus("listening");
+        return;
+      }
+      const permission =
+        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (generation !== generationRef.current) return;
 
       if (!permission.granted) {
         setStatus("idle");
@@ -234,6 +325,7 @@ export function useVoiceInput({
         },
       });
     } catch (startError) {
+      if (generation !== generationRef.current) return;
       activeRef.current = false;
       setActive(false);
       setStatus("idle");
@@ -243,13 +335,18 @@ export function useVoiceInput({
           ? startError.message
           : "An unexpected error occurred.",
       );
+    } finally {
+      startingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
+    const generation = generationRef;
     return () => {
       activeRef.current = false;
-      ExpoSpeechRecognitionModule.abort();
+      generation.current++;
+      if (localModeRef.current) localRef.current?.cancel().catch(console.error);
+      else ExpoSpeechRecognitionModule.abort();
     };
   }, []);
 

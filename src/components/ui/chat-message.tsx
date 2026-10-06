@@ -98,6 +98,7 @@ import {
 } from "@/components/ui/file-preview-dialog";
 import { Loading } from "@/components/ui/loading";
 import { Message, MessageFooter } from "@/components/ui/message";
+import { CHAT_TEXT_STYLE } from "@/constants/chat-typography";
 import {
   isTextWorkspaceFile,
   resolveWorkspaceFile,
@@ -2076,8 +2077,7 @@ function createMarkdownStyles(input: {
       color: input.text,
       flexShrink: 1,
       fontFamily: "System",
-      fontSize: 16,
-      lineHeight: 24,
+      ...CHAT_TEXT_STYLE,
       marginBottom: 0,
       marginTop: 0,
       maxWidth: "100%",

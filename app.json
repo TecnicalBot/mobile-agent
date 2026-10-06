@@ -61,6 +61,7 @@
       "./plugins/with-litert-lm",
       "./plugins/with-background-agent",
       "./plugins/with-scheduler-alarm",
+      "./plugins/with-whisper",
       [
         "expo-splash-screen",
         {
@@ -81,6 +82,14 @@
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for voice input.",
           "speechRecognitionPermission": "Allow $(PRODUCT_NAME) to use speech recognition to turn your voice into text."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for voice input.",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
         }
       ]
     ],

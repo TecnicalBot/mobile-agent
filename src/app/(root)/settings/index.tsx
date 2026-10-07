@@ -1,6 +1,12 @@
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
@@ -25,6 +31,12 @@ import { useAppState } from "@/hooks/use-app-state";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
+import {
+  loadVoiceEngine,
+  refreshVoiceModels,
+  type VoiceCatalogModel,
+  type VoiceEngine,
+} from "@/modules/voice/models";
 import { useUpdate } from "@/providers/check-for-updates";
 import {
   isBackgroundAgentHeld,
@@ -34,12 +46,7 @@ import {
 } from "background-agent-service";
 
 type DrawerKey =
-  | "current-model"
-  | "db"
-  | "theme"
-  | "background"
-  | "notifications"
-  | null;
+  "current-model" | "db" | "theme" | "background" | "notifications" | null;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -77,10 +84,29 @@ export default function SettingsScreen() {
   const [batteryOptimizationGranted, setBatteryOptimizationGranted] = useState<
     boolean | null
   >(null);
+  const [voiceEngine, setVoiceEngine] = useState<VoiceEngine>("system");
+  const [voiceModels, setVoiceModels] = useState<VoiceCatalogModel[]>([]);
 
   useEffect(() => {
     setDatabaseUrlInput(databaseUrl ?? "");
   }, [databaseUrl]);
+
+  // Reflect the current voice engine whenever this screen is focused.
+  useFocusEffect(
+    useCallback(() => {
+      let disposed = false;
+      Promise.all([loadVoiceEngine(), refreshVoiceModels()])
+        .then(([engine, models]) => {
+          if (disposed) return;
+          setVoiceEngine(engine);
+          setVoiceModels(models);
+        })
+        .catch(() => {});
+      return () => {
+        disposed = true;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -145,7 +171,12 @@ export default function SettingsScreen() {
         <SettingsLinkRow
           label="Voice input"
           onPress={() => router.push("/settings/voice" as never)}
-          value="System / Whisper"
+          value={
+            voiceEngine === "system"
+              ? "System"
+              : (voiceModels.find((model) => model.id === voiceEngine)?.label ??
+                "System")
+          }
         />
         <Separator />
         <SettingsLinkRow
@@ -389,7 +420,9 @@ export default function SettingsScreen() {
                     );
                   })
                 ) : (
-                  <EmptyStateText>No models match “{modelSearch}”.</EmptyStateText>
+                  <EmptyStateText>
+                    No models match “{modelSearch}”.
+                  </EmptyStateText>
                 )
               ) : (
                 <EmptyStateText>No active models</EmptyStateText>

@@ -48,6 +48,22 @@ Test the exact URL, size, hash, and device memory requirement before merging.
 Changing a URL without changing its pinned size and hash will make the download
 fail safely.
 
+## Voice model catalog
+
+The app fetches `voice-models.json` from the `main` branch at runtime, caches it
+for 30 minutes, and falls back to the bundled copy when offline. A newly merged
+entry appears without rebuilding the app. These are the local Whisper models
+offered in Settings > Voice input. Each model requires:
+
+- `id`: Stable, unique lowercase identifier. Do not reuse an old ID.
+- `label`: Name shown in Settings > Voice input.
+- `description`: Short explanation shown below the name.
+- `url`: Public HTTPS URL of the `ggml-*.bin` Whisper model.
+- `sizeBytes`: Exact file size, used by download progress and validation.
+
+Changing a model's `url` or `sizeBytes` invalidates any installed copy: the app
+verifies the downloaded size against the catalog, so keep both in sync.
+
 ## Plugin catalog
 
 The app fetches `plugins.json` from the `main` branch at runtime, caches it for

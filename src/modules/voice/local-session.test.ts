@@ -62,6 +62,15 @@ function audio(seconds = 1) {
   });
 }
 
+/** startLocalVoiceSession with the default English language. */
+function startSession(
+  model: "tiny" | "base" | "small",
+  onLevel = vi.fn(),
+  onLimit = vi.fn(),
+) {
+  return startLocalVoiceSession(model, "en", onLevel, onLimit);
+}
+
 describe("Local Whisper voice session", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -74,25 +83,29 @@ describe("Local Whisper voice session", () => {
   });
   it("transcribes once on confirm, reports volume and releases native resources", async () => {
     const level = vi.fn();
-    const session = await startLocalVoiceSession("tiny", level, vi.fn());
+    const session = await startSession("tiny", level, vi.fn());
     audio();
     const first = session.finish();
     expect(session.finish()).toBe(first);
     expect(await first).toBe("hello world");
     expect(level).toHaveBeenCalled();
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribe).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      expect.objectContaining({ language: "en", beamSize: 5, bestOf: 5 }),
+    );
     expect(mocks.releaseContext).toHaveBeenCalledTimes(1);
     expect(mocks.releaseStream).toHaveBeenCalledTimes(1);
   });
   it("discards recording on cancel without transcription", async () => {
-    const session = await startLocalVoiceSession("tiny", vi.fn(), vi.fn());
+    const session = await startSession("tiny", vi.fn(), vi.fn());
     audio();
     await session.cancel();
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.releaseContext).toHaveBeenCalledTimes(1);
   });
   it("does not transcribe an empty recording", async () => {
-    const session = await startLocalVoiceSession("base", vi.fn(), vi.fn());
+    const session = await startSession("base", vi.fn(), vi.fn());
     expect(await session.finish()).toBe("");
     expect(mocks.transcribe).not.toHaveBeenCalled();
   });
@@ -104,7 +117,7 @@ describe("Local Whisper voice session", () => {
         resolve = done;
       }),
     }));
-    const session = await startLocalVoiceSession("tiny", vi.fn(), vi.fn());
+    const session = await startSession("tiny", vi.fn(), vi.fn());
     audio();
     const result = session.finish();
     const cancel = session.cancel();
@@ -116,15 +129,15 @@ describe("Local Whisper voice session", () => {
   });
   it("releases resources when microphone startup fails", async () => {
     mocks.start.mockRejectedValueOnce(new Error("Microphone unavailable"));
-    await expect(
-      startLocalVoiceSession("tiny", vi.fn(), vi.fn()),
-    ).rejects.toThrow("Microphone unavailable");
+    await expect(startSession("tiny")).rejects.toThrow(
+      "Microphone unavailable",
+    );
     expect(mocks.releaseContext).toHaveBeenCalledTimes(1);
     expect(mocks.releaseStream).toHaveBeenCalledTimes(1);
   });
   it("stops at the two minute limit", async () => {
     const limit = vi.fn();
-    const session = await startLocalVoiceSession("tiny", vi.fn(), limit);
+    const session = await startSession("tiny", vi.fn(), limit);
     audio(120);
     audio();
     expect(limit).toHaveBeenCalledTimes(1);
@@ -132,13 +145,9 @@ describe("Local Whisper voice session", () => {
   });
   it("rejects missing models and denied microphone permission", async () => {
     mocks.downloaded.mockReturnValue(false);
-    await expect(
-      startLocalVoiceSession("tiny", vi.fn(), vi.fn()),
-    ).rejects.toThrow("missing");
+    await expect(startSession("tiny")).rejects.toThrow("missing");
     mocks.downloaded.mockReturnValue(true);
     mocks.permissions.mockResolvedValue({ granted: false });
-    await expect(
-      startLocalVoiceSession("tiny", vi.fn(), vi.fn()),
-    ).rejects.toThrow("Microphone access");
+    await expect(startSession("tiny")).rejects.toThrow("Microphone access");
   });
 });

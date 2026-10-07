@@ -3,14 +3,15 @@ import {
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, AppState, Linking } from "react-native";
-import { loadVoiceEngine } from "@/modules/voice/models";
+import { Alert, Linking } from "react-native";
+import {
+  loadActiveVoiceLanguage,
+  loadVoiceEngine,
+} from "@/modules/voice/models";
 import {
   startLocalVoiceSession,
   type LocalVoiceSession,
 } from "@/modules/voice/local-session";
-
-const RECOGNITION_LANG = "en-US";
 
 const HISTORY_LENGTH = 48;
 
@@ -149,13 +150,6 @@ export function useVoiceInput({
     onCancelRef.current();
   }, []);
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "background" && activeRef.current) cancel();
-    });
-    return () => subscription.remove();
-  }, [cancel]);
-
   useSpeechRecognitionEvent("start", () => {
     if (localModeRef.current || !activeRef.current) return;
     setStatus((current) => (current === "processing" ? current : "listening"));
@@ -248,6 +242,8 @@ export function useVoiceInput({
       if (generation !== generationRef.current) return;
       localModeRef.current = engine !== "system";
       if (engine !== "system") {
+        const language = await loadActiveVoiceLanguage();
+        if (generation !== generationRef.current) return;
         transcriptRef.current = "";
         committedRef.current = "";
         setTranscript("");
@@ -257,6 +253,7 @@ export function useVoiceInput({
         setActive(true);
         const session = await startLocalVoiceSession(
           engine,
+          language,
           (level) => {
             if (generation !== generationRef.current) return;
             setLevels((current) => [
@@ -313,11 +310,12 @@ export function useVoiceInput({
       activeRef.current = true;
       setActive(true);
 
+      // System uses the device's own recognizer language, like the keyboard's
+      // voice button does. Only local Whisper takes an explicit language.
       ExpoSpeechRecognitionModule.start({
         addsPunctuation: true,
         continuous: true,
         interimResults: true,
-        lang: RECOGNITION_LANG,
         maxAlternatives: 1,
         volumeChangeEventOptions: {
           enabled: true,

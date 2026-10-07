@@ -118,7 +118,17 @@ requires:
 - `description`: Short explanation shown below the name.
 - `url`: Public HTTPS URL of the skill `SKILL.md` file.
 - `author`: Optional display name.
+- `source`: Optional `owner/repo` label shown next to the skill name.
+- `sourceUrl`: Optional public HTTPS link to the skill's directory.
 - `extraFiles`: Optional array of public HTTPS URLs for related files.
 
+Skills are **not vendored in this repo**. Each entry points directly at the
+upstream `SKILL.md` (and its supporting files) so the catalog stays small and
+the app always imports the latest published version. Add a new skill by
+appending an entry with its upstream raw URLs; do not copy skill files into
+this repository.
+
 Only catalog HTTPS URLs are accepted; credentials are never embedded in
-catalog entries.
+catalog entries. Keep `extraFiles` in sync with the upstream directory layout
+(references, rules, scripts, agents) so imports match what the source project
+publishes.

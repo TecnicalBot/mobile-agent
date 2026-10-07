@@ -1,0 +1,71 @@
+name: EAS Update (OTA)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if OTA is safe to publish
+        id: guard
+        shell: bash
+        run: |
+          CHANGED=$(git diff --name-only HEAD^ HEAD || true)
+          echo "$CHANGED"
+
+          # Skip OTA when anything native-impacting changed — those require a new build.
+          if echo "$CHANGED" | grep -E '^(package\.json|app\.json|eas\.json|plugins/|modules/|android/|ios/)'; then
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            echo "Native-impacting files changed. Skipping OTA — run a new EAS build instead."
+          else
+            echo "safe=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up pnpm
+        if: steps.guard.outputs.safe == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.2
+
+      - name: Set up Node.js
+        if: steps.guard.outputs.safe == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.safe == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EAS CLI
+        if: steps.guard.outputs.safe == 'true'
+        run: npm install -g eas-cli
+
+      - name: Publish OTA update
+        if: steps.guard.outputs.safe == 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas update \
+            --branch production \
+            --message "${{ github.event.head_commit.message }}" \
+            --non-interactive
+
+      - name: Skip OTA
+        if: steps.guard.outputs.safe == 'false'
+        run: echo "OTA skipped due to native-impacting changes in this push."

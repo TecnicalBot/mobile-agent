@@ -60,11 +60,12 @@ jobs:
         if: steps.guard.outputs.safe == 'true'
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          CI: 1
         run: |
           eas update \
             --branch production \
-            --message "${{ github.event.head_commit.message }}" \
-            --non-interactive
+            --platform android \
+            --message "${{ github.event.head_commit.message }}"
 
       - name: Skip OTA
         if: steps.guard.outputs.safe == 'false'

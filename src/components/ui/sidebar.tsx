@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
   type ComponentPropsWithoutRef,
+  type ComponentPropsWithRef,
   type ComponentRef,
   type ReactElement,
   type ReactNode,
@@ -76,7 +77,7 @@ function useControllableState({
 
 function slotPressableChild(
   child: ReactNode,
-  props: ComponentPropsWithoutRef<typeof Pressable> & { className?: string },
+  props: ComponentPropsWithRef<typeof Pressable> & { className?: string },
 ) {
   if (!isValidElement(child)) {
     return null;
@@ -604,6 +605,7 @@ export const SidebarClose = forwardRef<
   if (asChild) {
     return slotPressableChild(children, {
       ...props,
+      ref,
       className,
       onPress: handlePress,
     });

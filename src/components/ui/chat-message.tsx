@@ -10,7 +10,6 @@ import * as Sharing from "expo-sharing";
 import * as Speech from "expo-speech";
 import {
   Bookmark,
-  Brain,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -799,6 +798,33 @@ function getFileTypeIcon(file: WorkspaceFile) {
   return FileIcon;
 }
 
+function ExpandChevron({ color, expanded }: { color: string; expanded: boolean }) {
+  const reduceMotion = useReducedMotion();
+  const rotation = useSharedValue(expanded ? 180 : 0);
+
+  useEffect(() => {
+    rotation.value = withTiming(expanded ? 180 : 0, {
+      duration: reduceMotion ? 0 : 180,
+      easing: Easing.inOut(Easing.quad),
+    });
+
+    return () => cancelAnimation(rotation);
+  }, [expanded, reduceMotion, rotation]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <Animated.View
+      className="h-3.5 w-3.5 shrink-0 items-center justify-center"
+      style={animatedStyle}
+    >
+      <ChevronDown color={color} size={14} />
+    </Animated.View>
+  );
+}
+
 function SpinningLoader({ color, size }: { color: string; size: number }) {
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);
@@ -1365,6 +1391,7 @@ export const ChatMessage = memo(function ChatMessage({
                     <View className="gap-sp-2">
                       <Pressable
                         accessibilityRole="button"
+                        accessibilityState={{ expanded: reasoningExpanded }}
                         className="self-start flex-row items-center gap-sp-2"
                         onPress={() => {
                           setReasoningExpanded((current) => !current);
@@ -1376,14 +1403,9 @@ export const ChatMessage = memo(function ChatMessage({
                         <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                           {reasoningLabel}
                         </Text>
-                        <ChevronDown
+                        <ExpandChevron
                           color={theme.textSecondary}
-                          size={14}
-                          style={{
-                            transform: [
-                              { rotate: reasoningExpanded ? "180deg" : "0deg" },
-                            ],
-                          }}
+                          expanded={reasoningExpanded}
                         />
                       </Pressable>
 
@@ -1405,6 +1427,50 @@ export const ChatMessage = memo(function ChatMessage({
                               {reasoningInProgress ? "Working" : "Done"}
                             </Text>
                           </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {memoryEventLabel ? (
+                    <View className="gap-sp-2">
+                      <Pressable
+                        accessibilityLabel={memoryEventLabel}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: memoryExpanded }}
+                        className="self-start flex-row items-center gap-sp-2"
+                        onPress={() => {
+                          setMemoryExpanded((current) => !current);
+                        }}
+                        style={({ pressed }) =>
+                          pressed ? { opacity: 0.72 } : null
+                        }
+                      >
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          {memoryEventLabel}
+                        </Text>
+                        <ExpandChevron
+                          color={theme.textSecondary}
+                          expanded={memoryExpanded}
+                        />
+                      </Pressable>
+                      {memoryExpanded ? (
+                        <View className="gap-sp-2">
+                          {memoryEvents.map((event) => (
+                            <View key={event.id} className="gap-1">
+                              {memoryEvents.length > 1 ? (
+                                <Text className="font-sans text-sm font-medium text-muted-foreground dark:text-muted-foreground-dark">
+                                  {getMemoryEventLabel(event.kind)}
+                                </Text>
+                              ) : null}
+                              <Text
+                                selectable
+                                className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
+                              >
+                                {event.content}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
                       ) : null}
                     </View>
@@ -1487,10 +1553,6 @@ export const ChatMessage = memo(function ChatMessage({
                       onLinkPress={handleLinkPress}
                       styles={markdownStyles}
                     />
-                  ) : memoryEventLabel ? (
-                    <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                      {memoryEventLabel}
-                    </Text>
                   ) : null}
                   {unanchoredTermuxRuns.length > 0 ? (
                     <View className="gap-sp-2">
@@ -1655,21 +1717,6 @@ export const ChatMessage = memo(function ChatMessage({
                 variant="ghost"
               />
             ) : null}
-            {memoryEventLabel ? (
-              <Button
-                accessibilityLabel={memoryEventLabel}
-                leftIcon={<Brain color={theme.textSecondary} size={18} />}
-                onPress={() => {
-                  setMemoryExpanded((current) => !current);
-                }}
-                rightIcon={
-                  <ChevronDown color={theme.textSecondary} size={18} />
-                }
-                size="icon-xs"
-                className="h-9 w-9 px-0"
-                variant="ghost"
-              />
-            ) : null}
             {message.content.trim() && onSavePrompt ? (
               <Button
                 accessibilityLabel="Save prompt"
@@ -1693,21 +1740,6 @@ export const ChatMessage = memo(function ChatMessage({
               />
             ) : null}
           </MessageFooter>
-        ) : null}
-
-        {isAssistant && memoryExpanded && memoryEvents.length > 0 ? (
-          <View className="max-w-full gap-sp-2 rounded-ui border border-border bg-card px-sp-3 py-sp-2 dark:border-border-dark dark:bg-card-dark">
-            {memoryEvents.map((event) => (
-              <View key={event.id} className="gap-1">
-                <Text className="font-sans text-xs font-medium text-foreground dark:text-foreground-dark">
-                  {getMemoryEventLabel(event.kind)}
-                </Text>
-                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                  {event.content}
-                </Text>
-              </View>
-            ))}
-          </View>
         ) : null}
 
         {isUser && copied ? (

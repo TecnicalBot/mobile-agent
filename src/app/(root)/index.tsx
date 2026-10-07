@@ -227,12 +227,13 @@ export default function Screen() {
     mcpServers,
     selectModel,
     setCurrentSelectedMcpServerIds,
-    toolApprovalMode,
-    updateToolApprovalMode,
+    conversationApprovalModes,
+    setConversationApprovalMode,
   } = useConfig();
   const chatInfo = useChatInfo();
   const {
     approvePendingToolApproval,
+    approvePendingToolApprovalForChat,
     denyPendingToolApproval,
     clearConversationFolder,
     clearWorkspaceFiles,
@@ -577,8 +578,18 @@ export default function Screen() {
                 reasoningEffort={reasoningEffort}
                 savedPrompts={savedPrompts}
                 setReasoningEffort={setReasoningEffort}
-                toolApprovalMode={toolApprovalMode}
-                updateToolApprovalMode={updateToolApprovalMode}
+                toolApprovalMode={
+                  (currentConversation?.id
+                    ? conversationApprovalModes?.[currentConversation.id]
+                    : undefined) ?? "ask"
+                }
+                updateToolApprovalMode={(mode) => {
+                  if (currentConversation?.id) {
+                    setConversationApprovalMode(currentConversation.id, mode);
+                  }
+
+                  return Promise.resolve();
+                }}
                 workspaceFiles={workspaceFiles}
                 agents={agents}
                 currentSelectedAgentId={currentSelectedAgentId}
@@ -648,6 +659,13 @@ export default function Screen() {
                     variant="outline"
                   >
                     Deny
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    onPress={approvePendingToolApprovalForChat}
+                  >
+                    Allow for chat
                   </Button>
                   <Button
                     className="flex-1"

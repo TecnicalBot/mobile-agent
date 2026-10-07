@@ -60,7 +60,6 @@ export const EMPTY_SETTINGS: AppSettings = {
     memoryEnabled: true,
     schedulingEnabled: true,
     themeMode: "system",
-    toolApprovalMode: "ask",
     notificationSettings: {
         approvalRequests: true,
         runFinished: true,
@@ -89,6 +88,7 @@ export const EMPTY_SNAPSHOT: AppStateSnapshot = {
     agents: [],
     conversations: [],
     conversationApprovalModes: {},
+    conversationApprovedTools: {},
     currentConversation: null,
     currentSelectedAgentId: null,
     currentSelectedFileIds: [],

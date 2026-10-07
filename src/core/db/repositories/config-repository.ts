@@ -87,6 +87,58 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
 
       return buildSettings(rows);
     },
+    async getApprovedToolsByConversation() {
+      const rows = await db.select().from(appSettings);
+      const raw = rows.find(
+        (row) => row.key === "conversation_approved_tools_json",
+      )?.value;
+
+      if (!raw) {
+        return {};
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+        return Object.fromEntries(
+          Object.entries(parsed).filter(
+            (entry): entry is [string, string[]] =>
+              Array.isArray(entry[1]) &&
+              entry[1].every((item) => typeof item === "string"),
+          ),
+        );
+      } catch {
+        return {};
+      }
+    },
+    async setApprovedToolsByConversation(modes: Record<string, string[]>) {
+      await this.setSetting(
+        "conversation_approved_tools_json",
+        JSON.stringify(modes),
+      );
+    },
+    async getConversationApprovalModes() {
+      const rows = await db.select().from(appSettings);
+      const raw = rows.find(
+        (row) => row.key === "conversation_approval_modes_json",
+      )?.value;
+
+      if (!raw) {
+        return {};
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as Record<string, "ask" | "auto">;
+
+        return Object.fromEntries(
+          Object.entries(parsed).filter(
+            ([, mode]) => mode === "ask" || mode === "auto",
+          ),
+        );
+      } catch {
+        return {};
+      }
+    },
     async listModelPresets() {
       return db
         .select()
@@ -185,8 +237,13 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
     async setThemeMode(mode) {
       await this.setSetting("theme_mode", mode);
     },
-    async setToolApprovalMode(mode) {
-      await this.setSetting("tool_approval_mode", mode);
+    async setConversationApprovalModes(
+      modes: Record<string, "ask" | "auto">,
+    ) {
+      await this.setSetting(
+        "conversation_approval_modes_json",
+        JSON.stringify(modes),
+      );
     },
     async setNotificationSettings(input) {
       const settings = await this.getSettings();

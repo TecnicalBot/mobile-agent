@@ -162,6 +162,7 @@ type AppStateContextValue = {
         input: Partial<AppSettings["notificationSettings"]>,
     ) => Promise<void>;
     approvePendingToolApproval: () => void;
+    approvePendingToolApprovalForChat: () => void;
     pendingQuestionnaire: PendingQuestionnaire | null;
     submitPendingQuestionnaire: (
         answers: PendingQuestionnaireAnswer[],
@@ -419,6 +420,8 @@ type AppStateContextValue = {
     settings: AppSettings;
     testMcpServer: (serverId: string) => Promise<void>;
     conversations: Conversation[];
+    conversationApprovalModes?: Record<string, ToolApprovalMode>;
+    conversationApprovedTools?: Record<string, string[]>;
     updateMcpServer: (
         serverId: string,
         input: {
@@ -443,9 +446,6 @@ type AppStateContextValue = {
         input: Partial<BuiltInToolSettings>,
     ) => Promise<void>;
     updateMemoryEnabled: (enabled: boolean) => Promise<void>;
-    updateToolApprovalMode: (
-        mode: AppSettings["toolApprovalMode"],
-    ) => Promise<void>;
     setConversationApprovalMode: (
         conversationId: string,
         mode: ToolApprovalMode,
@@ -770,7 +770,18 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         run: AgentRun,
         request: PendingToolApprovalRequest,
     ) {
-        if (snapshotRef.current.settings.toolApprovalMode !== "ask") {
+        if (
+            (snapshotRef.current.conversationApprovalModes?.[run.conversationId] ??
+                "ask") !== "ask"
+        ) {
+            return "approve" satisfies import("@/modules/runtime/run-manager").ToolApprovalDecision;
+        }
+
+        if (
+            snapshotRef.current.conversationApprovedTools?.[
+                run.conversationId
+            ]?.includes(request.toolName)
+        ) {
             return "approve" satisfies import("@/modules/runtime/run-manager").ToolApprovalDecision;
         }
 
@@ -1239,11 +1250,17 @@ Your output must be:
             }));
             const workspaceFiles = await repositories.workspaceRepository.list();
             const agents = await repositories.agentRepository.list();
+            const conversationApprovalModes =
+                await repositories.configRepository.getConversationApprovalModes();
+            const conversationApprovedTools =
+                await repositories.configRepository.getApprovedToolsByConversation();
             const nextSnapshot = {
                 activeProviderAccountIds,
                 agentRuns: normalizedAgentRuns,
                 agents,
                 conversations,
+                conversationApprovalModes,
+                conversationApprovedTools,
                 currentConversation,
                 currentSelectedAgentId: currentConversation?.agentId ?? null,
                 currentSelectedFileIds: currentConversation?.selectedFileIds ?? [],
@@ -2784,23 +2801,27 @@ Your output must be:
         await hydrate();
     }
 
-    const updateToolApprovalMode = useCallback(
-        async (mode: AppSettings["toolApprovalMode"]) => {
-            await repositoriesRef.current.configRepository.setToolApprovalMode(mode);
-            await hydrate();
-        },
-        [hydrate],
-    );
-
     const setConversationApprovalMode = useCallback(
         (conversationId: string, mode: ToolApprovalMode) => {
-            setSnapshot((current) => ({
-                ...current,
-                conversationApprovalModes: {
-                    ...current.conversationApprovalModes,
-                    [conversationId]: mode,
-                },
-            }));
+            const conversationApprovalModes = {
+                ...snapshotRef.current.conversationApprovalModes,
+                [conversationId]: mode,
+            };
+
+            setSnapshot((current) => ({ ...current, conversationApprovalModes }));
+            snapshotRef.current = {
+                ...snapshotRef.current,
+                conversationApprovalModes,
+            };
+
+            repositoriesRef.current.configRepository
+                .setConversationApprovalModes(conversationApprovalModes)
+                .catch((error) => {
+                    console.error(
+                        "Failed to persist conversation approval mode",
+                        error,
+                    );
+                });
         },
         [],
     );
@@ -4274,6 +4295,44 @@ Your output must be:
                         resolvePendingToolApproval(pendingToolApproval, "approve");
                     }
                 },
+                approvePendingToolApprovalForChat: () => {
+                    if (pendingToolApproval) {
+                        const { conversationId, toolName } = pendingToolApproval;
+                        const existing =
+                            snapshotRef.current.conversationApprovedTools?.[
+                                conversationId
+                            ] ?? [];
+
+                        if (!existing.includes(toolName)) {
+                            const conversationApprovedTools = {
+                                ...snapshotRef.current.conversationApprovedTools,
+                                [conversationId]: [...existing, toolName],
+                            };
+
+                            setSnapshot((current) => ({
+                                ...current,
+                                conversationApprovedTools,
+                            }));
+                            snapshotRef.current = {
+                                ...snapshotRef.current,
+                                conversationApprovedTools,
+                            };
+
+                            repositoriesRef.current.configRepository
+                                .setApprovedToolsByConversation(
+                                    conversationApprovedTools,
+                                )
+                                .catch((error) => {
+                                    console.error(
+                                        "Failed to persist approved tools",
+                                        error,
+                                    );
+                                });
+                        }
+
+                        resolvePendingToolApproval(pendingToolApproval, "approve");
+                    }
+                },
                 agentRuns: snapshot.agentRuns,
                 cancelRun,
                 clearMcpServerCredentials,
@@ -4397,6 +4456,8 @@ Your output must be:
                 plugins: snapshot.plugins,
                 testMcpServer,
                 conversations: snapshot.conversations,
+                conversationApprovalModes: snapshot.conversationApprovalModes,
+                conversationApprovedTools: snapshot.conversationApprovedTools,
                 updateMcpServer,
                 updateDatabaseSettings,
                 updateBuiltInToolSettings,
@@ -4407,7 +4468,6 @@ Your output must be:
                 updateSkill,
                 updatePlugin,
                 addSkillFiles,
-                updateToolApprovalMode,
                 setConversationApprovalMode,
                 updateThemeMode,
                 updateProvider,
@@ -4514,8 +4574,9 @@ export function useConfig() {
         refresh: context.refresh,
         refreshWorkspaceFiles: context.refreshWorkspaceFiles,
         testMcpServer: context.testMcpServer,
-        toolApprovalMode: context.settings.toolApprovalMode,
         themeMode: context.settings.themeMode,
+        conversationApprovalModes: context.conversationApprovalModes,
+        conversationApprovedTools: context.conversationApprovedTools,
         toolSettings: context.settings.builtInToolSettings,
         updateDatabaseSettings: context.updateDatabaseSettings,
         updateMcpServer: context.updateMcpServer,
@@ -4525,7 +4586,6 @@ export function useConfig() {
         updateSkill: context.updateSkill,
         updatePlugin: context.updatePlugin,
         addSkillFiles: context.addSkillFiles,
-        updateToolApprovalMode: context.updateToolApprovalMode,
         setConversationApprovalMode: context.setConversationApprovalMode,
         updateThemeMode: context.updateThemeMode,
         notificationSettings: context.settings.notificationSettings,
@@ -4551,6 +4611,7 @@ export function useChat() {
         currentSelectedSkillIds: context.currentSelectedSkillIds,
         pendingToolApproval: context.pendingToolApproval,
         approvePendingToolApproval: context.approvePendingToolApproval,
+        approvePendingToolApprovalForChat: context.approvePendingToolApprovalForChat,
         denyPendingToolApproval: context.denyPendingToolApproval,
         pendingQuestionnaire: context.pendingQuestionnaire,
         submitPendingQuestionnaire: context.submitPendingQuestionnaire,

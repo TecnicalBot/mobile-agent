@@ -169,17 +169,6 @@ export default function SettingsScreen() {
 
       <Card className="overflow-hidden">
         <SettingsLinkRow
-          label="Voice input"
-          onPress={() => router.push("/settings/voice" as never)}
-          value={
-            voiceEngine === "system"
-              ? "System"
-              : (voiceModels.find((model) => model.id === voiceEngine)?.label ??
-                "System")
-          }
-        />
-        <Separator />
-        <SettingsLinkRow
           label="Providers"
           onPress={() => {
             router.push("/settings/providers");
@@ -311,6 +300,17 @@ export default function SettingsScreen() {
             </DrawerBody>
           </DrawerContent>
         </Drawer>
+        <Separator />
+        <SettingsLinkRow
+          label="Voice input"
+          onPress={() => router.push("/settings/voice" as never)}
+          value={
+            voiceEngine === "system"
+              ? "System"
+              : (voiceModels.find((model) => model.id === voiceEngine)?.label ??
+                "System")
+          }
+        />
         <Separator />
         <Drawer
           onOpenChange={(open) => {

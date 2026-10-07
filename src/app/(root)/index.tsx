@@ -5,6 +5,7 @@ import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useRouter } from "expo-router";
 import {
   ArrowDown,
+  ArrowUp,
   Bookmark,
   Brain,
   Check,
@@ -16,7 +17,6 @@ import {
   Info,
   Mic,
   Paperclip,
-  Send,
   Server,
   StopCircle,
   Trash2,
@@ -54,6 +54,7 @@ import Animated, {
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { Container } from "@/components/shared/container";
+import { ComposerTip } from "@/components/chat/composer-tip";
 import { SearchBox } from "@/components/shared/search-box";
 import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
 import {
@@ -614,8 +615,16 @@ export default function Screen() {
               <Svg height={24} width="100%">
                 <Defs>
                   <LinearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={theme.background} stopOpacity={1} />
-                    <Stop offset="1" stopColor={theme.background} stopOpacity={0} />
+                    <Stop
+                      offset="0"
+                      stopColor={theme.background}
+                      stopOpacity={1}
+                    />
+                    <Stop
+                      offset="1"
+                      stopColor={theme.background}
+                      stopOpacity={0}
+                    />
                   </LinearGradient>
                 </Defs>
                 <Rect width="100%" height={24} fill="url(#fadeTop)" />
@@ -1932,7 +1941,10 @@ const ChatInput = memo(function ChatInput({
                 level={currentLevel}
                 onCancel={voiceInput.cancel}
                 onConfirm={voiceInput.finish}
-                processing={voiceInput.status === "processing" || voiceInput.status === "starting"}
+                processing={
+                  voiceInput.status === "processing" ||
+                  voiceInput.status === "starting"
+                }
               />
             ) : (
               <>
@@ -2053,7 +2065,7 @@ const ChatInput = memo(function ChatInput({
                     {loading ? (
                       <StopCircle color={theme.background} size={18} />
                     ) : (
-                      <Send color={theme.background} size={18} />
+                      <ArrowUp color={theme.background} size={18} />
                     )}
                   </Pressable>
                 </View>
@@ -2062,12 +2074,7 @@ const ChatInput = memo(function ChatInput({
           </Animated.View>
         </View>
 
-        <Text className="px-sp-1 font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-          Use @ for files and folders, / for commands.
-          {supportsImageGeneration
-            ? " This model can also generate images."
-            : ""}
-        </Text>
+        <ComposerTip />
       </View>
 
       <FilePreviewDialog

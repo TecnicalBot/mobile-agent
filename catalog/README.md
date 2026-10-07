@@ -1,10 +1,37 @@
 # Remote catalogs
 
+## Chat composer tip
+
+Edit `chat-tip.json` on `main` to change the text below the chat input without
+shipping a new app version (after the version with this feature is installed).
+The app checks on launch, every 5 minutes while active, and on resume when stale.
+GitHub's CDN may take a few minutes to reflect a change. Offline or invalid
+responses keep the last in-memory tip, or the bundled default on a fresh launch.
+
+```json
+{
+  "version": 1,
+  "enabled": true,
+  "parts": [
+    { "text": "Need help? " },
+    { "text": "Read the guide", "url": "https://github.com/TecnicalBot/mobile-agent#readme" }
+  ]
+}
+```
+
+- Keep `version` at `1`. Set `enabled` to `false` to hide the tip remotely.
+- Up to 8 parts, with at most 180 visible characters in total (URLs do not count).
+- Links must use HTTPS; labels are tappable and open the in-app browser.
+- Whitespace/newlines are flattened. The UI shows at most **two lines**, with an
+  ellipsis on smaller screens or at larger font sizes. Put important links first.
+- Content is plain text, not HTML or executable Markdown. Keep it short and never
+  include secrets. Invalid content is ignored rather than breaking the composer.
+
 The top-level `version` is the catalog schema version, not a content revision.
 Keep it at `1` when adding or updating entries. Incrementing it requires shipping
 parser support in the app first; older app releases reject unknown versions.
 
-The app fetches each catalog from the `main` branch at runtime and caches it in
+The app fetches the other catalogs from the `main` branch at runtime and caches them in
 memory for 30 minutes. After a catalog change is merged, users receive it when
 that cache expires or the app restarts; an app rebuild is not required.
 

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "enabled": true,
+  "parts": [
+    { "text": "Use @ for files and folders, / for commands." }
+  ]
+}

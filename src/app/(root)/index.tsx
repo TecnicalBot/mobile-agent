@@ -472,7 +472,7 @@ export default function Screen() {
                 ) : (
                   <>
                     <MessageScrollerList
-                      contentContainerClassName="py-sp-3 pb-2"
+                      contentContainerClassName="pt-6 pb-11"
                       data={messages}
                       getItemType={messageItemType}
                       keyExtractor={messageKeyExtractor}
@@ -597,31 +597,17 @@ export default function Screen() {
                 left: 0,
                 right: 0,
                 top: 0,
-                height: 90,
+                height: 24,
               }}
             >
-              <Svg height={90} width="100%">
+              <Svg height={24} width="100%">
                 <Defs>
                   <LinearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1">
-                    <Stop
-                      offset="0"
-                      stopColor={theme.background}
-                      stopOpacity={1}
-                    />
-                    <Stop
-                      offset="1"
-                      stopColor={theme.background}
-                      stopOpacity={0}
-                    />
+                    <Stop offset="0" stopColor={theme.background} stopOpacity={1} />
+                    <Stop offset="1" stopColor={theme.background} stopOpacity={0} />
                   </LinearGradient>
                 </Defs>
-                <Rect
-                  x="0"
-                  y="0"
-                  width="100%"
-                  height={90}
-                  fill="url(#fadeTop)"
-                />
+                <Rect width="100%" height={24} fill="url(#fadeTop)" />
               </Svg>
             </View>
           </View>
@@ -1912,13 +1898,7 @@ const ChatInput = memo(function ChatInput({
                 <Stop offset="1" stopColor={theme.background} stopOpacity={1} />
               </LinearGradient>
             </Defs>
-            <Rect
-              x="0"
-              y="0"
-              width="100%"
-              height={40}
-              fill="url(#fadeBottom)"
-            />
+            <Rect width="100%" height={40} fill="url(#fadeBottom)" />
           </Svg>
         </View>
         <View className="relative overflow-hidden rounded-3xl bg-white dark:bg-card-dark">

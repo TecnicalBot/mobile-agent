@@ -41,6 +41,7 @@ import {
   PinOff,
   Settings2,
   Trash2,
+  Upload,
   Users,
 } from "lucide-react-native";
 import { useState } from "react";
@@ -111,7 +112,7 @@ export function AppSidebar() {
               >
                 {conversation.title}
               </Text>
-              <View className="shrink-0 items-center justify-center">
+              <View className="shrink-0 flex-row items-center justify-center gap-sp-2">
                 {runStatusByConversation[conversation.id] === "running" ||
                 runStatusByConversation[conversation.id] === "queued" ||
                 runStatusByConversation[conversation.id] === "resumable" ? (
@@ -127,22 +128,19 @@ export function AppSidebar() {
                     color={active ? theme.background : theme.textSecondary}
                     size={14}
                   />
-                ) : (
-                  <ChatOptions
-                    conversationId={conversation.id}
-                    color={active ? theme.background : theme.textSecondary}
-                    onExport={() => {
-                      handleExportConversation(conversation.id);
-                    }}
-                    onRename={() => {
-                      setRenameTarget(conversation);
-                      setRenameTitle(conversation.title);
-                      setRenameError(null);
-                    }}
-                    pinned={Boolean(conversation.pinnedAt)}
-                    pinnedCount={pinnedConversations.length}
-                  />
-                )}
+                ) : null}
+                <ChatOptions
+                  color={active ? theme.background : theme.textSecondary}
+                  conversationId={conversation.id}
+                  onExport={() => handleExportConversation(conversation.id)}
+                  onRename={() => {
+                    setRenameTarget(conversation);
+                    setRenameTitle(conversation.title);
+                    setRenameError(null);
+                  }}
+                  pinned={Boolean(conversation.pinnedAt)}
+                  pinnedCount={pinnedConversations.length}
+                />
               </View>
             </View>
           </SidebarMenuButton>
@@ -182,25 +180,30 @@ export function AppSidebar() {
     <>
       <Sidebar>
         <SidebarHeader className="min-h-8 flex-row items-center justify-between pb-0">
-          <Text className="font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark">
+          <Text
+            className="min-w-0 flex-1 font-sans text-2xl font-semibold text-foreground dark:text-foreground-dark"
+            numberOfLines={1}
+          >
             Mobile Agent
           </Text>
           <View className="flex-row items-center gap-sp-1">
             <SidebarClose asChild>
               <Button
                 accessibilityLabel="Import chat"
+                className="h-10 w-10 shrink-0"
                 onPress={() => {
                   setImportDrawerOpen(true);
                 }}
                 size="icon"
                 variant="ghost"
               >
-                <Download color={theme.text} size={20} />
+                <Upload color={theme.text} size={20} />
               </Button>
             </SidebarClose>
             <SidebarClose asChild>
               <Button
                 accessibilityLabel="New chat"
+                className="h-10 w-10 shrink-0"
                 onPress={() => {
                   createConversation()
                     .then(() => {
@@ -319,10 +322,11 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter>
-          <View className="border-t border-border pt-sp-3 dark:border-border-dark">
+        <SidebarFooter className="pt-0">
+          <View className="border-t border-border pt-sp-2 dark:border-border-dark">
             <SidebarClose asChild>
               <SidebarMenuButton
+                className="!min-h-11 !py-sp-2"
                 isActive={settingsActive}
                 leftIcon={
                   <Settings2
@@ -434,8 +438,13 @@ function ChatOptions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
-        <Pressable hitSlop={8}>
-          <EllipsisVertical size={20} color={color} />
+        <Pressable
+          accessibilityLabel="Chat options"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={(event) => event.stopPropagation()}
+        >
+          <EllipsisVertical color={color} size={20} />
         </Pressable>
       </DropdownMenuTrigger>
 

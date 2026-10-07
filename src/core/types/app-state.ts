@@ -516,7 +516,6 @@ export type AppSettings = {
   memoryEnabled: boolean;
   schedulingEnabled: boolean;
   themeMode: ThemeMode;
-  toolApprovalMode: ToolApprovalMode;
   notificationSettings: NotificationSettings;
 };
 
@@ -580,6 +579,7 @@ export type AppStateSnapshot = {
   agents: AgentConfig[];
   conversations: Conversation[];
   conversationApprovalModes?: Record<string, ToolApprovalMode>;
+  conversationApprovedTools?: Record<string, string[]>;
   currentConversation: Conversation | null;
   currentSelectedAgentId: string | null;
   currentSelectedFileIds: string[];

@@ -4,7 +4,6 @@ import type {
   AppSettings,
   DatabaseMode,
   ThemeMode,
-  ToolApprovalMode,
 } from "@/core/types/app-state";
 
 type AppSettingRow = typeof appSettings.$inferSelect;
@@ -68,9 +67,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
     )
       ? (storedThemeMode as ThemeMode)
       : "system",
-    toolApprovalMode:
-      (settingsMap.get("tool_approval_mode") as ToolApprovalMode | null) ??
-      "ask",
     notificationSettings: parsedNotificationSettings ?? {
       approvalRequests: true,
       runFinished: true,

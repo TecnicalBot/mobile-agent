@@ -1519,7 +1519,10 @@ export async function executeClaimedAgentRun(
             : (snapshotRef.current.conversationApprovalModes?.[conversation.id] ?? "ask"),
           onRecord: handleToolExecutionRecord,
           shouldRequireApproval: (toolName) =>
-            !autoApprovedToolNames.has(toolName),
+            !autoApprovedToolNames.has(toolName) &&
+            !snapshotRef.current.conversationApprovedTools?.[
+              conversation.id
+            ]?.includes(toolName),
           requestApproval: (request) =>
             requestRunApproval(request as PendingToolApprovalRequest),
         })

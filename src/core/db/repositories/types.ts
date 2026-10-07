@@ -414,6 +414,8 @@ export interface ConfigRepository {
   deleteProvider(providerId: string): Promise<void>;
   ensureDefaultProviders(): Promise<void>;
   getSettings(): Promise<AppSettings>;
+  getConversationApprovalModes(): Promise<Record<string, ToolApprovalMode>>;
+  getApprovedToolsByConversation(): Promise<Record<string, string[]>>;
   listModelPresets(): Promise<ModelPreset[]>;
   listProviderConfigs(): Promise<ProviderConfig[]>;
   createModelPreset(input: {
@@ -432,7 +434,12 @@ export interface ConfigRepository {
   setMemoryEnabled(enabled: boolean): Promise<void>;
   setSchedulingEnabled(enabled: boolean): Promise<void>;
   setThemeMode(mode: ThemeMode): Promise<void>;
-  setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
+  setConversationApprovalModes(
+    modes: Record<string, ToolApprovalMode>,
+  ): Promise<void>;
+  setApprovedToolsByConversation(
+    modes: Record<string, string[]>,
+  ): Promise<void>;
   setNotificationSettings(input: Partial<NotificationSettings>): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;
   updateProvider(

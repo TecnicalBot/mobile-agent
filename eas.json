@@ -5,6 +5,7 @@
     "build": {
         "production": {
             "autoIncrement": true,
+            "channel": "production",
             "android": {
                 "buildType": "apk"
             }
@@ -12,6 +13,7 @@
         "development": {
             "developmentClient": false,
             "distribution": "internal",
+            "channel": "development",
             "android": {
                 "buildType": "apk",
                 "gradleCommand": ":app:assembleDebug"

@@ -29,7 +29,6 @@ import {
   Loader,
   Pencil,
   Play,
-  Plus,
   RefreshCw,
   Share2,
   Square,
@@ -52,7 +51,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   type TextStyle,
   View,
 } from "react-native";
@@ -868,7 +866,6 @@ export const ChatMessage = memo(function ChatMessage({
   const [speaking, setSpeaking] = useRecyclingState(false, [message.id]);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [customPresets, setCustomPresets] = useState<RegeneratePreset[]>([]);
-  const [customPresetDraft, setCustomPresetDraft] = useState("");
   const [copied, setCopied] = useRecyclingState(false, [message.id]);
   const [imageAction, setImageAction] = useRecyclingState<
     "download" | "share" | null
@@ -990,27 +987,6 @@ export const ChatMessage = memo(function ChatMessage({
     setCustomPresets(presets);
     saveCustomPresets(presets).catch(console.error);
   }, []);
-
-  const handleAddCustomPreset = useCallback(() => {
-    const label = customPresetDraft.trim();
-
-    if (!label) {
-      return;
-    }
-
-    const next = [
-      ...customPresets,
-      {
-        id: `custom-${Date.now()}`,
-        label,
-        instruction: label,
-        custom: true,
-      },
-    ];
-
-    persistCustomPresets(next);
-    setCustomPresetDraft("");
-  }, [customPresetDraft, customPresets, persistCustomPresets]);
 
   const handleDeleteCustomPreset = useCallback(
     (id: string) => {
@@ -1886,25 +1862,6 @@ export const ChatMessage = memo(function ChatMessage({
                 ) : null}
               </View>
             ))}
-            <View className="flex-row items-center gap-sp-2">
-              <TextInput
-                className="min-h-11 flex-1 rounded-lg border border-border bg-transparent px-3 py-2.5 font-sans text-sm text-foreground dark:border-border-dark dark:bg-input-dark/30 dark:text-foreground-dark"
-                onChangeText={setCustomPresetDraft}
-                onSubmitEditing={handleAddCustomPreset}
-                placeholder="Add your own preset…"
-                placeholderTextColor={theme.textSecondary}
-                returnKeyType="done"
-                selectionColor={theme.backgroundSelected}
-                value={customPresetDraft}
-              />
-              <Button
-                accessibilityLabel="Add preset"
-                leftIcon={<Plus color={theme.background} size={18} />}
-                onPress={handleAddCustomPreset}
-                size="icon"
-                variant="default"
-              />
-            </View>
           </DrawerBody>
         </DrawerContent>
       </Drawer>

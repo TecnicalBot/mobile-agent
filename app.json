@@ -7,6 +7,12 @@
     "icon": "./assets/images/icon.png",
     "scheme": "mobile-agent",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7944daea-4e83-4c42-8bb5-604ac6ec6ea8"
+    },
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.tecnicalbot.mobileagent",

@@ -3,6 +3,11 @@ import type { PluginHostContext } from "./types";
 
 const STUB_CONTEXT: PluginHostContext = {
   emit: () => {},
+  ai: {
+    generate: async () => {
+      throw new Error("ai.generate unavailable during validation");
+    },
+  },
   fetch: async () => {
     throw new Error("fetch unavailable during validation");
   },
@@ -16,6 +21,8 @@ export type PluginToolSpec = {
   description: string;
   inputSchema: Record<string, unknown>;
   mutating?: boolean;
+  output?: "both" | "model" | "silent" | "user";
+  timeoutMs?: number;
   executeBody: string;
 };
 
@@ -52,6 +59,10 @@ export function buildPluginSource(input: BuildPluginInput): string {
       `      description: ${JSON.stringify(tool.description)},`,
       `      inputSchema: ${JSON.stringify(tool.inputSchema)},`,
       ...(tool.mutating ? ["      mutating: true,"] : []),
+      ...(tool.output ? [`      output: ${JSON.stringify(tool.output)},`] : []),
+      ...(typeof tool.timeoutMs === "number"
+        ? [`      timeoutMs: ${tool.timeoutMs},`]
+        : []),
       "      async execute(args, context) {",
       indentBlock(tool.executeBody, 8),
       "      },",

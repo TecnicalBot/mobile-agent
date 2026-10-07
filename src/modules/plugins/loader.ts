@@ -6,7 +6,10 @@ import type { LoadedPlugin, PluginHostContext } from "./types";
 
 export async function loadAllPlugins(
   configs: PluginConfig[],
-  createContext: (id: string) => PluginHostContext,
+  createContext: (
+    id: string,
+    options?: Record<string, unknown>,
+  ) => PluginHostContext,
 ) {
   const errors: { error: string; id: string }[] = [];
   const plugins: LoadedPlugin[] = [];
@@ -20,14 +23,18 @@ export async function loadAllPlugins(
       continue;
     }
 
+    const context = createContext(config.id, config.options ?? undefined);
     const result = await runPluginSetup({
-      context: createContext(config.id),
+      context,
       id: config.id,
       options: config.options ?? undefined,
       source,
     });
-    if (result.ok) plugins.push(result.plugin);
-    else errors.push({ error: result.error, id: config.id });
+    if (result.ok) {
+      plugins.push({ ...result.plugin, context });
+    } else {
+      errors.push({ error: result.error, id: config.id });
+    }
   }
 
   return { errors, plugins };

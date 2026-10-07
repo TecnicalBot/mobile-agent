@@ -478,6 +478,7 @@ export function buildAssistantMetadata(input: {
   generatedImages?: GeneratedImageAttachment[];
   memoryEvents?: MemoryEvent[];
   promptArtifacts?: PromptArtifact[];
+  pluginOutputs?: import("@/core/types/app-state").PluginOutputRecord[];
   reasoning?: ReasoningBlock[];
   runId?: string | null;
   termuxRunAnchors?: import("@/core/types/app-state").TermuxRunAnchor[];
@@ -509,6 +510,10 @@ export function buildAssistantMetadata(input: {
 
   if (input.promptArtifacts && input.promptArtifacts.length > 0) {
     metadata.promptArtifacts = input.promptArtifacts;
+  }
+
+  if (input.pluginOutputs && input.pluginOutputs.length > 0) {
+    metadata.pluginOutputs = input.pluginOutputs;
   }
 
   if (input.reasoning && input.reasoning.length > 0) {

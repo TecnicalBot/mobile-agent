@@ -13,14 +13,44 @@ The file assigns a plugin definition to `module.exports`. Its `setup(api,
 options)` function returns any combination of:
 
 - `tool`: AI SDK tools described with JSON Schema. Set `mutating: true` to use
-  the app's tool approval flow.
+  the app's tool approval flow. Each tool supports:
+  - `output`: where the result goes — `"model"` (default), `"user"` (result
+    rendered for the user, model only gets a stub), `"both"`, or `"silent"`.
+  - `timeoutMs`: max execution time in ms (default 120000).
+  - `api.ai.generate(...)` is disabled inside tools unless the plugin's
+    options set `allowAiInTools: true`.
+- `action`: manually-runnable capabilities, same shape as tools
+  (`description`, `title?`, `inputSchema?`, `mutating?`, `output?`,
+  `timeoutMs?`, `run(args, context)`). Surfaced in Settings > Plugins and as
+  chips above the chat composer. Inside actions, `api.ai.generate(...)` is
+  always available.
 - `system`: prompt segments, or a function returning prompt segments.
 - `event`: handlers for `run:start`, `message:delta`, `tool:after`,
   `run:complete`, and `run:failed`.
 - `dispose`: cleanup called when plugins reload.
 
+During execution a tool/action can report progress via the second argument to
+`execute(args, context)` / `run(args, context)`:
+
+```js
+async execute(args, context) {
+  context.metadata?.({ title: "Step 2 of 5..." });
+  ...
+  return {
+    title: "Done",
+    output: "...",
+    attachments: [{ mime: "image/png", uri: "file:///...", filename: "out.png" }],
+  };
+}
+```
+
+`attachments` render as images (for `image/*`) or filename rows in the chat
+card / action result.
+
 The host `api` exposes `fetch`, namespaced `storage`, encrypted `secrets`,
-`emit`, and `log`. Plugins must bundle all dependencies into the single file;
+`emit`, `log`, and `ai.generate` (one-shot generation with the currently
+selected provider/model). `api.fetch` is tied to the active tool/action's
+abort signal. Plugins must bundle all dependencies into the single file;
 runtime `import` and `require` are not available.
 
 ## Secrets

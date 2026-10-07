@@ -722,6 +722,7 @@ export async function executeClaimedAgentRun(
       executionTimeline,
       memoryEvents,
       promptArtifacts,
+      pluginOutputs: pluginSnapshot?.pluginOutputs,
       reasoning,
       runId: run.id,
       termuxRunAnchors: Array.from(
@@ -1137,9 +1138,22 @@ export async function executeClaimedAgentRun(
 
       const storedTimeline = (storedMetadata.executionTimeline ??
         []) as import("@/core/types/app-state").ExecutionTimelineEvent[];
+      const mergedPluginOutputs = [
+        ...(storedMetadata.pluginOutputs ?? []),
+        ...(pluginSnapshot?.pluginOutputs ?? []).filter(
+          (entry) =>
+            !(storedMetadata.pluginOutputs ?? []).some(
+              (existing) =>
+                existing.pluginId === entry.pluginId &&
+                existing.toolName === entry.toolName &&
+                existing.output === entry.output,
+            ),
+        ),
+      ];
       const nextMetadata: MessageMetadata = {
         ...storedMetadata,
         executionTimeline: [...storedTimeline, backgroundCompletionEvent],
+        pluginOutputs: mergedPluginOutputs,
         termuxRunAnchors: Array.from(
           termuxRunAnchors,
           ([executionId, textOffset]) => ({ executionId, textOffset }),
@@ -2011,6 +2025,7 @@ export async function executeClaimedAgentRun(
       generatedImages,
       memoryEvents,
       promptArtifacts,
+      pluginOutputs: pluginSnapshot?.pluginOutputs,
       reasoning: reasoning.map((block) => ({
         ...block,
         completedAt: block.completedAt ?? new Date().toISOString(),
@@ -2149,6 +2164,7 @@ export async function executeClaimedAgentRun(
         ],
         memoryEvents,
         promptArtifacts,
+        pluginOutputs: pluginSnapshot?.pluginOutputs,
         reasoning: reasoning.map((block) => ({
           ...block,
           completedAt: block.completedAt ?? new Date().toISOString(),
@@ -2216,6 +2232,7 @@ export async function executeClaimedAgentRun(
       ],
       memoryEvents,
       promptArtifacts,
+      pluginOutputs: pluginSnapshot?.pluginOutputs,
       reasoning: reasoning.map((block) => ({
         ...block,
         completedAt: block.completedAt ?? new Date().toISOString(),

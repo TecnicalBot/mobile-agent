@@ -1187,6 +1187,7 @@ export const ChatMessage = memo(function ChatMessage({
   const hasRunningTermuxRun = termuxRuns.some(
     (run) => run.status === "running" && message.status === "streaming",
   );
+  const pluginOutputs = message.metadata?.pluginOutputs ?? [];
   const termuxRunsById = new Map(
     termuxRuns.flatMap((run) => (run.id ? ([[run.id, run]] as const) : [])),
   );
@@ -1537,6 +1538,40 @@ export const ChatMessage = memo(function ChatMessage({
                           output={run.termux!.output}
                           taskId={run.termux!.taskId}
                         />
+                      ))}
+                    </View>
+                  ) : null}
+                  {pluginOutputs.length > 0 ? (
+                    <View className="gap-sp-2">
+                      {pluginOutputs.map((entry, index) => (
+                        <View
+                          className="rounded-lg border border-border bg-muted p-3"
+                          key={`${entry.pluginId}-${entry.toolName}-${index}`}
+                        >
+                          <Text className="font-semibold text-foreground">
+                            {entry.title ?? entry.toolName}
+                          </Text>
+                          <Text className="text-sm text-muted-foreground">
+                            {entry.output}
+                          </Text>
+                          {entry.attachments?.map((attachment, index) =>
+                            attachment.mime.startsWith("image/") ? (
+                              <Image
+                                key={`${attachment.uri}-${index}`}
+                                source={{ uri: attachment.uri }}
+                                style={{ width: 240, height: 160, borderRadius: 8 }}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <Text
+                                className="text-sm text-primary"
+                                key={`${attachment.uri}-${index}`}
+                              >
+                                {attachment.filename ?? attachment.uri}
+                              </Text>
+                            ),
+                          )}
+                        </View>
                       ))}
                     </View>
                   ) : null}

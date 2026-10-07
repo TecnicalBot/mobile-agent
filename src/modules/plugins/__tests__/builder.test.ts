@@ -98,6 +98,7 @@ function runPluginSetupWithContext(source: string) {
     runPluginSetup({
       context: {
         emit: vi.fn(),
+        ai: { generate: vi.fn() },
         fetch,
         log: vi.fn(),
         secrets: { delete: vi.fn(), get: vi.fn(), set: vi.fn() },

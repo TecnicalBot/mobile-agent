@@ -33,3 +33,19 @@ module.exports = {
     };
   },
 };
+
+// Actions are run manually (Settings > Plugins, or chat chips):
+//
+//   action: {
+//     summarizeNotes: {
+//       title: "Summarize my notes",
+//       description: "Summarize today's notes with the active model.",
+//       async run(args, context) {
+//         const text = await api.storage.get("lastNotes");
+//         return text
+//           ? await api.ai.generate({ prompt: `Summarize:\n${text}` })
+//           : "No notes stored yet.";
+//       },
+//     },
+//   },
+//

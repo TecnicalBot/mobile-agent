@@ -63,6 +63,10 @@ import { secureSecretStore } from "@/core/services/secrets";
 import { createPluginRuntime } from "@/modules/plugins/plugin-runtime";
 import { importPluginSource } from "@/modules/plugins/import";
 import { checkPluginUpdates } from "@/modules/plugins/updater";
+import type {
+    PluginActionInfo,
+    PluginRuntimeSnapshot,
+} from "@/modules/plugins/types";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import {
     parseSkillMarkdown,
@@ -486,6 +490,13 @@ type AppStateContextValue = {
     ) => Promise<void>;
     skills: SkillConfig[];
     plugins: PluginConfig[];
+    pluginActions: PluginActionInfo[];
+    runPluginAction: (
+        pluginId: string,
+        name: string,
+        args?: Record<string, unknown>,
+        onProgress?: Parameters<PluginRuntimeSnapshot["runAction"]>[3],
+    ) => ReturnType<PluginRuntimeSnapshot["runAction"]>;
     workspaceFiles: WorkspaceFile[];
 };
 
@@ -525,7 +536,18 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const db = useSQLiteContext();
     const repositoriesRef = useRef(createRepositories(db));
     const pluginRuntimeRef = useRef(
-        createPluginRuntime(repositoriesRef.current.pluginRepository.storage),
+        createPluginRuntime(
+            repositoriesRef.current.pluginRepository.storage,
+            () => {
+                const model = snapshotRef.current.resolvedConfig.currentModel;
+                if (!model) return null;
+                const provider =
+                    snapshotRef.current.resolvedConfig.providers.find(
+                        (item) => item.id === model.providerId,
+                    ) ?? null;
+                return provider ? { model, provider } : null;
+            },
+        ),
     );
     const workspaceServiceRef = useRef(
         createWorkspaceFileService(repositoriesRef.current.workspaceRepository),
@@ -536,6 +558,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         runRegistryRef.current = createRunControllerRegistry();
     }
     const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_SNAPSHOT);
+    const [pluginActions, setPluginActions] = useState<PluginActionInfo[]>([]);
     const [ready, setReady] = useState(false);
     const [hydrating, setHydrating] = useState(true);
     const [modelDiscoveryInProgress, setModelDiscoveryInProgress] =
@@ -1234,6 +1257,7 @@ Your output must be:
             const skills = await repositories.skillRepository.list();
             const plugins = await repositories.pluginRepository.list();
             const pluginErrors = await pluginRuntimeRef.current.load(plugins);
+            setPluginActions(pluginRuntimeRef.current.snapshot("app").actions);
             const pluginErrorById = new Map(
                 pluginErrors.map((item) => [item.id, item.error]),
             );
@@ -4415,6 +4439,11 @@ Your output must be:
                 importPlugin,
                 modelDiscoveryInProgress,
                 exportSkillMarkdown,
+                runPluginAction: (pluginId, name, args) =>
+                    pluginRuntimeRef.current
+                        .snapshot("app")
+                        .runAction(pluginId, name, args),
+                pluginActions,
                 messages: snapshot.messages,
                 editAndResendMessage,
                 savedPrompts: snapshot.savedPrompts,
@@ -4531,6 +4560,8 @@ export function useConfig() {
         importPlugin: context.importPlugin,
         importSkillMarkdown: context.importSkillMarkdown,
         exportSkillMarkdown: context.exportSkillMarkdown,
+        pluginActions: context.pluginActions,
+        runPluginAction: context.runPluginAction,
         agents: context.agents,
         createAgent: context.createAgent,
         updateAgent: context.updateAgent,

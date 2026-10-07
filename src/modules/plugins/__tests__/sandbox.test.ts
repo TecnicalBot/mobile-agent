@@ -8,6 +8,7 @@ describe("plugin sandbox", () => {
     const result = await runPluginSetup({
       context: {
         emit: vi.fn(),
+        ai: { generate: vi.fn() },
         fetch,
         log,
         secrets: { delete: vi.fn(), get: vi.fn(), set: vi.fn() },

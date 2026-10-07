@@ -359,8 +359,18 @@ export type MessageMetadata = {
   selectedFileIds?: string[];
   termuxRunAnchors?: TermuxRunAnchor[];
   todoList?: TodoListItem[];
+  pluginOutputs?: PluginOutputRecord[];
   toolExecutions?: ToolExecutionRecord[];
   usage?: ModelUsageSnapshot | null;
+};
+
+export type PluginOutputRecord = {
+  attachments?: import("@/modules/plugins/types").PluginAttachment[];
+  metadata?: Record<string, unknown>;
+  output: string;
+  pluginId: string;
+  title?: string;
+  toolName: string;
 };
 
 export type TermuxRunAnchor = {

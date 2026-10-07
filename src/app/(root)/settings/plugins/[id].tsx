@@ -19,7 +19,25 @@ export default function SettingsPluginDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { deletePlugin, plugins, updatePlugin } = useConfig();
+  const { deletePlugin, plugins, updatePlugin, pluginActions, runPluginAction } =
+    useConfig();
+  const [actionResults, setActionResults] = useState<
+    Record<
+      string,
+      {
+        attachments?: { filename?: string; mime: string; uri: string }[];
+        error?: string;
+        output?: string;
+        title?: string;
+      }
+    >
+  >({});
+  const [actionArgs, setActionArgs] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [actionProgress, setActionProgress] = useState<
+    Record<string, string | undefined>
+  >({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [configuredKeys, setConfiguredKeys] = useState<string[]>([]);
@@ -192,6 +210,171 @@ export default function SettingsPluginDetailScreen() {
             Delete
           </Button>
         </View>
+      </Card>
+
+      <Card className="gap-sp-3 px-sp-4 py-sp-4">
+        <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
+          Actions
+        </Text>
+        {pluginActions.filter((action) => action.pluginId === plugin.id)
+          .length === 0 ? (
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            This plugin defines no manual actions.
+          </Text>
+        ) : (
+          pluginActions
+            .filter((action) => action.pluginId === plugin.id)
+            .map((action) => {
+              const result = actionResults[`${action.pluginId}/${action.name}`];
+              const properties =
+                (action.inputSchema as
+                  | { properties?: Record<string, { type?: string }> }
+                  | undefined)?.properties ?? {};
+              const propertyEntries = Object.entries(properties);
+              return (
+                <View
+                  className="gap-sp-2"
+                  key={`${action.pluginId}/${action.name}`}
+                >
+                  <View className="flex-row items-center justify-between gap-sp-2">
+                    <View className="min-w-0 flex-1">
+                      <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                        {action.title}
+                      </Text>
+                      {action.description ? (
+                        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                          {action.description}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Button
+                      loading={busyKey === `action:${action.pluginId}/${action.name}`}
+                      onPress={() =>
+                        runAction(
+                          `action:${action.pluginId}/${action.name}`,
+                          async () => {
+                            try {
+                              const args: Record<string, unknown> = {};
+                              for (const [propKey, propDef] of propertyEntries) {
+                                const raw =
+                                  actionArgs[
+                                    `${action.pluginId}/${action.name}`
+                                  ]?.[propKey];
+                                if (raw === undefined || raw === "") continue;
+                                args[propKey] =
+                                  propDef.type === "number"
+                                    ? Number(raw)
+                                    : propDef.type === "boolean"
+                                      ? raw === "true"
+                                      : raw;
+                              }
+                              const runResult = await runPluginAction(
+                                action.pluginId,
+                                action.name,
+                                args,
+                                (update) =>
+                                  setActionProgress((current) => ({
+                                    ...current,
+                                    [`${action.pluginId}/${action.name}`]:
+                                      update.title,
+                                  })),
+                              );
+                              setActionProgress((current) => ({
+                                ...current,
+                                [`${action.pluginId}/${action.name}`]: undefined,
+                              }));
+                              setActionResults((current) => ({
+                                ...current,
+                                [`${action.pluginId}/${action.name}`]: {
+                                  attachments:
+                                    typeof runResult === "string"
+                                      ? undefined
+                                      : runResult.attachments,
+                                  output:
+                                    typeof runResult === "string"
+                                      ? runResult
+                                      : runResult.output,
+                                  title:
+                                    typeof runResult === "string"
+                                      ? undefined
+                                      : runResult.title,
+                                },
+                              }));
+                            } catch (actionError) {
+                              setActionResults((current) => ({
+                                ...current,
+                                [`${action.pluginId}/${action.name}`]: {
+                                  error:
+                                    actionError instanceof Error
+                                      ? actionError.message
+                                      : String(actionError),
+                                },
+                              }));
+                            }
+                          },
+                        )
+                      }
+                      size="sm"
+                      variant="outline"
+                    >
+                      Run
+                    </Button>
+                  </View>
+                  {propertyEntries.map(([propKey, propDef]) => (
+                    <Input
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      key={propKey}
+                      onChangeText={(text) =>
+                        setActionArgs((current) => ({
+                          ...current,
+                          [`${action.pluginId}/${action.name}`]: {
+                            ...(current[`${action.pluginId}/${action.name}`] ??
+                              {}),
+                            [propKey]: text,
+                          },
+                        }))
+                      }
+                      placeholder={
+                        propDef.type === "boolean" ? `${propKey} (true/false)` : propKey
+                      }
+                      value={
+                        actionArgs[`${action.pluginId}/${action.name}`]?.[
+                          propKey
+                        ] ?? ""
+                      }
+                    />
+                  ))}
+                  {actionProgress[`${action.pluginId}/${action.name}`] ? (
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {actionProgress[`${action.pluginId}/${action.name}`]}
+                    </Text>
+                  ) : null}
+                  {result?.error ? (
+                    <Text className="font-sans text-xs text-destructive dark:text-destructive-dark">
+                      {result.error}
+                    </Text>
+                  ) : result?.output ? (
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      {result.output}
+                    </Text>
+                  ) : null}
+                  {result?.attachments?.length ? (
+                    <View className="gap-sp-1">
+                      {result.attachments.map((attachment, index) => (
+                        <Text
+                          className="font-sans text-xs text-primary dark:text-primary-dark"
+                          key={`${attachment.uri}-${index}`}
+                        >
+                          {attachment.filename ?? attachment.uri}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })
+        )}
       </Card>
 
       <Card className="gap-sp-3 px-sp-4 py-sp-4">

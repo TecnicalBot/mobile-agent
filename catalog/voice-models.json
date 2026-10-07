@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "tiny",
+      "label": "Whisper Tiny",
+      "description": "Fastest • multilingual",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+      "sizeBytes": 77691713
+    },
+    {
+      "id": "base",
+      "label": "Whisper Base",
+      "description": "Recommended balance • multilingual",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+      "sizeBytes": 147951465
+    },
+    {
+      "id": "small",
+      "label": "Whisper Small",
+      "description": "Best accuracy • multilingual, slower",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+      "sizeBytes": 487601967
+    }
+  ]
+}

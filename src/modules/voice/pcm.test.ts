@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepareWhisperAudio } from "./pcm";
+import { floatToPcm16, prepareWhisperAudio } from "./pcm";
 
 describe("Whisper microphone audio", () => {
   it("keeps mono 16 kHz samples across buffers", () => {
@@ -29,5 +29,21 @@ describe("Whisper microphone audio", () => {
   });
   it("accepts empty recordings", () => {
     expect(prepareWhisperAudio([], 16000, 1).length).toBe(0);
+  });
+});
+
+describe("float to 16-bit PCM (whisper.rn's expected input)", () => {
+  it("maps full-scale floats to the int16 range", () => {
+    expect(
+      Array.from(floatToPcm16(new Float32Array([0, 1, -1, 0.5, -0.5]))),
+    ).toEqual([0, 32767, -32768, 16384, -16384]);
+  });
+  it("clamps out-of-range samples", () => {
+    expect(Array.from(floatToPcm16(new Float32Array([2, -2])))).toEqual([
+      32767, -32768,
+    ]);
+  });
+  it("produces two bytes per sample", () => {
+    expect(floatToPcm16(new Float32Array(16000)).byteLength).toBe(32000);
   });
 });

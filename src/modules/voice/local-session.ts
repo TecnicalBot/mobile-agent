@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
-import type { VoiceEngine } from "./models";
+import type { WhisperModelId, WhisperLanguage } from "./models";
 import { isModelDownloaded, modelFile } from "./models";
-import { prepareWhisperAudio } from "./pcm";
+import { prepareWhisperAudio, floatToPcm16 } from "./pcm";
 
 export type LocalVoiceSession = {
   finish: () => Promise<string>;
@@ -9,7 +9,8 @@ export type LocalVoiceSession = {
 };
 
 export async function startLocalVoiceSession(
-  model: Exclude<VoiceEngine, "system">,
+  model: WhisperModelId,
+  language: WhisperLanguage,
   onLevel: (level: number) => void,
   onLimit: () => void,
 ): Promise<LocalVoiceSession> {
@@ -92,10 +93,18 @@ export async function startLocalVoiceSession(
       try {
         stream!.stop();
         if (closed || samples / channels / sampleRate < 0.3) return "";
-        const audio = prepareWhisperAudio(chunks, sampleRate, channels);
+        const audio = floatToPcm16(
+          prepareWhisperAudio(chunks, sampleRate, channels),
+        );
         chunks = [];
         task = context.transcribeData(audio.buffer as ArrayBuffer, {
-          language: "auto",
+          language,
+          // Greedy decoding hallucinates on short/ambiguous clips; a small
+          // beam with best-of is markedly more accurate for dictation.
+          beamSize: 5,
+          bestOf: 5,
+          temperature: 0,
+          temperatureInc: 0.2,
         });
         const result = await task.promise;
         return closed || result.isAborted ? "" : result.result.trim();

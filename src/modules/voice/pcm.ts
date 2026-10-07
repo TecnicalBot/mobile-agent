@@ -34,3 +34,17 @@ export function prepareWhisperAudio(
   }
   return output;
 }
+
+/**
+ * whisper.rn's `transcribeData` reinterprets the ArrayBuffer as little-endian
+ * 16-bit PCM (`decodePcm16`), so float samples must be converted or the model
+ * receives noise and hallucinates captions like `[Music]`.
+ */
+export function floatToPcm16(samples: Float32Array): Int16Array {
+  const pcm = new Int16Array(samples.length);
+  for (let index = 0; index < samples.length; index++) {
+    const clamped = Math.max(-1, Math.min(1, samples[index]));
+    pcm[index] = Math.round(clamped < 0 ? clamped * 32768 : clamped * 32767);
+  }
+  return pcm;
+}

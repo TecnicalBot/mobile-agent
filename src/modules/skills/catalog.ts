@@ -17,6 +17,8 @@ export type SkillCatalogEntry = {
   id: string;
   label: string;
   url: string;
+  source: string | null;
+  sourceUrl: string | null;
 };
 
 export type SkillCatalogResult = {
@@ -95,6 +97,16 @@ function getHttpsUrl(value: string, label: string) {
   return parsed.href;
 }
 
+function getOptionalHttpsUrl(
+  record: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+) {
+  const value = getOptionalString(record, key, maxLength);
+
+  return value ? getHttpsUrl(value, `Skill catalog ${key}`) : null;
+}
+
 function getExtraFiles(record: Record<string, unknown>) {
   const value = record.extraFiles;
 
@@ -127,6 +139,8 @@ function parseEntry(value: unknown): SkillCatalogEntry {
     extraFiles: getExtraFiles(record),
     id,
     label: getRequiredString(record, "label", 80),
+    source: getOptionalString(record, "source", 120),
+    sourceUrl: getOptionalHttpsUrl(record, "sourceUrl", 2048),
     url: getHttpsUrl(
       getRequiredString(record, "url", 2048),
       "Skill catalog URL",

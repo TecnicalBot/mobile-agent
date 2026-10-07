@@ -5,6 +5,7 @@ import { Alert, Platform, Pressable, Text, View } from "react-native";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/core/utils";
 import {
   Drawer,
   DrawerBody,
@@ -336,14 +337,22 @@ export default function VoiceSettingsScreen() {
                 </Pressable>
                 <DrawerTitle>Language</DrawerTitle>
               </DrawerHeader>
-              <DrawerBody contentContainerClassName="pb-sp-4">
-                <View className="overflow-hidden rounded-card border border-border dark:border-border-dark">
-                  {languageOptions.map((item, index) => (
-                    <View key={item.id}>
-                      {index > 0 ? <Separator /> : null}
+              <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+                {languageOptions.map((item) => {
+                  const selected = language === item.id;
+                  return (
+                    <View
+                      key={item.id}
+                      className={cn(
+                        "rounded-ui border",
+                        selected
+                          ? "border-foreground bg-secondary dark:border-foreground-dark dark:bg-secondary-dark"
+                          : "border-border bg-background dark:border-border-dark dark:bg-background-dark",
+                      )}
+                    >
                       <Pressable
                         accessibilityRole="button"
-                        className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+                        className="min-h-12 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
                         onPress={() => {
                           setLanguage(item.id);
                           if (selectedKey) {
@@ -360,19 +369,19 @@ export default function VoiceSettingsScreen() {
                           }
                         }}
                         style={({ pressed }) =>
-                          pressed ? { opacity: 0.82 } : null
+                          pressed ? { opacity: 0.85 } : null
                         }
                       >
                         <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
                           {item.label}
                         </Text>
-                        {language === item.id ? (
+                        {selected ? (
                           <Check color={theme.text} size={18} />
                         ) : null}
                       </Pressable>
                     </View>
-                  ))}
-                </View>
+                  );
+                })}
               </DrawerBody>
             </DrawerPagerPage>
           </DrawerPager>

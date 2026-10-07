@@ -955,12 +955,6 @@ export const ChatMessage = memo(function ChatMessage({
     };
   }, [regenerateOpen]);
 
-  useEffect(() => {
-    return () => {
-      Speech.stop().catch(() => {});
-    };
-  }, []);
-
   const handleToggleSpeech = useCallback(() => {
     if (speaking) {
       Speech.stop().catch(() => {});

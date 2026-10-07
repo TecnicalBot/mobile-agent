@@ -326,7 +326,7 @@ export function AppSidebar() {
           <View className="border-t border-border pt-sp-2 dark:border-border-dark">
             <SidebarClose asChild>
               <SidebarMenuButton
-                className="!min-h-11 !py-sp-2"
+                className="!min-h-11 !py-sp-3"
                 isActive={settingsActive}
                 leftIcon={
                   <Settings2

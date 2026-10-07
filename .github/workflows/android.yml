@@ -21,7 +21,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check if app version changed
         id: version
@@ -29,23 +29,22 @@ jobs:
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
-          if git rev-parse HEAD^ >/dev/null 2>&1; then
-            PREVIOUS_VERSION=$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
-          else
-            PREVIOUS_VERSION=""
-          fi
+          # Compare against the latest release tag, not the previous commit,
+          # so merges between branches with different versions don't retrigger.
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          TAG_VERSION=${LATEST_TAG#v}
 
           echo "Current version: $CURRENT_VERSION"
-          echo "Previous version: $PREVIOUS_VERSION"
+          echo "Latest tag: ${LATEST_TAG:-none}"
 
           echo "VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
 
-          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+          if [ "$CURRENT_VERSION" = "$TAG_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Version unchanged. Skipping release."
+            echo "Version matches latest tag. Skipping release."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Creating/re-publishing release."
+            echo "New version detected. Creating/re-publishing release."
           fi
 
       - name: Set up pnpm

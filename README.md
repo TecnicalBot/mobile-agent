@@ -17,6 +17,7 @@ Mobile Agent is an open-source AI agent built specifically for mobile devices th
 - Multi-modal support
 - Direct access to phone's internal storage
 - Android permission-based access
+- Community plugins
 
 ## Installation
 
@@ -26,22 +27,6 @@ The application is distributed through GitHub Releases.
 2. Install the APK on your Android device.
 3. Grant the required permissions.
 4. Start using Mobile Agent.
-
-## Voice input
-
-System speech recognition is the default. In **Settings → Voice input**, you can
-download multilingual Whisper Tiny (~78 MB) or Base (~148 MB), then select it for
-offline transcription on Android/iOS. Downloads show progress and can be cancelled;
-models can also be deleted. Deleting the selected model switches back to System.
-
-Tap the microphone, speak, then tap ✓ to insert the transcription for editing.
-Local Whisper processes audio after confirmation, keeps audio on-device, and limits
-each recording to two minutes. Speed and runtime memory usage depend on the phone.
-
-Developers must rebuild the native app after installing the `expo-audio` and
-`whisper.rn` dependencies; Metro reload alone is not enough. The Whisper config
-plugin preserves its JNI classes in Android release builds. Local voice input is
-not supported on web.
 
 ## Contributing
 

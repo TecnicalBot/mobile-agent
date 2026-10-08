@@ -796,7 +796,13 @@ function getFileTypeIcon(file: WorkspaceFile) {
   return FileIcon;
 }
 
-function ExpandChevron({ color, expanded }: { color: string; expanded: boolean }) {
+function ExpandChevron({
+  color,
+  expanded,
+}: {
+  color: string;
+  expanded: boolean;
+}) {
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(expanded ? 180 : 0);
 
@@ -1559,7 +1565,11 @@ export const ChatMessage = memo(function ChatMessage({
                               <Image
                                 key={`${attachment.uri}-${index}`}
                                 source={{ uri: attachment.uri }}
-                                style={{ width: 240, height: 160, borderRadius: 8 }}
+                                style={{
+                                  width: 240,
+                                  height: 160,
+                                  borderRadius: 8,
+                                }}
                                 contentFit="cover"
                               />
                             ) : (
@@ -1675,6 +1685,7 @@ export const ChatMessage = memo(function ChatMessage({
         ) : null}
 
         {isAssistant &&
+        message.status !== "streaming" &&
         (message.content.trim() ||
           memoryEvents.length > 0 ||
           executionTimeline.length > 0 ||

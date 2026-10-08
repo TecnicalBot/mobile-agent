@@ -37,11 +37,11 @@ import {
   Alert,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
-  View,
-  ScrollView,
   useWindowDimensions,
+  View,
 } from "react-native";
 import {
   KeyboardAvoidingView,
@@ -54,8 +54,8 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-import { Container } from "@/components/shared/container";
 import { ComposerTip } from "@/components/chat/composer-tip";
+import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
 import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
 import {
@@ -83,6 +83,7 @@ import {
   FilePreviewDialog,
   getFilePreviewKind,
 } from "@/components/ui/file-preview-dialog";
+import { Input } from "@/components/ui/input";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -90,7 +91,6 @@ import {
   MessageScrollerProvider,
   useMessageScrollerActions,
 } from "@/components/ui/message-scroller";
-import { Input } from "@/components/ui/input";
 import { Questionnaire } from "@/components/ui/questionnaire";
 import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import { Separator } from "@/components/ui/separator";
@@ -455,7 +455,7 @@ export default function Screen() {
           includeBottomTabInset={false}
         >
           <View className="flex-row items-center justify-between gap-sp-3">
-            <View className="flex flex-row gap-2">
+            <View className="flex flex-row border">
               <SidebarTrigger accessibilityLabel="Open sidebar" />
               <Button
                 accessibilityLabel="New chat"
@@ -464,8 +464,9 @@ export default function Screen() {
                 }}
                 size="icon"
                 variant="ghost"
+                className="size-10"
               >
-                <Edit color={theme.text} size={20} />
+                <Edit color={theme.text} size={22} />
               </Button>
             </View>
             <Button
@@ -558,6 +559,7 @@ export default function Screen() {
 
               {!currentModel && ready ? (
                 <Button
+                  className="mb-12 w-full shrink-0"
                   onPress={() => {
                     router.push("/settings");
                   }}
@@ -2166,7 +2168,11 @@ const ChatInput = memo(function ChatInput({
         {pluginActions.length > 0 ? (
           <ScrollView
             className="mt-sp-2"
-            contentContainerStyle={{ flexDirection: "row", gap: 8, paddingRight: 16 }}
+            contentContainerStyle={{
+              flexDirection: "row",
+              gap: 8,
+              paddingRight: 16,
+            }}
             horizontal
             showsHorizontalScrollIndicator={false}
           >
@@ -2177,8 +2183,11 @@ const ChatInput = memo(function ChatInput({
                 onPress={() => {
                   const hasInputs =
                     Object.keys(
-                      (action.inputSchema as { properties?: object } | undefined)
-                        ?.properties ?? {},
+                      (
+                        action.inputSchema as
+                          | { properties?: object }
+                          | undefined
+                      )?.properties ?? {},
                     ).length > 0;
                   if (hasInputs) {
                     router.push(
@@ -2189,7 +2198,9 @@ const ChatInput = memo(function ChatInput({
                   runPluginAction(action.pluginId, action.name, {})
                     .then((result) => {
                       Alert.alert(
-                        typeof result === "string" ? action.title : result.title ?? action.title,
+                        typeof result === "string"
+                          ? action.title
+                          : (result.title ?? action.title),
                         typeof result === "string" ? result : result.output,
                       );
                     })

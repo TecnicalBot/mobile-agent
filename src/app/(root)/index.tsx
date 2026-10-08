@@ -90,6 +90,7 @@ import {
   MessageScrollerProvider,
   useMessageScrollerActions,
 } from "@/components/ui/message-scroller";
+import { Input } from "@/components/ui/input";
 import { Questionnaire } from "@/components/ui/questionnaire";
 import { SecretRequest } from "@/components/ui/secret-request-dialog";
 import { Separator } from "@/components/ui/separator";
@@ -246,6 +247,7 @@ export default function Screen() {
     currentSelectedFileIds,
     currentSelectedSkillIds,
     editAndResendMessage,
+    createSavedPrompt,
     messages,
     pendingToolApproval,
     pendingQuestionnaire,
@@ -292,6 +294,11 @@ export default function Screen() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<string | null>(null);
   const [editNonce, setEditNonce] = useState(0);
+  const [savePromptTitle, setSavePromptTitle] = useState("");
+  const [savePromptContent, setSavePromptContent] = useState("");
+  const [savePromptBusy, setSavePromptBusy] = useState(false);
+  const [savePromptError, setSavePromptError] = useState<string | null>(null);
+  const [savePromptOpen, setSavePromptOpen] = useState(false);
 
   useEffect(() => {
     setEditDraft(null);
@@ -314,15 +321,35 @@ export default function Screen() {
     },
     [sendMessage],
   );
-  const handleSavePrompt = useCallback(
-    (content: string) => {
-      router.push({
-        pathname: "/settings/prompts",
-        params: { text: content },
-      } as never);
-    },
-    [router],
-  );
+  const handleSavePrompt = useCallback((content: string) => {
+    setSavePromptContent(content);
+    setSavePromptTitle("");
+    setSavePromptError(null);
+    setSavePromptOpen(true);
+  }, []);
+  const submitSavedPrompt = useCallback(async () => {
+    const title = savePromptTitle.trim();
+    const content = savePromptContent.trim();
+    if (!title || !content) {
+      setSavePromptError("Title and prompt text are required.");
+      return;
+    }
+
+    setSavePromptBusy(true);
+    setSavePromptError(null);
+    try {
+      await createSavedPrompt({ content, title });
+      setSavePromptOpen(false);
+      setSavePromptContent("");
+      setSavePromptTitle("");
+    } catch (error) {
+      setSavePromptError(
+        error instanceof Error ? error.message : "Could not save prompt.",
+      );
+    } finally {
+      setSavePromptBusy(false);
+    }
+  }, [createSavedPrompt, savePromptContent, savePromptTitle]);
   const handleEditSend = useCallback(
     async (content: string) => {
       const message = messagesRef.current.find(
@@ -822,6 +849,64 @@ export default function Screen() {
                   />
                 </InfoSection>
               </DrawerBody>
+            </DrawerContent>
+          </Drawer>
+
+          <Drawer
+            onOpenChange={(open) => {
+              setSavePromptOpen(open);
+              if (!open) setSavePromptError(null);
+            }}
+            open={savePromptOpen}
+          >
+            <DrawerContent showCloseButton showHandle>
+              <DrawerHeader>
+                <DrawerTitle>Save prompt</DrawerTitle>
+                <DrawerDescription>
+                  Save this response text for reuse in any chat.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerBody contentContainerClassName="gap-sp-3">
+                <View className="gap-sp-2">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Title
+                  </Text>
+                  <Input
+                    autoFocus
+                    maxLength={80}
+                    onChangeText={setSavePromptTitle}
+                    placeholder="Professional email"
+                    value={savePromptTitle}
+                  />
+                </View>
+                <View className="gap-sp-2">
+                  <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                    Prompt text
+                  </Text>
+                  <Textarea
+                    className="min-h-44 max-h-96"
+                    onChangeText={setSavePromptContent}
+                    placeholder="Write the prompt you want to reuse."
+                    value={savePromptContent}
+                  />
+                </View>
+                {savePromptError ? (
+                  <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
+                    {savePromptError}
+                  </Text>
+                ) : null}
+              </DrawerBody>
+              <DrawerFooter>
+                <Button
+                  disabled={savePromptBusy}
+                  loading={savePromptBusy}
+                  onPress={() => {
+                    submitSavedPrompt().catch(console.error);
+                  }}
+                >
+                  Save
+                </Button>
+              </DrawerFooter>
             </DrawerContent>
           </Drawer>
         </Container>

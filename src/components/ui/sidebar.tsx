@@ -18,8 +18,8 @@ import {
   Modal as ReactNativeModal,
   ScrollView,
   Text,
-  View,
   useWindowDimensions,
+  View,
   type GestureResponderEvent,
 } from "react-native";
 import Animated, {
@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { Button } from "./button";
 
 type SidebarContextValue = {
   open: boolean;
@@ -174,29 +175,17 @@ export const SidebarTrigger = forwardRef<
   }
 
   return (
-    <Pressable
+    <Button
       ref={ref}
       accessibilityRole="button"
-      className={cn(
-        "h-12 w-12 items-center justify-center rounded-full border border-border bg-background dark:border-border-dark dark:bg-background-dark",
-        className,
-      )}
+      className={cn("size-10", className)}
       onPress={handlePress}
-      style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
+      size={"icon"}
+      variant="ghost"
       {...props}
     >
-      {children ? (
-        typeof children === "string" || typeof children === "number" ? (
-          <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-            {children}
-          </Text>
-        ) : (
-          children
-        )
-      ) : (
-        <PanelLeft color={theme.text} size={20} />
-      )}
-    </Pressable>
+      <PanelLeft color={theme.text} size={22} />
+    </Button>
   );
 });
 

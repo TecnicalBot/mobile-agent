@@ -43,6 +43,7 @@ export default function SavedPromptsScreen() {
     updateSavedPrompt,
   } = useConfig();
   const captureInFlight = useRef(false);
+  const openedFromIntent = useRef(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [editingPrompt, setEditingPrompt] = useState<SavedPrompt | null>(null);
@@ -58,6 +59,7 @@ export default function SavedPromptsScreen() {
 
   useEffect(() => {
     if (typeof text !== "string" || !text.trim()) return;
+    openedFromIntent.current = true;
     openCreate(text.trim());
     router.setParams({ text: undefined });
   }, [router, text]);
@@ -69,6 +71,7 @@ export default function SavedPromptsScreen() {
     consumePendingText()
       .then((selectedText) => {
         if (selectedText?.trim()) {
+          openedFromIntent.current = true;
           openCreate(selectedText.trim());
         }
       })
@@ -235,7 +238,13 @@ export default function SavedPromptsScreen() {
       <Drawer
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setError(null);
+          if (!nextOpen) {
+            setError(null);
+            if (openedFromIntent.current) {
+              openedFromIntent.current = false;
+              router.back();
+            }
+          }
         }}
         open={open}
       >

@@ -3,7 +3,7 @@ import type { DocumentPickerAsset } from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
-
+import { inferMimeType } from "@/core/services/external-folder/external-folder-service";
 import type { WorkspaceRepository } from "@/core/db/database";
 import type { WorkspaceFile } from "@/core/types/app-state";
 
@@ -164,6 +164,11 @@ export function resolveWorkspaceFile(relativePath: string) {
   return new File(getWorkspaceDirectory(), ...segments);
 }
 
+function mimeTypeForCreatedContent(fileName: string) {
+  const inferred = inferMimeType(fileName);
+  return inferred === "application/octet-stream" ? "text/plain" : inferred;
+}
+
 export function isTextWorkspaceFile(file: Pick<WorkspaceFile, "displayName" | "mimeType">) {
   const mimeType = file.mimeType?.toLowerCase() ?? "";
 
@@ -311,7 +316,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       return repository.create({
         id,
         displayName,
-        mimeType: input.mimeType ?? "text/plain",
+        mimeType: input.mimeType ?? mimeTypeForCreatedContent(displayName),
         originalName: displayName,
         relativePath,
         size: file.size ?? input.content.length,
@@ -344,7 +349,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
       return repository.create({
         id,
         displayName,
-        mimeType: input.mimeType ?? "text/plain",
+        mimeType: input.mimeType ?? mimeTypeForCreatedContent(displayName),
         originalName: displayName,
         relativePath,
         size: file.size ?? input.content.length,

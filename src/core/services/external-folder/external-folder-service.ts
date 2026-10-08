@@ -673,7 +673,7 @@ export function createExternalFolderService() {
   };
 }
 
-function inferMimeType(fileName: string) {
+export function inferMimeType(fileName: string) {
   const lowerName = fileName.toLowerCase();
 
   if (lowerName.endsWith(".json")) {

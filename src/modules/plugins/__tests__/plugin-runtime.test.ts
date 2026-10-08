@@ -130,6 +130,60 @@ describe("plugin-runtime output routing", () => {
     expect(out).toBe("both ways");
     expect(snapshot.pluginOutputs[0]?.output).toBe("both ways");
   });
+
+  it.each([
+    ["text", "Plain text test passed."],
+    ["markdown", "**Markdown test passed**\n\n- A list item"],
+  ])("keeps %s output in chat without creating a file", async (_, output) => {
+    const materializeResultFile = vi.fn();
+    hooksBox.fn = () => ({
+      tool: {
+        t: { description: "t", inputSchema: {}, output: "user", execute: async () => output },
+      },
+    });
+    const runtime = createPluginRuntime(storage, getModelDefaults, { materializeResultFile });
+    await runtime.load([pluginConfig("plugin/test")]);
+    const snapshot = runtime.snapshot("s");
+    const t: any = snapshot.tools["plugin_plugin_test_t"];
+    const modelResult = await t.execute({}, { abortSignal: signal() });
+    expect(materializeResultFile).not.toHaveBeenCalled();
+    expect(snapshot.pluginOutputs[0]?.output).toBe(output);
+    expect(modelResult).not.toContain(output);
+  });
+
+  it.each(["application/json", "text/html"])("materializes %s as a workspace link without sending its content to the model", async (mime) => {
+    const materializeResultFile = vi.fn(async () => ({ id: "test-file", displayName: "test-output" }));
+    hooksBox.fn = () => ({
+      tool: {
+        t: {
+          description: "t", inputSchema: {}, output: "user",
+          execute: async () => ({ mime, title: "Test", output: "file contents" }),
+        },
+      },
+    });
+    const runtime = createPluginRuntime(storage, getModelDefaults, { materializeResultFile });
+    await runtime.load([pluginConfig("plugin/test")]);
+    const snapshot = runtime.snapshot("s");
+    const t: any = snapshot.tools["plugin_plugin_test_t"];
+    const modelResult = await t.execute({}, { abortSignal: signal() });
+    expect(materializeResultFile).toHaveBeenCalledWith({ content: "file contents", mime, title: "Test" });
+    expect(snapshot.pluginOutputs[0]).toMatchObject({
+      output: "",
+      attachments: [{ uri: "workspace://test-file", mime }],
+    });
+    expect(modelResult).not.toContain("file contents");
+  });
+
+  it("preserves an image attachment and its caption", async () => {
+    const attachment = { filename: "test.png", mime: "image/png", uri: "data:image/png;base64,test" };
+    const snapshot = await setup({
+      description: "t", inputSchema: {}, output: "user",
+      execute: async () => ({ output: "Image caption", attachments: [attachment] }),
+    });
+    const t: any = snapshot.tools["plugin_plugin_test_t"];
+    await t.execute({}, { abortSignal: signal() });
+    expect(snapshot.pluginOutputs[0]).toMatchObject({ output: "Image caption", attachments: [attachment] });
+  });
 });
 
 describe("plugin-runtime actions and api.ai", () => {

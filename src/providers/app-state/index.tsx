@@ -68,6 +68,7 @@ import type {
     PluginRuntimeSnapshot,
 } from "@/modules/plugins/types";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
+import { File } from "expo-file-system";
 import {
     parseSkillMarkdown,
     serializeSkillToMarkdown,
@@ -532,9 +533,39 @@ function getHeaderNames(headers?: Record<string, string>) {
         .map(([name]) => name.trim());
 }
 
+function mimeToExtension(mime: string) {
+    switch (mime.split(";")[0].trim().toLowerCase()) {
+        case "text/html":
+            return ".html";
+        case "text/markdown":
+        case "text/x-markdown":
+            return ".md";
+        case "text/plain":
+            return ".txt";
+        case "text/csv":
+            return ".csv";
+        case "application/json":
+            return ".json";
+        case "image/png":
+            return ".png";
+        case "image/jpeg":
+            return ".jpg";
+        case "image/svg+xml":
+            return ".svg";
+        case "application/pdf":
+            return ".pdf";
+        default:
+            return ".txt";
+    }
+}
+
 export function AppStateProvider({ children }: AppStateProviderProps) {
     const db = useSQLiteContext();
     const repositoriesRef = useRef(createRepositories(db));
+    const snapshotRef = useRef<AppStateSnapshot>(EMPTY_SNAPSHOT);
+    const workspaceServiceRef = useRef(
+        createWorkspaceFileService(repositoriesRef.current.workspaceRepository),
+    );
     const pluginRuntimeRef = useRef(
         createPluginRuntime(
             repositoriesRef.current.pluginRepository.storage,
@@ -547,10 +578,68 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
                     ) ?? null;
                 return provider ? { model, provider } : null;
             },
+            {
+                materializeAttachment: async (attachment, signal) => {
+                    if (attachment.uri.startsWith("workspace://")) return attachment;
+                    const service = workspaceServiceRef.current;
+                    const name = attachment.filename ?? `plugin-file${mimeToExtension(attachment.mime)}`;
+                    let bytes: Uint8Array;
+                    if (/^https?:\/\//i.test(attachment.uri)) {
+                        const response = await fetch(attachment.uri, { signal });
+                        if (!response.ok) throw new Error(`Plugin file download failed: HTTP ${response.status}`);
+                        bytes = new Uint8Array(await response.arrayBuffer());
+                    } else if (attachment.uri.startsWith("data:")) {
+                        const match = /^data:([^,]*),(.*)$/s.exec(attachment.uri);
+                        if (!match) throw new Error("Invalid plugin data attachment.");
+                        if (match[1].endsWith(";base64")) {
+                            const decoded = atob(match[2]);
+                            bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+                        } else {
+                            bytes = new TextEncoder().encode(decodeURIComponent(match[2]));
+                        }
+                    } else if (/^(file|content):\/\//i.test(attachment.uri)) {
+                        bytes = await new File(attachment.uri).bytes();
+                    } else {
+                        throw new Error("Unsupported plugin attachment URI. Use a workspace, HTTP(S), data, or local file URI.");
+                    }
+                    signal.throwIfAborted();
+                    const file = await service.importBytesFile({ bytes, name, mimeType: attachment.mime });
+                    setSnapshot((current) => ({
+                        ...current,
+                        workspaceFiles: upsertWorkspaceFiles(current.workspaceFiles, [file]),
+                    }));
+                    return { filename: file.displayName, mime: attachment.mime, uri: `workspace://${file.id}` };
+                },
+                materializeResultFile: async ({ content, mime, title }) => {
+                    const mediaType = mime.split(";")[0].trim().toLowerCase();
+                    if (!(mediaType.startsWith("text/") || [
+                        "application/json", "application/xml", "application/javascript", "image/svg+xml",
+                    ].includes(mediaType))) {
+                        throw new Error("Binary plugin results must use attachments with a URI, not a text output field.");
+                    }
+                    const extension = mimeToExtension(mime);
+                    const base =
+                        (title ?? "plugin-result")
+                            .trim()
+                            .toLowerCase()
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/^-+|-+$/g, "") || "plugin-result";
+                    const service = workspaceServiceRef.current;
+                    await service.ensureWorkspaceDirectory();
+                    const file = await service.createTextFile({
+                        content,
+                        mimeType: mime,
+                        name: `${base}${extension}`,
+                    });
+                    setSnapshot((current) => ({
+                        ...current,
+                        workspaceFiles: upsertWorkspaceFiles(current.workspaceFiles, [file]),
+                    }));
+
+                    return { id: file.id, displayName: file.displayName };
+                },
+            },
         ),
-    );
-    const workspaceServiceRef = useRef(
-        createWorkspaceFileService(repositoriesRef.current.workspaceRepository),
     );
     const externalFolderServiceRef = useRef(createExternalFolderService());
     const runRegistryRef = useRef(createRunControllerRegistry());
@@ -586,7 +675,6 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
         id: string;
         title: string;
     } | null>(null);
-    const snapshotRef = useRef(snapshot);
     const pendingToolApprovalsRef = useRef<PendingToolApproval[]>(
         pendingToolApprovals,
     );

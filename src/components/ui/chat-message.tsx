@@ -118,6 +118,9 @@ import {
   saveCustomPresets,
 } from "@/modules/chat/regenerate-presets";
 import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
+import { useSQLiteContext } from "expo-sqlite";
+import { createDrizzleDb } from "@/core/db/repositories/shared";
+import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
 import { Asset } from "expo-media-library";
 
@@ -410,6 +413,7 @@ function CopyableMarkdownBlock({
 }
 
 const MAX_HIGHLIGHT_LENGTH = 4000;
+
 const PREVIEWABLE_LANGUAGES = new Set(["htm", "html", "svg", "xml"]);
 
 function isPreviewableLanguage(language: string) {
@@ -1025,6 +1029,11 @@ export const ChatMessage = memo(function ChatMessage({
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
   };
+  const sqlite = useSQLiteContext();
+  const workspaceRepository = useMemo(
+    () => createWorkspaceRepository(createDrizzleDb(sqlite)),
+    [sqlite],
+  );
   const handleLinkPress = useCallback(
     (url: string) => {
       const workspaceFile = workspaceFileFromUrl(url, workspaceFiles);
@@ -1034,11 +1043,19 @@ export const ChatMessage = memo(function ChatMessage({
         return false;
       }
 
+      if (url.startsWith("workspace://")) {
+        const id = url.slice("workspace://".length);
+        workspaceRepository.getById(id).then((file) => {
+          if (file) setPreviewFile(file);
+          else Alert.alert("File unavailable", "This file is no longer in the workspace.");
+        }).catch((error) => Alert.alert("Could not open file", String(error)));
+        return false;
+      }
       openExternalLink(url).catch(console.error);
 
       return false;
     },
-    [setPreviewFile, workspaceFiles],
+    [setPreviewFile, workspaceFiles, workspaceRepository],
   );
   const closePreview = () => {
     setImageAction(null);
@@ -1550,37 +1567,36 @@ export const ChatMessage = memo(function ChatMessage({
                   {pluginOutputs.length > 0 ? (
                     <View className="gap-sp-2">
                       {pluginOutputs.map((entry, index) => (
-                        <View
-                          className="rounded-lg border border-border bg-muted p-3"
-                          key={`${entry.pluginId}-${entry.toolName}-${index}`}
-                        >
-                          <Text className="font-semibold text-foreground">
-                            {entry.title ?? entry.toolName}
-                          </Text>
-                          <Text className="text-sm text-muted-foreground">
-                            {entry.output}
-                          </Text>
-                          {entry.attachments?.map((attachment, index) =>
-                            attachment.mime.startsWith("image/") ? (
-                              <Image
-                                key={`${attachment.uri}-${index}`}
-                                source={{ uri: attachment.uri }}
-                                style={{
-                                  width: 240,
-                                  height: 160,
-                                  borderRadius: 8,
-                                }}
-                                contentFit="cover"
-                              />
-                            ) : (
-                              <Text
-                                className="text-sm text-primary"
-                                key={`${attachment.uri}-${index}`}
-                              >
-                                {attachment.filename ?? attachment.uri}
-                              </Text>
-                            ),
-                          )}
+                        <View key={`${entry.pluginId}-${entry.toolName}-${index}`}>
+                          {entry.output ? <MarkdownContent
+                            content={entry.output}
+                            onLinkPress={handleLinkPress}
+                            styles={markdownStyles}
+                          /> : null}
+                          {(entry.attachments ?? []).map((attachment, attachmentIndex) => {
+                              const label = (attachment.filename ?? "Open file")
+                                .replace(/\[/g, "\\[")
+                                .replace(/\]/g, "\\]");
+                              const file = workspaceFileFromUrl(attachment.uri, workspaceFiles);
+                              const uri = file
+                                  ? resolveWorkspaceFile(file.relativePath).uri
+                                  : attachment.uri;
+                              return (
+                                <View key={`${attachment.uri}-${attachmentIndex}`}>
+                                  {attachment.mime.startsWith("image/") ? (
+                                    <Pressable onPress={() => handleLinkPress(attachment.uri)}>
+                                      <MarkdownImage alt={attachment.filename ?? "Image"} uri={uri} />
+                                    </Pressable>
+                                  ) : (
+                                    <MarkdownContent
+                                      content={`[${label}](<${attachment.uri}>)`}
+                                      onLinkPress={handleLinkPress}
+                                      styles={markdownStyles}
+                                    />
+                                  )}
+                                </View>
+                              );
+                          })}
                         </View>
                       ))}
                     </View>

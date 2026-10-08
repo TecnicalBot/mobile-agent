@@ -126,7 +126,9 @@ export default function ConnectedPluginsScreen() {
                     </Button>
                     <Button
                       onPress={() =>
-                        router.push(`/settings/plugins/${plugin.id}` as never)
+                        router.push(
+                          `/settings/plugins/${encodeURIComponent(plugin.id)}` as never,
+                        )
                       }
                       size="sm"
                       variant="outline"

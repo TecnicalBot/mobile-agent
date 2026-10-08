@@ -19,6 +19,7 @@ import {
 import type {
   LoadedPlugin,
   PluginActionInfo,
+  PluginAttachment,
   PluginEventName,
   PluginHostContext,
   PluginKeyValueStore,
@@ -51,6 +52,14 @@ export function createPluginRuntime(
     model: ResolvedModel;
     provider: ProviderConfig;
   } | null,
+  options?: {
+    materializeAttachment?: (attachment: PluginAttachment, signal: AbortSignal) => Promise<PluginAttachment>;
+    materializeResultFile?: (input: {
+      content: string;
+      mime: string;
+      title?: string;
+    }) => Promise<{ displayName: string; id: string } | null>;
+  },
 ) {
   let loaded: LoadedPlugin[] = [];
 
@@ -211,6 +220,11 @@ export function createPluginRuntime(
                     },
                   );
                   const routing = definition.output ?? "model";
+                  if (result === undefined || result === null) {
+                    throw new Error(
+                      "Plugin tool returned no result. Its execute() must return a string or an object with an output field.",
+                    );
+                  }
                   const outputText =
                     typeof result === "string" ? result : result.output;
                   const title =
@@ -221,20 +235,57 @@ export function createPluginRuntime(
                     typeof result === "string"
                       ? liveMetadata
                       : { ...liveMetadata, ...result.metadata };
-                  const attachments =
-                    typeof result === "string" ? undefined : result.attachments;
+                  const resultMime =
+                    typeof result === "string" ? undefined : result.mime;
+                  let createdFile: { id: string; displayName: string } | null =
+                    null;
+
+                  if (
+                    typeof result === "object" &&
+                    resultMime &&
+                    result.output &&
+                    options?.materializeResultFile
+                  ) {
+                    createdFile = await options.materializeResultFile({
+                      content: result.output,
+                      mime: resultMime,
+                      title,
+                    });
+                  }
+
+                  const attachments = [
+                    ...await Promise.all(
+                      (typeof result === "string" ? [] : (result.attachments ?? []))
+                        .map((attachment) => options?.materializeAttachment
+                          ? options.materializeAttachment(attachment, timeout.signal)
+                          : attachment),
+                    ),
+                    ...(createdFile && resultMime
+                      ? [
+                          {
+                            filename: createdFile.displayName,
+                            mime: resultMime,
+                            uri: `workspace://${createdFile.id}`,
+                          },
+                        ]
+                      : []),
+                  ];
+                  const mime = resultMime;
+                  const recordText = createdFile ? "" : outputText;
 
                   if (routing === "user" || routing === "both") {
                     if (liveRecordPushed) {
-                      liveRecord.output = outputText;
+                      liveRecord.output = recordText;
                       liveRecord.title = title;
                       liveRecord.metadata = metadata;
                       liveRecord.attachments = attachments;
+                      liveRecord.mime = mime;
                     } else {
                       pluginOutputs.push({
                         attachments,
                         metadata,
-                        output: outputText,
+                        mime,
+                        output: recordText,
                         pluginId: plugin.id,
                         title,
                         toolName: name,

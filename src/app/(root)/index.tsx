@@ -2191,7 +2191,7 @@ const ChatInput = memo(function ChatInput({
                     ).length > 0;
                   if (hasInputs) {
                     router.push(
-                      `/settings/plugins/${action.pluginId}` as never,
+                      `/settings/plugins/${encodeURIComponent(action.pluginId)}` as never,
                     );
                     return;
                   }

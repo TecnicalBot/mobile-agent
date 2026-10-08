@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import android.media.MediaScannerConnection
 import java.io.File
 import java.io.FileInputStream
@@ -306,11 +307,28 @@ private class SafFileOperations(private val context: Context) {
       )
     }
 
+    // ExternalStorageProvider rewrites the created name as
+    // addExtension(mimeType, removeExtension(mimeType, name)). When the
+    // requested mime type's canonical extension differs from the name's
+    // extension, the provider appends its own (e.g. "foo.js" created as
+    // text/plain becomes "foo.js.txt"). Align the mime type with the name's
+    // extension so the round-trip keeps the exact name.
+    val effectiveMimeType =
+      if (isDirectory) {
+        mimeType
+      } else {
+        val extension = name.substringAfterLast('.', "").lowercase()
+        val canonicalMime =
+          extension.takeIf { it.isNotEmpty() }
+            ?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+        if (canonicalMime != null) canonicalMime else mimeType ?: "application/octet-stream"
+      }
+
     val created = DocumentsContract.createDocument(
       resolver,
       asDocumentUri(parentUri),
       if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR
-      else mimeType ?: "application/octet-stream",
+      else effectiveMimeType,
       name,
     ) ?: throw IllegalStateException("The storage provider could not create \"$name\".")
 

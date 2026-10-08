@@ -24,8 +24,9 @@ export type PluginToolResult =
   | string
   | {
       attachments?: PluginAttachment[];
-      output: string;
       metadata?: Record<string, unknown>;
+      mime?: string;
+      output: string;
       title?: string;
     };
 

@@ -367,6 +367,7 @@ export type MessageMetadata = {
 export type PluginOutputRecord = {
   attachments?: import("@/modules/plugins/types").PluginAttachment[];
   metadata?: Record<string, unknown>;
+  mime?: string;
   output: string;
   pluginId: string;
   title?: string;

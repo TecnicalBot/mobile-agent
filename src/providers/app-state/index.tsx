@@ -40,12 +40,17 @@ import {
 } from "background-agent-service";
 import {
     clearOpenAiTokensForAccount,
-    getOpenAiAccessToken,
-    getOpenAiRefreshToken,
     getOpenAiTokenInfo,
     getOpenAiTokenInfoForAccount,
     handleLogin,
 } from "@/modules/providers/openai-oauth";
+import {
+    clearOpenAiChatGptTokensForAccount,
+    getOpenAiChatGptTokenInfo,
+    getOpenAiChatGptTokenInfoForAccount,
+    handleChatGptLogin,
+} from "@/modules/providers/openai-chatgpt-oauth";
+import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import { getSupportedProviderDefinition } from "@/modules/providers";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
 import { modelRuntime } from "@/modules/runtime/model-runtime";
@@ -186,7 +191,7 @@ type AppStateContextValue = {
     clearWorkspaceFiles: () => Promise<void>;
     deleteWorkspaceFile: (fileId: string) => Promise<void>;
     clearMcpServerCredentials: (serverId: string) => Promise<void>;
-    connectOpenAIOAuth: () => Promise<void>;
+    connectOpenAIOAuth: (providerId?: string) => Promise<void>;
     connectMcpServerOAuth: (serverId: string) => Promise<void>;
     createProviderAccount: (input: {
         apiKey?: string;
@@ -359,7 +364,7 @@ type AppStateContextValue = {
     deletePlugin: (pluginId: string) => Promise<void>;
     importPlugin: (source: string, sourceUrl?: string) => Promise<PluginConfig>;
     deleteSavedPrompt: (savedPromptId: string) => Promise<void>;
-    disconnectOpenAIOAuth: () => Promise<void>;
+    disconnectOpenAIOAuth: (providerId?: string) => Promise<void>;
     error: string | null;
     hydrating: boolean;
     modelDiscoveryInProgress: boolean;
@@ -2957,10 +2962,13 @@ Your output must be:
         await hydrate();
     }
 
-    function setOpenAIOAuthEmailInSnapshot(email: string | null) {
+    function setOAuthEmailInSnapshot(
+        providerId: string,
+        email: string | null,
+    ) {
         setSnapshot((current) => {
             const providers = current.resolvedConfig.providers.map((provider) =>
-                provider.id === "openai"
+                provider.id === providerId
                     ? { ...provider, oauthAccountEmail: email }
                     : provider,
             );
@@ -2978,17 +2986,31 @@ Your output must be:
         });
     }
 
-    async function persistOpenAIOAuthEmail(email: string | null) {
+    async function persistOAuthEmail(
+        providerId: string,
+        email: string | null,
+    ) {
         try {
             await repositoriesRef.current.configRepository.setProviderOauthEmail(
-                "openai",
+                providerId,
                 email,
             );
         } catch { }
     }
 
-    async function connectOpenAIOAuth() {
-        const providerId = "openai";
+    async function readOAuthTokenInfo(providerId: string, accountId: string | null) {
+        if (getOpenAiOAuthFlavor(providerId) === "chatgpt") {
+            return accountId
+                ? await getOpenAiChatGptTokenInfoForAccount(accountId)
+                : await getOpenAiChatGptTokenInfo();
+        }
+
+        return accountId
+            ? await getOpenAiTokenInfoForAccount(accountId)
+            : await getOpenAiTokenInfo();
+    }
+
+    async function connectOpenAIOAuth(providerId: string = "openai") {
         const accountRepo = repositoriesRef.current.providerAccountRepository;
         let accountId =
             (await secureSecretStore.getActiveProviderAccountId(providerId)) ?? null;
@@ -2998,45 +3020,57 @@ Your output must be:
             accountId = accounts[0]?.id ?? null;
         }
 
-        await handleLogin(accountId ? { accountId } : undefined);
-
-        const startedAt = Date.now();
-
-        while (Date.now() - startedAt < 20000) {
-            const [accessToken, refreshToken] = await Promise.all([
-                getOpenAiAccessToken(),
-                getOpenAiRefreshToken(),
-            ]);
-
-            if (accessToken || refreshToken) {
-                break;
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 500));
+        if (getOpenAiOAuthFlavor(providerId) === "chatgpt") {
+            await handleChatGptLogin(accountId ? { accountId } : undefined);
+        } else {
+            await handleLogin(accountId ? { accountId } : undefined);
         }
 
-        const tokenInfo = accountId
-            ? await getOpenAiTokenInfoForAccount(accountId)
-            : await getOpenAiTokenInfo();
-        setOpenAIOAuthEmailInSnapshot(tokenInfo.email);
-        await persistOpenAIOAuthEmail(tokenInfo.email);
+        const startedAt = Date.now();
+        let tokenInfo = await readOAuthTokenInfo(providerId, accountId);
+
+        while (
+            !tokenInfo.accessToken &&
+            !tokenInfo.refreshToken &&
+            Date.now() - startedAt < 20000
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            tokenInfo = await readOAuthTokenInfo(providerId, accountId);
+        }
+
+        // The ChatGPT-plan provider ships disabled so it stays hidden until the
+        // user signs in. Activate it once a credential actually exists, otherwise
+        // the status never leaves "Not set up".
+        if (tokenInfo.accessToken || tokenInfo.refreshToken) {
+            await repositoriesRef.current.configRepository
+                .updateProvider(providerId, { enabled: true })
+                .catch(() => { });
+        }
+
+        setOAuthEmailInSnapshot(providerId, tokenInfo.email);
+        await persistOAuthEmail(providerId, tokenInfo.email);
         await hydrate().catch(() => { });
     }
 
-    async function disconnectOpenAIOAuth() {
-        const providerId = "openai";
+    async function disconnectOpenAIOAuth(providerId: string = "openai") {
         const accountId =
             await secureSecretStore.getActiveProviderAccountId(providerId);
+        const flavor = getOpenAiOAuthFlavor(providerId);
 
         if (accountId) {
-            await clearOpenAiTokensForAccount(accountId);
+            if (flavor === "chatgpt") {
+                await clearOpenAiChatGptTokensForAccount(accountId);
+            } else {
+                await clearOpenAiTokensForAccount(accountId);
+            }
+
             await secureSecretStore.setActiveProviderAccount(providerId, null);
         } else {
             await secureSecretStore.deleteLegacyProviderApiKey(providerId);
         }
 
-        setOpenAIOAuthEmailInSnapshot(null);
-        await persistOpenAIOAuthEmail(null);
+        setOAuthEmailInSnapshot(providerId, null);
+        await persistOAuthEmail(providerId, null);
         await hydrate().catch(() => { });
     }
 

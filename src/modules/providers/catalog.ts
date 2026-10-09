@@ -3,6 +3,7 @@ import { GOOGLE_PROVIDER } from "@/modules/providers/google";
 import { OPENAI_COMPATIBLE_PROFILE_PROVIDERS } from "@/modules/providers/openai-compatible";
 import {
   OPENAI_API_PROVIDER,
+  OPENAI_CHATGPT_PROVIDER,
   OPENAI_OAUTH_PROVIDER,
 } from "@/modules/providers/openai";
 import { OPENROUTER_PROVIDER } from "@/modules/providers/openrouter";
@@ -21,6 +22,7 @@ import { createModelRef } from "@/core/types/app-state";
 
 const SUPPORTED_PROVIDERS = [
   OPENAI_OAUTH_PROVIDER,
+  OPENAI_CHATGPT_PROVIDER,
   OPENAI_API_PROVIDER,
   ANTHROPIC_PROVIDER,
   GOOGLE_PROVIDER,
@@ -87,6 +89,7 @@ export function resolveConfiguredModel(input: {
     hintCapabilities: storedCapabilities ?? suggestion.capabilities,
     hintTransport: suggestion.transport,
     modelId: suggestion.id,
+    providerId: input.provider.id,
   });
 
   return {

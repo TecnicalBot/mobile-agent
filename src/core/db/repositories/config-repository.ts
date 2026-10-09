@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { normalizeBuiltInToolSettings } from "@/modules/config/built-in-tools";
 import { DEFAULT_PROVIDER_CONFIGS } from "@/modules/config/registry";
@@ -80,6 +80,30 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
               family: provider.family,
             },
           });
+      }
+
+      // Built-in labels we renamed after they first shipped. Only overwrite the
+      // stored value when it is still the old default, so custom labels survive.
+      const renamedLabels: Record<string, string> = {
+        openai: "OpenAI (ChatGPT OAuth)",
+      };
+
+      for (const provider of DEFAULT_PROVIDER_CONFIGS) {
+        const previousLabel = renamedLabels[provider.id];
+
+        if (!previousLabel || previousLabel === provider.label) {
+          continue;
+        }
+
+        await db
+          .update(providerConfigs)
+          .set({ label: provider.label, updatedAt: nowIso() })
+          .where(
+            and(
+              eq(providerConfigs.id, provider.id),
+              eq(providerConfigs.label, previousLabel),
+            ),
+          );
       }
     },
     async getSettings() {

@@ -315,7 +315,7 @@ private class SafFileOperations(private val context: Context) {
     // extension so the round-trip keeps the exact name.
     val effectiveMimeType =
       if (isDirectory) {
-        mimeType
+        mimeType ?: DocumentsContract.Document.MIME_TYPE_DIR
       } else {
         val extension = name.substringAfterLast('.', "").lowercase()
         val canonicalMime =

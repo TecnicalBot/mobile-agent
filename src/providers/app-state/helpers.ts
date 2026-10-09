@@ -595,14 +595,3 @@ export function buildAssistantTextFromToolExecutions(
 export function describePromptArtifactLocation(artifact: PromptArtifact) {
   return `${artifact.relativePath} (${artifact.displayName})`;
 }
-
-export function isCodexOAuthModel(modelId: string) {
-  const CODEX_OAUTH_MODELS = new Set(["gpt-5.5"]);
-
-  if (CODEX_OAUTH_MODELS.has(modelId)) {
-    return true;
-  }
-
-  const version = modelId.match(/^gpt-(\d+\.\d+)/)?.[1];
-  return version ? Number(version) > 5.4 : false;
-}

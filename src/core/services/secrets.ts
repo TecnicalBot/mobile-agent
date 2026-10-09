@@ -10,6 +10,11 @@ import {
   getOpenAiRefreshToken,
   getOpenAiTokenInfoForAccount,
 } from "@/modules/providers/openai-oauth";
+import {
+  getOpenAiChatGptTokenInfo,
+  getOpenAiChatGptTokenInfoForAccount,
+} from "@/modules/providers/openai-chatgpt-oauth";
+import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import type { ProviderConfig } from "@/core/types/app-state";
 
 function getLegacyProviderApiKeyKey(providerId: string) {
@@ -309,17 +314,27 @@ export const secureSecretStore: SecretStore = {
     return SecureStore.getItemAsync(getLegacyProviderApiKeyKey(providerId));
   },
   async hasProviderCredential(provider) {
-    if (!provider.enabled) {
-      return false;
-    }
-
-    if (provider.authType === "none") {
-      return true;
-    }
-
+    // OAuth providers (OpenAI Codex sign-in and the ChatGPT plan) derive
+    // readiness from their stored tokens. The ChatGPT-plan provider ships
+    // `enabled: false` so it stays hidden until sign-in and has no UI toggle,
+    // so gating on `enabled` here would leave a connected account stuck on
+    // "Not set up".
     if (provider.authType === "oauth") {
       const activeAccountId =
         await SecureStore.getItemAsync(getActiveProviderAccountKey(provider.id));
+
+      if (getOpenAiOAuthFlavor(provider.id) === "chatgpt") {
+        if (activeAccountId) {
+          const info =
+            await getOpenAiChatGptTokenInfoForAccount(activeAccountId);
+
+          return Boolean(info.accessToken || info.refreshToken);
+        }
+
+        const info = await getOpenAiChatGptTokenInfo();
+
+        return Boolean(info.accessToken || info.refreshToken);
+      }
 
       if (activeAccountId) {
         const info = await getOpenAiTokenInfoForAccount(activeAccountId);
@@ -333,6 +348,14 @@ export const secureSecretStore: SecretStore = {
       ]);
 
       return Boolean(accessToken || refreshToken);
+    }
+
+    if (!provider.enabled) {
+      return false;
+    }
+
+    if (provider.authType === "none") {
+      return true;
     }
 
     const activeAccountId =

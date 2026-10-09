@@ -9,6 +9,8 @@ import {
   createOpenAIClient,
   getOpenAIProviderTools,
 } from "@/modules/providers/openai-client";
+import { isOpenAiChatGptProvider } from "@/modules/providers/openai";
+import { NON_RETRYABLE_CHATGPT_SHARING_CODES } from "@/modules/providers/openai-chatgpt-oauth";
 import {
   generateViaAISDK,
   generateViaAISDKNonStreaming,
@@ -30,7 +32,7 @@ function mergeTools(
   } as Parameters<ModelRuntime["generateTextStream"]>[0]["tools"];
 }
 
-function normalizeCodexOAuthError(error: unknown) {
+function extractOAuthErrorMessage(error: unknown) {
   const details =
     error && typeof error === "object"
       ? (error as {
@@ -39,14 +41,20 @@ function normalizeCodexOAuthError(error: unknown) {
           statusCode?: number;
         })
       : undefined;
-  const message =
+
+  return (
     [
       details?.statusCode ? `HTTP ${details.statusCode}` : undefined,
       details?.message,
       details?.responseBody,
     ]
       .filter((part): part is string => Boolean(part?.trim()))
-      .join(": ") || String(error);
+      .join(": ") || String(error)
+  );
+}
+
+function normalizeCodexOAuthError(error: unknown) {
+  const message = extractOAuthErrorMessage(error);
 
   if (/\b401\b|unauthorized/i.test(message)) {
     return new Error(
@@ -57,6 +65,28 @@ function normalizeCodexOAuthError(error: unknown) {
   return new Error(message, {
     cause: error,
   });
+}
+
+function normalizeChatGptOAuthError(error: unknown) {
+  const message = extractOAuthErrorMessage(error);
+  const isSharingRestriction = NON_RETRYABLE_CHATGPT_SHARING_CODES.some(
+    (code) => message.includes(code),
+  );
+
+  if (isSharingRestriction) {
+    return new Error(
+      "Your ChatGPT plan cannot be used here right now. Check your plan usage in ChatGPT settings, or connect an OpenAI API key instead.",
+      { cause: error },
+    );
+  }
+
+  if (/\b401\b|unauthorized/i.test(message)) {
+    return new Error(
+      "Your ChatGPT plan session expired. Please connect ChatGPT again.",
+    );
+  }
+
+  return new Error(message, { cause: error });
 }
 
 function prepareCodexOAuthParams(
@@ -89,6 +119,41 @@ function prepareCodexOAuthParams(
     // The Codex Responses endpoint expects the prompt in `instructions`.
     // Leaving it here makes the AI SDK add a system/developer input item too.
     system: undefined,
+  };
+}
+
+function prepareChatGptOAuthParams(
+  params: Parameters<ModelRuntime["generateTextStream"]>[0],
+) {
+  if (params.model.transport !== "openaiResponses") {
+    return params;
+  }
+
+  const openaiOptions =
+    (params.providerOptions?.openai as Record<string, unknown> | undefined) ??
+    {};
+
+  return {
+    ...params,
+    providerOptions: {
+      ...(params.providerOptions ?? {}),
+      openai: {
+        ...openaiOptions,
+        store: false,
+      },
+    },
+    // ChatGPT derives prompt-cache affinity from these session headers, the
+    // same way the official Codex client does.
+    requestHeaders: {
+      ...(params.requestHeaders ?? {}),
+      ...(params.sessionId
+        ? {
+            "session-id": params.sessionId,
+            "thread-id": params.sessionId,
+            "x-client-request-id": params.sessionId,
+          }
+        : {}),
+    },
   };
 }
 
@@ -309,16 +374,29 @@ export const modelRuntime: ModelRuntime = {
       params.model.transport === "codexResponses"
         ? provider.responses(params.model.modelId)
         : provider.chat(params.model.modelId);
-    const runtimeParams = prepareCodexOAuthParams({
-      ...params,
-      tools: mergeTools(params.tools, providerTools),
-    });
+    const isChatGptPlan =
+      params.provider.family === "openai" &&
+      params.provider.authType === "oauth" &&
+      isOpenAiChatGptProvider(params.provider.id);
+    const runtimeParams = isChatGptPlan
+      ? prepareChatGptOAuthParams({
+          ...params,
+          tools: mergeTools(params.tools, providerTools),
+        })
+      : prepareCodexOAuthParams({
+          ...params,
+          tools: mergeTools(params.tools, providerTools),
+        });
 
     try {
       return shouldUseStreamingAISDK()
         ? await generateViaAISDK(languageModel, runtimeParams)
         : await generateViaAISDKNonStreaming(languageModel, runtimeParams);
     } catch (error) {
+      if (isChatGptPlan) {
+        throw normalizeChatGptOAuthError(error);
+      }
+
       if (params.model.transport === "codexResponses") {
         throw normalizeCodexOAuthError(error);
       }

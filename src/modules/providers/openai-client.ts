@@ -8,13 +8,21 @@ import {
   setOpenAiTokens,
   setOpenAiTokensForAccount,
 } from "@/modules/providers/openai-oauth";
+import {
+  forceRefreshOpenAiChatGptTokenForAccount,
+  getValidOpenAiChatGptTokenInfo,
+  getValidOpenAiChatGptTokenInfoForAccount,
+} from "@/modules/providers/openai-chatgpt-oauth";
+import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import { getOllamaOpenAIBaseUrl } from "@/modules/providers/ollama-models";
 import type { ModelRuntime } from "@/modules/runtime/drivers/types";
 import type { SecretStore } from "@/core/services/secrets";
 import type { ProviderConfig, ResolvedModel } from "@/core/types/app-state";
 
 const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
-const OAUTH_DUMMY_API_KEY = "oauth";
+// Required by the AI SDK but never sent: the fetch override replaces the
+// Authorization header with the live OAuth access token on every request.
+const OAUTH_PLACEHOLDER_API_KEY = "oauth";
 
 function copyHeaders(initHeaders?: HeadersInit) {
   const headers = new Headers();
@@ -164,6 +172,85 @@ async function fetchWithCodexOAuth(
   return response;
 }
 
+const CHATGPT_UNSUPPORTED_BODY_FIELDS = new Set([
+  "previous_response_id",
+  "truncation",
+]);
+
+function buildChatGptRequestInit(init?: RequestInit): RequestInit | undefined {
+  if (typeof init?.body !== "string") {
+    return init;
+  }
+
+  try {
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+
+    for (const field of CHATGPT_UNSUPPORTED_BODY_FIELDS) {
+      delete body[field];
+    }
+
+    return {
+      ...init,
+      body: JSON.stringify({ ...body, store: false }),
+    };
+  } catch {
+    return init;
+  }
+}
+
+async function fetchWithChatGptOAuth(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  accountId?: string | null,
+): Promise<Response> {
+  let session = accountId
+    ? await getValidOpenAiChatGptTokenInfoForAccount(accountId)
+    : await getValidOpenAiChatGptTokenInfo();
+
+  if (!session.accessToken) {
+    throw new Error(
+      "Missing ChatGPT plan access token. Please connect the ChatGPT plan first.",
+    );
+  }
+
+  const requestInit = buildChatGptRequestInit(init);
+  const send = (accessToken: string) => {
+    const headers = copyHeaders(
+      requestInit?.headers ??
+        (typeof input === "string" || input instanceof URL
+          ? undefined
+          : input.headers),
+    );
+
+    headers.delete("authorization");
+    headers.set("authorization", `Bearer ${accessToken}`);
+
+    return fetch(input, {
+      ...requestInit,
+      headers,
+    });
+  };
+
+  let response = await send(session.accessToken);
+
+  if (
+    response.status === 401 &&
+    accountId &&
+    session.refreshToken &&
+    session.clientId
+  ) {
+    session = await forceRefreshOpenAiChatGptTokenForAccount(accountId).catch(
+      () => session,
+    );
+
+    if (session.accessToken) {
+      response = await send(session.accessToken);
+    }
+  }
+
+  return response;
+}
+
 export async function createOpenAIClient(input: {
   provider: ProviderConfig;
   secretStore: SecretStore;
@@ -173,8 +260,18 @@ export async function createOpenAIClient(input: {
       input.provider.id,
     );
 
+    if (getOpenAiOAuthFlavor(input.provider.id) === "chatgpt") {
+      return createOpenAI({
+        apiKey: OAUTH_PLACEHOLDER_API_KEY,
+        baseURL: input.provider.baseUrl || "https://api.openai.com/v1",
+        fetch: (request, init) =>
+          fetchWithChatGptOAuth(request, init, activeAccountId),
+        name: "openai",
+      });
+    }
+
     return createOpenAI({
-      apiKey: OAUTH_DUMMY_API_KEY,
+      apiKey: OAUTH_PLACEHOLDER_API_KEY,
       baseURL: "https://api.openai.com/v1",
       fetch: (request, init) =>
         fetchWithCodexOAuth(request, init, activeAccountId),

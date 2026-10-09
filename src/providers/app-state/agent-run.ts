@@ -34,6 +34,7 @@ import {
   partitionSelectedFiles,
 } from "@/modules/runtime/message-conversion";
 import { modelRuntime } from "@/modules/runtime/model-runtime";
+import { NON_RETRYABLE_CHATGPT_SHARING_CODES } from "@/modules/providers/openai-chatgpt-oauth";
 import {
   buildModelPromptArtifact,
   buildToolContextArtifact,
@@ -204,6 +205,14 @@ function classifyRetryableError(error: unknown): {
 } {
   const message =
     error instanceof Error ? error.message : String(error);
+
+  if (
+    NON_RETRYABLE_CHATGPT_SHARING_CODES.some((code) =>
+      message.includes(code),
+    )
+  ) {
+    return { retryable: false, category: "permanent" };
+  }
 
   if (
     /timeout|timed ?out|network error|fetch failed|5\d\d|service unavailable|econnrefused|enotfound|socket hang up|request aborted/i.test(

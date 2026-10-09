@@ -4,6 +4,7 @@ import type {
   ProviderAuthType,
   ProviderFamily,
 } from "@/core/types/app-state";
+import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 
 export type ModelProfile = {
   capabilities: ModelCapabilities;
@@ -86,8 +87,32 @@ export function resolveModelProfile(input: {
   hintCapabilities?: Partial<ModelCapabilities>;
   hintTransport?: ModelTransport;
   modelId: string;
+  providerId?: string;
 }): ModelProfile {
   const { authType, family, hintCapabilities, hintTransport, modelId } = input;
+  const oauthFlavor =
+    family === "openai" && authType === "oauth"
+      ? getOpenAiOAuthFlavor(input.providerId ?? "")
+      : null;
+
+  if (family === "openai" && authType === "oauth" && oauthFlavor === "chatgpt") {
+    // Official ChatGPT plan usage: public Responses API. The shared plan
+    // serves chat/reasoning models with vision, but never image generation
+    // (`subscription_sharing_unsupported_capability` rejects that route).
+    return {
+      transport: "openaiResponses",
+      capabilities: {
+        ...FAMILY_DEFAULT_CAPABILITIES.openai,
+        ...hintCapabilities,
+        tools: hintCapabilities?.tools ?? true,
+        imageGeneration: false,
+        imageInput: hintCapabilities?.imageInput ?? true,
+        reasoning:
+          hintCapabilities?.reasoning ??
+          modelIdLikelySupportsReasoning(modelId),
+      },
+    };
+  }
 
   if (family === "openai" && authType === "oauth") {
     return {

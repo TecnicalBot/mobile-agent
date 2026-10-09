@@ -10,12 +10,25 @@ import {
   getOnDeviceModelDefinitions,
 } from "@/modules/on-device/catalog";
 import { fetchOllamaModels } from "@/modules/providers/ollama-models";
+import {
+  fetchCodexModelCatalogCached,
+  getCodexBuiltInModels,
+  isCodexOAuthModel,
+} from "@/modules/providers/codex-models-catalog";
+import {
+  discoverChatGptModels,
+  getFallbackChatGptModels,
+} from "@/modules/providers/openai-chatgpt-models";
+import {
+  getValidOpenAiChatGptTokenInfo,
+  getValidOpenAiChatGptTokenInfoForAccount,
+} from "@/modules/providers/openai-chatgpt-oauth";
+import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import { resolveConfiguredModel } from "@/modules/config/registry";
 import { secureSecretStore } from "@/core/services/secrets";
 import {
   hasEnabledFolderTools,
   hasEnabledWorkspaceTools,
-  isCodexOAuthModel,
 } from "./helpers";
 import type {
   AppSettings,
@@ -94,6 +107,7 @@ export async function resolveConfig(
     getBundledOnDeviceModelCatalog(),
   );
   const ollamaModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
+  const chatgptModelsByProvider: Record<string, CuratedModelDefinition[]> = {};
   const providerModelDiscovery: ResolvedConfig["providerModelDiscovery"] = {};
   const needsModelsDevCatalog = input.providers.some(
     (provider) =>
@@ -148,39 +162,82 @@ export async function resolveConfig(
           };
         }
       }),
+    ...(discoverRemote ? input.providers : [])
+      .filter(
+        (provider) =>
+          provider.family === "openai" &&
+          provider.authType === "oauth" &&
+          getOpenAiOAuthFlavor(provider.id) === "chatgpt" &&
+          activeProviderIds.includes(provider.id),
+      )
+      .map(async (provider) => {
+        try {
+          const accountId =
+            await secureSecretStore.getActiveProviderAccountId(provider.id);
+          const tokenInfo = accountId
+            ? await getValidOpenAiChatGptTokenInfoForAccount(accountId)
+            : await getValidOpenAiChatGptTokenInfo();
+
+          if (!tokenInfo.accessToken) {
+            throw new Error("ChatGPT plan is not connected.");
+          }
+
+          chatgptModelsByProvider[provider.id] = await discoverChatGptModels({
+            baseURL: provider.baseUrl,
+            clientId: tokenInfo.clientId,
+            token: tokenInfo.accessToken,
+          });
+          providerModelDiscovery[provider.id] = {
+            error: null,
+            status: "connected",
+          };
+        } catch (error) {
+          // Discovery is best-effort: the provider still falls back to the
+          // bundled allowlist, so do not surface this as a connection failure.
+          console.warn("Failed to discover ChatGPT plan models.", error);
+          providerModelDiscovery[provider.id] = {
+            error: null,
+            status: "connected",
+          };
+        }
+      }),
+    discoverRemote &&
+    input.providers.some(
+      (provider) =>
+        provider.family === "openai" &&
+        provider.authType === "oauth" &&
+        getOpenAiOAuthFlavor(provider.id) === "codex",
+    )
+      ? fetchCodexModelCatalogCached().catch((error) => {
+          console.warn("Failed to load the Codex model catalog.", error);
+        })
+      : Promise.resolve(),
   ]);
 
   const suggestedModelsByProvider = Object.fromEntries(
     input.providers.map((provider) => {
+      const oauthFlavor =
+        provider.family === "openai" && provider.authType === "oauth"
+          ? getOpenAiOAuthFlavor(provider.id)
+          : null;
+      const isChatGpt = oauthFlavor === "chatgpt";
       const builtInModels: CuratedModelDefinition[] =
         provider.family === "on-device"
           ? onDeviceModelDefinitions
-          : provider.family === "openai" && provider.authType === "oauth"
-            ? [
-                {
-                  id: "gpt-5.5",
-                  kind: "chat",
-                  label: "GPT-5.5",
-                  capabilities: { tools: true },
-                },
-                {
-                  id: "gpt-5.4",
-                  kind: "chat",
-                  label: "GPT-5.4",
-                  capabilities: { tools: true },
-                },
-                {
-                  id: "gpt-5.4-mini",
-                  kind: "small",
-                  label: "GPT-5.4 mini",
-                  capabilities: { tools: true },
-                },
-              ]
-            : [];
-      const discoveredModels = [
-        ...getModelsDevDefinitionsForProvider(modelsDevCatalog, provider),
-        ...(ollamaModelsByProvider[provider.id] ?? []),
-      ]
+          : isChatGpt
+            ? (chatgptModelsByProvider[provider.id] ??
+              getFallbackChatGptModels())
+            : provider.family === "openai" && provider.authType === "oauth"
+              ? getCodexBuiltInModels()
+              : [];
+      const discoveredModels = (
+        isChatGpt
+          ? []
+          : [
+              ...getModelsDevDefinitionsForProvider(modelsDevCatalog, provider),
+              ...(ollamaModelsByProvider[provider.id] ?? []),
+            ]
+      )
         .filter(
           (model) =>
             provider.family !== "openai" ||
@@ -204,6 +261,7 @@ export async function resolveConfig(
               preset.providerId === provider.id &&
               (provider.family !== "openai" ||
                 provider.authType !== "oauth" ||
+                isChatGpt ||
                 isCodexOAuthModel(preset.modelId)) &&
               !discoveredModels.some((model) => model.id === preset.modelId) &&
               !builtInModels.some((model) => model.id === preset.modelId),

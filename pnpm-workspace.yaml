@@ -21,4 +21,5 @@ patchedDependencies:
 allowBuilds:
   electron-winstaller: true
   esbuild: true
+  expo-libghostty: true
   unrs-resolver: true

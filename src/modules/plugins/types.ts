@@ -72,6 +72,14 @@ export type PluginActionInfo = {
   title: string;
 };
 
+export type PluginToolInfo = {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  mutating?: boolean;
+  name: string;
+  pluginId: string;
+};
+
 export type PluginHooks = {
   action?: Record<string, PluginActionDefinition>;
   dispose?: () => void | Promise<void>;
@@ -130,6 +138,13 @@ export type PluginRuntimeSnapshot = {
     args?: Record<string, unknown>,
     onProgress?: (update: PluginProgressUpdate) => void,
   ): Promise<PluginToolResult>;
+  runTool(
+    pluginId: string,
+    name: string,
+    args?: Record<string, unknown>,
+    onProgress?: (update: PluginProgressUpdate) => void,
+  ): Promise<PluginToolResult>;
   systemParts: string[];
+  toolInfos: PluginToolInfo[];
   tools: ToolSet;
 };

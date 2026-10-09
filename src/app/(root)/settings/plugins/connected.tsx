@@ -1,7 +1,7 @@
 import { Redirect, useRouter } from "expo-router";
-import { ChevronLeft, Plus } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { PluginImportDrawer } from "@/components/plugins/plugin-import-drawer";
@@ -16,9 +16,7 @@ export default function ConnectedPluginsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { ready } = useAppState();
-  const { deletePlugin, plugins, updatePlugin } = useConfig();
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { plugins } = useConfig();
   const [importOpen, setImportOpen] = useState(false);
   const enabledCount = useMemo(
     () => plugins.filter((plugin) => plugin.enabled).length,
@@ -29,22 +27,6 @@ export default function ConnectedPluginsScreen() {
     return <Redirect href={"/settings/plugins/list" as never} />;
   }
 
-  const runAction = async (key: string, action: () => Promise<void>) => {
-    setBusyKey(key);
-    setError(null);
-    try {
-      await action();
-    } catch (actionError) {
-      setError(
-        actionError instanceof Error
-          ? actionError.message
-          : "Plugin action failed.",
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
   return (
     <Container
       scroll
@@ -54,7 +36,7 @@ export default function ConnectedPluginsScreen() {
       <View className="flex-row items-center gap-sp-2">
         <Button
           leftIcon={<ChevronLeft color={theme.text} size={16} />}
-          onPress={() => router.push("/settings")}
+          onPress={() => router.replace("/settings" as never)}
           size="icon-xs"
           variant="ghost"
         />
@@ -67,6 +49,7 @@ export default function ConnectedPluginsScreen() {
           </Text>
         </View>
         <Button
+          className="ml-auto"
           leftIcon={<Plus color={theme.text} size={16} />}
           onPress={() => setImportOpen(true)}
           size="sm"
@@ -87,68 +70,42 @@ export default function ConnectedPluginsScreen() {
           <Card className="overflow-hidden">
             {plugins.map((plugin, index) => (
               <View key={plugin.id}>
-                <View className="gap-sp-3 px-sp-4 py-sp-4">
-                  <View className="gap-1">
-                    <View className="flex-row items-center justify-between gap-sp-3">
-                      <Text className="flex-1 font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
-                        {plugin.name}
-                      </Text>
-                      <Text className="font-mono text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                        v{plugin.version}
-                      </Text>
-                    </View>
-                    {plugin.description ? (
-                      <Text
-                        className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
-                        numberOfLines={2}
-                      >
-                        {plugin.description}
-                      </Text>
-                    ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  className="flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+                  onPress={() =>
+                    router.push(
+                      `/settings/plugins/${encodeURIComponent(plugin.id)}` as never,
+                    )
+                  }
+                  style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+                >
+                  <View className="min-w-0 flex-1 gap-0.5">
+                    <Text
+                      className="font-sans text-base font-medium text-foreground dark:text-foreground-dark"
+                      numberOfLines={1}
+                    >
+                      {plugin.name}
+                    </Text>
+                    <Text
+                      className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
+                      numberOfLines={1}
+                    >
+                      {plugin.enabled
+                        ? plugin.description || "Enabled"
+                        : "Disabled"}
+                    </Text>
                     {plugin.lastError ? (
-                      <Text className="font-sans text-xs text-destructive dark:text-destructive-dark">
+                      <Text
+                        className="font-sans text-xs text-destructive dark:text-destructive-dark"
+                        numberOfLines={1}
+                      >
                         {plugin.lastError}
                       </Text>
                     ) : null}
                   </View>
-                  <View className="flex-row gap-sp-2">
-                    <Button
-                      loading={busyKey === `toggle:${plugin.id}`}
-                      onPress={() =>
-                        runAction(`toggle:${plugin.id}`, () =>
-                          updatePlugin(plugin.id, { enabled: !plugin.enabled }),
-                        )
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      {plugin.enabled ? "Disable" : "Enable"}
-                    </Button>
-                    <Button
-                      onPress={() =>
-                        router.push(
-                          `/settings/plugins/${encodeURIComponent(plugin.id)}` as never,
-                        )
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      Details
-                    </Button>
-                    <Button
-                      loading={busyKey === `delete:${plugin.id}`}
-                      onPress={() =>
-                        runAction(`delete:${plugin.id}`, () =>
-                          deletePlugin(plugin.id),
-                        )
-                      }
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
+                  <ChevronRight color={theme.textSecondary} size={18} />
+                </Pressable>
                 {index < plugins.length - 1 ? <Separator /> : null}
               </View>
             ))}
@@ -162,12 +119,6 @@ export default function ConnectedPluginsScreen() {
           </Button>
         </>
       )}
-
-      {error ? (
-        <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
-          {error}
-        </Text>
-      ) : null}
 
       <PluginImportDrawer onOpenChange={setImportOpen} open={importOpen} />
     </Container>

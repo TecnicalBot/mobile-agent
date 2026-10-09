@@ -25,6 +25,7 @@ import type {
   PluginKeyValueStore,
   PluginProgressUpdate,
   PluginRuntimeSnapshot,
+  PluginToolInfo,
   PluginToolResult,
 } from "./types";
 
@@ -62,6 +63,32 @@ export function createPluginRuntime(
   },
 ) {
   let loaded: LoadedPlugin[] = [];
+
+  async function prepareManualResult(
+    result: PluginToolResult,
+    signal: AbortSignal,
+  ): Promise<PluginToolResult> {
+    if (typeof result === "string") return result;
+    const attachments = await Promise.all(
+      (result.attachments ?? []).map((attachment) =>
+        options?.materializeAttachment
+          ? options.materializeAttachment(attachment, signal)
+          : attachment,
+      ),
+    );
+    const mime = result.mime?.split(";")[0].trim().toLowerCase();
+    const file = result.output && mime && mime !== "text/plain" && options?.materializeResultFile
+      ? await options.materializeResultFile({ content: result.output, mime: result.mime!, title: result.title })
+      : null;
+    if (file) {
+      attachments.push({ filename: file.displayName, mime: result.mime!, uri: `workspace://${file.id}` });
+    }
+    return {
+      ...result,
+      ...(result.attachments || attachments.length ? { attachments } : {}),
+      output: file ? "" : result.output,
+    };
+  }
 
   const callStateByContext = new WeakMap<
     PluginHostContext,
@@ -159,6 +186,7 @@ export function createPluginRuntime(
 
       const pluginOutputs: PluginOutputRecord[] = [];
       const actions: PluginActionInfo[] = [];
+      const toolInfos: PluginToolInfo[] = [];
 
       for (const plugin of loaded) {
         for (const [actionName, definition] of Object.entries(
@@ -177,6 +205,13 @@ export function createPluginRuntime(
         const prefix = toolPrefix(plugin.id);
         for (const [name, definition] of Object.entries(plugin.hooks.tool ?? {})) {
           const runtimeName = `${prefix}${name}`;
+          toolInfos.push({
+            description: definition.description,
+            inputSchema: definition.inputSchema,
+            mutating: definition.mutating,
+            name,
+            pluginId: plugin.id,
+          });
           try {
             tools[runtimeName] = tool({
               description: definition.description,
@@ -351,10 +386,41 @@ export function createPluginRuntime(
             callStateByContext.get(plugin.context)?.setKind("action");
           }
           try {
-            return await definition.run(args, {
+            const result = await definition.run(args, {
               abortSignal: timeout.signal,
               metadata: onProgress,
             });
+            return await prepareManualResult(result, timeout.signal);
+          } finally {
+            if (plugin.context) {
+              callStateByContext.get(plugin.context)?.setSignal(undefined);
+              callStateByContext.get(plugin.context)?.setKind(undefined);
+            }
+            timeout.cancel();
+          }
+        },
+        async runTool(pluginId, name, args = {}, onProgress) {
+          const plugin = loaded.find((item) => item.id === pluginId);
+          const definition = plugin?.hooks.tool?.[name];
+          if (!plugin || !definition) {
+            throw new Error(`Plugin tool not found: ${pluginId}/${name}`);
+          }
+          const timeout = createTimeoutSignal(
+            definition.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+          );
+          if (plugin.context) {
+            callStateByContext.get(plugin.context)?.setSignal(timeout.signal);
+            callStateByContext.get(plugin.context)?.setKind("tool");
+          }
+          try {
+            const result = await definition.execute(
+              args as Record<string, unknown>,
+              {
+                abortSignal: timeout.signal,
+                metadata: onProgress,
+              },
+            );
+            return await prepareManualResult(result, timeout.signal);
           } finally {
             if (plugin.context) {
               callStateByContext.get(plugin.context)?.setSignal(undefined);
@@ -378,6 +444,7 @@ export function createPluginRuntime(
         },
         systemParts,
         tools,
+        toolInfos,
         pluginOutputs,
       };
     },

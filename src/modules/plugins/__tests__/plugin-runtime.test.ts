@@ -214,6 +214,108 @@ describe("plugin-runtime actions and api.ai", () => {
     );
   });
 
+  it("lists tools in toolInfos with plugin metadata", async () => {
+    hooksBox.fn = () => ({
+      tool: {
+        build: {
+          description: "Build a carousel",
+          inputSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+          mutating: true,
+          async execute(args: { name?: string }) {
+            return { output: `built ${args.name ?? "untitled"}` };
+          },
+        },
+      },
+    });
+
+    const runtime = createPluginRuntime(storage, getModelDefaults);
+    await runtime.load([pluginConfig("plugin/test")]);
+    const snapshot = runtime.snapshot("s");
+
+    expect(snapshot.toolInfos).toHaveLength(1);
+    expect(snapshot.toolInfos[0]).toMatchObject({
+      description: "Build a carousel",
+      inputSchema: { type: "object" },
+      mutating: true,
+      name: "build",
+      pluginId: "plugin/test",
+    });
+  });
+
+  it("runs tools directly via runTool", async () => {
+    hooksBox.fn = () => ({
+      tool: {
+        build: {
+          description: "Build a carousel",
+          inputSchema: { type: "object" },
+          async execute(args: { name?: string }, ctx: { metadata?: (u: unknown) => void }) {
+            ctx.metadata?.({ title: "building…" });
+            return { output: `built ${args.name ?? "untitled"}` };
+          },
+        },
+      },
+    });
+
+    const runtime = createPluginRuntime(storage, getModelDefaults);
+    await runtime.load([pluginConfig("plugin/test")]);
+    const snapshot = runtime.snapshot("s");
+
+    const progress: string[] = [];
+    const result = await snapshot.runTool(
+      "plugin/test",
+      "build",
+      { name: "carousel" },
+      (update) => progress.push(update.title ?? ""),
+    );
+
+    expect(progress).toEqual(["building…"]);
+    expect(result).toEqual({ output: "built carousel" });
+  });
+
+  it("throws when running an unknown tool", async () => {
+    hooksBox.fn = () => ({});
+    const runtime = createPluginRuntime(storage, getModelDefaults);
+    await runtime.load([pluginConfig("plugin/test")]);
+    const snapshot = runtime.snapshot("s");
+
+    await expect(
+      snapshot.runTool("plugin/test", "missing"),
+    ).rejects.toThrow("Plugin tool not found");
+  });
+
+  it("prepares manual action files and attachments for the existing workspace previews", async () => {
+    hooksBox.fn = () => ({
+      action: {
+        render: {
+          title: "Render",
+          async run() {
+            return {
+              output: "<html>Carousel</html>",
+              mime: "text/html",
+              attachments: [{ filename: "image.png", mime: "image/png", uri: "data:image/png;base64,test" }],
+            };
+          },
+        },
+      },
+    });
+    const runtime = createPluginRuntime(storage, getModelDefaults, {
+      materializeAttachment: async (attachment) => ({ ...attachment, uri: "workspace://image" }),
+      materializeResultFile: async () => ({ id: "html", displayName: "carousel.html" }),
+    });
+    await runtime.load([pluginConfig("plugin/test")]);
+    const result = await runtime.snapshot("s").runAction("plugin/test", "render");
+    expect(result).toMatchObject({
+      output: "",
+      attachments: [
+        { uri: "workspace://image", mime: "image/png" },
+        { uri: "workspace://html", filename: "carousel.html", mime: "text/html" },
+      ],
+    });
+  });
+
   it("blocks api.ai inside tools by default", async () => {
     hooksBox.fn = (context: PluginHostContext) => ({
       tool: {

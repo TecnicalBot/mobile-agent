@@ -3,6 +3,8 @@ import { Text, TextInput, View } from "react-native";
 import type { KeyboardAwareScrollViewRef } from "react-native-keyboard-controller";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Drawer,
   DrawerBody,
@@ -26,12 +28,45 @@ export function SecretRequest({
   onDismiss,
   onSubmit,
 }: SecretRequestProps) {
+  return (
+    <SecretEntryDialog
+      secretRequest={secretRequest}
+      onDismiss={onDismiss}
+      onSubmit={(value) => onSubmit(value)}
+    />
+  );
+}
+
+export function SecretEntryDialog({
+  secretRequest,
+  onDismiss,
+  onSubmit,
+  editableKey = false,
+  title = "Secret needed",
+  description = "The assistant needs a value for a plugin secret.",
+  loading = false,
+  error,
+  cancelLabel = "Later",
+  showContext = true,
+}: {
+  secretRequest: Pick<PendingSecretRequest, "pluginName" | "key" | "purpose" | "alreadyConfigured">;
+  onDismiss: () => void;
+  onSubmit: (value: string, key: string) => void;
+  editableKey?: boolean;
+  title?: string;
+  description?: string;
+  loading?: boolean;
+  error?: string | null;
+  cancelLabel?: string;
+  showContext?: boolean;
+}) {
   const [attempted, setAttempted] = useState(false);
   const [value, setValue] = useState("");
+  const [key, setKey] = useState(secretRequest.key);
   const bodyRef = useRef<KeyboardAwareScrollViewRef>(null);
   const empty = value.trim().length === 0;
   const showError = attempted && empty && !secretRequest.alreadyConfigured;
-  const canSave = !empty || secretRequest.alreadyConfigured;
+  const canSave = (!editableKey || key.trim().length > 0) && (!empty || secretRequest.alreadyConfigured);
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ y: 0, animated: false });
@@ -43,7 +78,7 @@ export function SecretRequest({
       return;
     }
 
-    onSubmit(value.trim());
+    if (!loading) onSubmit(value.trim(), key.trim());
   }
 
   return (
@@ -62,53 +97,76 @@ export function SecretRequest({
         showHandle
       >
         <DrawerHeader>
-          <DrawerTitle>Secret needed</DrawerTitle>
-          <DrawerDescription>
-            The assistant needs a value for a plugin secret.
-          </DrawerDescription>
+           <DrawerTitle>{title}</DrawerTitle>
+           {description ? <DrawerDescription>{description}</DrawerDescription> : null}
         </DrawerHeader>
         <DrawerBody contentContainerClassName="gap-sp-3" ref={bodyRef}>
-          <View className="flex-col gap-sp-2">
+          {showContext ? <View className="flex-col gap-sp-2">
             <Text className="font-sans text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
               PLUGIN
             </Text>
             <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
               {secretRequest.pluginName}
             </Text>
-          </View>
+          </View> : null}
           <View className="flex-col gap-sp-2">
-            <Text className="font-sans text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
-              KEY
-            </Text>
-            <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
+            {showContext ? (
+              <Text className="font-sans text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">KEY</Text>
+            ) : <Label>Key</Label>}
+            {editableKey ? <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="KEY_NAME"
+              value={key}
+              onChangeText={setKey}
+              disabled={loading}
+            /> : <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
               {secretRequest.key}
-            </Text>
+            </Text>}
           </View>
-          {secretRequest.purpose ? (
+          {showContext && secretRequest.purpose ? (
             <Text className="font-sans text-sm leading-snug text-muted-foreground dark:text-muted-foreground-dark">
               {secretRequest.purpose}
             </Text>
           ) : null}
-          {secretRequest.alreadyConfigured ? (
+          {showContext && secretRequest.alreadyConfigured ? (
             <Text className="font-sans text-sm leading-snug text-muted-foreground dark:text-muted-foreground-dark">
               This key already has a value saved on this device. Leave the
               field empty to keep it, or enter a new value to replace it.
             </Text>
           ) : null}
-          <SecretInput autoFocus value={value} onChangeText={setValue} />
+           {showContext ? (
+             <SecretInput autoFocus value={value} onChangeText={setValue} />
+           ) : (
+             <View className="gap-sp-2">
+               <Label>Value</Label>
+               <Input
+                 autoCapitalize="none"
+                 autoCorrect={false}
+                 autoFocus
+                 secureTextEntry
+                 placeholder="Enter secret value"
+                 value={value}
+                 onChangeText={setValue}
+                 disabled={loading}
+               />
+             </View>
+           )}
           {showError ? (
             <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
               Enter a value or choose Later.
             </Text>
           ) : null}
+          {attempted && editableKey && !key.trim() ? <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">Enter a key name.</Text> : null}
+          {error ? <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">{error}</Text> : null}
         </DrawerBody>
         <DrawerFooter>
           <View className="flex-row items-center gap-sp-2">
             <View className="flex-1" />
-            <Button onPress={onDismiss} variant="outline">
-              Later
+            <Button disabled={loading} onPress={onDismiss} variant="outline">
+              {cancelLabel}
             </Button>
-            <Button onPress={handleSubmit}>Save</Button>
+            <Button loading={loading} disabled={loading} onPress={handleSubmit}>Save</Button>
           </View>
         </DrawerFooter>
       </DrawerContent>

@@ -71,6 +71,7 @@ import { checkPluginUpdates } from "@/modules/plugins/updater";
 import type {
     PluginActionInfo,
     PluginRuntimeSnapshot,
+    PluginToolInfo,
 } from "@/modules/plugins/types";
 import { createWorkspaceFileService } from "@/core/services/workspace-file-service";
 import { File } from "expo-file-system";
@@ -497,12 +498,19 @@ type AppStateContextValue = {
     skills: SkillConfig[];
     plugins: PluginConfig[];
     pluginActions: PluginActionInfo[];
+    pluginTools: PluginToolInfo[];
     runPluginAction: (
         pluginId: string,
         name: string,
         args?: Record<string, unknown>,
         onProgress?: Parameters<PluginRuntimeSnapshot["runAction"]>[3],
     ) => ReturnType<PluginRuntimeSnapshot["runAction"]>;
+    runPluginTool: (
+        pluginId: string,
+        name: string,
+        args?: Record<string, unknown>,
+        onProgress?: Parameters<PluginRuntimeSnapshot["runTool"]>[3],
+    ) => ReturnType<PluginRuntimeSnapshot["runTool"]>;
     workspaceFiles: WorkspaceFile[];
 };
 
@@ -653,6 +661,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     }
     const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_SNAPSHOT);
     const [pluginActions, setPluginActions] = useState<PluginActionInfo[]>([]);
+    const [pluginTools, setPluginTools] = useState<PluginToolInfo[]>([]);
     const [ready, setReady] = useState(false);
     const [hydrating, setHydrating] = useState(true);
     const [modelDiscoveryInProgress, setModelDiscoveryInProgress] =
@@ -1351,6 +1360,7 @@ Your output must be:
             const plugins = await repositories.pluginRepository.list();
             const pluginErrors = await pluginRuntimeRef.current.load(plugins);
             setPluginActions(pluginRuntimeRef.current.snapshot("app").actions);
+            setPluginTools(pluginRuntimeRef.current.snapshot("app").toolInfos);
             const pluginErrorById = new Map(
                 pluginErrors.map((item) => [item.id, item.error]),
             );
@@ -4561,11 +4571,16 @@ Your output must be:
                 importPlugin,
                 modelDiscoveryInProgress,
                 exportSkillMarkdown,
-                runPluginAction: (pluginId, name, args) =>
+                runPluginAction: (pluginId, name, args, onProgress) =>
                     pluginRuntimeRef.current
                         .snapshot("app")
-                        .runAction(pluginId, name, args),
+                        .runAction(pluginId, name, args, onProgress),
+                runPluginTool: (pluginId, name, args, onProgress) =>
+                    pluginRuntimeRef.current
+                        .snapshot("app")
+                        .runTool(pluginId, name, args, onProgress),
                 pluginActions,
+                pluginTools,
                 messages: snapshot.messages,
                 editAndResendMessage,
                 savedPrompts: snapshot.savedPrompts,
@@ -4683,7 +4698,9 @@ export function useConfig() {
         importSkillMarkdown: context.importSkillMarkdown,
         exportSkillMarkdown: context.exportSkillMarkdown,
         pluginActions: context.pluginActions,
+        pluginTools: context.pluginTools,
         runPluginAction: context.runPluginAction,
+        runPluginTool: context.runPluginTool,
         agents: context.agents,
         createAgent: context.createAgent,
         updateAgent: context.updateAgent,

@@ -1,49 +1,44 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronLeft, KeyRound, Plus, Trash2 } from "lucide-react-native";
+import { ChevronLeft, KeyRound, Pencil, Plus, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 
+import {
+  PluginCapabilityRunner,
+  type PluginCapability,
+} from "@/components/plugins/plugin-capability-runner";
+import type { PluginRunArgs } from "@/components/plugins/plugin-capability-form";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { SecretEntryDialog } from "@/components/ui/secret-request-dialog";
 import { Separator } from "@/components/ui/separator";
 import { secureSecretStore } from "@/core/services/secrets";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
-
-type SecretRow = { key: string; configured: boolean };
+import type {
+  PluginProgressUpdate,
+  PluginToolResult,
+} from "@/modules/plugins/types";
 
 export default function SettingsPluginDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { deletePlugin, plugins, updatePlugin, pluginActions, runPluginAction } =
-    useConfig();
-  const [actionResults, setActionResults] = useState<
-    Record<
-      string,
-      {
-        attachments?: { filename?: string; mime: string; uri: string }[];
-        error?: string;
-        output?: string;
-        title?: string;
-      }
-    >
-  >({});
-  const [actionArgs, setActionArgs] = useState<
-    Record<string, Record<string, string>>
-  >({});
-  const [actionProgress, setActionProgress] = useState<
-    Record<string, string | undefined>
-  >({});
+  const {
+    deletePlugin,
+    pluginActions,
+    plugins,
+    pluginTools,
+    runPluginAction,
+    runPluginTool,
+    updatePlugin,
+  } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [configuredKeys, setConfiguredKeys] = useState<string[]>([]);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [customKey, setCustomKey] = useState("");
-  const [customValue, setCustomValue] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [addingSecret, setAddingSecret] = useState(false);
 
   const plugin = plugins.find((item) => item.id === id);
 
@@ -51,6 +46,8 @@ export default function SettingsPluginDetailScreen() {
     if (!id) return;
     const keys = await secureSecretStore.listPluginSecretKeys(id);
     setConfiguredKeys(keys);
+    setEditingKey(null);
+    setAddingSecret(false);
   }, [id]);
 
   useEffect(() => {
@@ -82,15 +79,27 @@ export default function SettingsPluginDetailScreen() {
     );
   }
 
-  const customKeys = configuredKeys.filter(
-    (key) => !plugin.requiredSecrets.includes(key),
-  );
-  const rows: SecretRow[] = [
-    ...plugin.requiredSecrets.map((key) => ({
-      key,
-      configured: configuredKeys.includes(key),
-    })),
-    ...customKeys.map((key) => ({ key, configured: true })),
+  const capabilities: PluginCapability[] = [
+    ...pluginTools
+      .filter((tool) => tool.pluginId === plugin.id)
+      .map((tool) => ({
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        kind: "tool" as const,
+        mutating: tool.mutating,
+        name: tool.name,
+        title: tool.name,
+      })),
+    ...pluginActions
+      .filter((action) => action.pluginId === plugin.id)
+      .map((action) => ({
+        description: action.description,
+        inputSchema: action.inputSchema,
+        kind: "action" as const,
+        mutating: action.mutating,
+        name: action.name,
+        title: action.title || action.name,
+      })),
   ];
 
   const runAction = async (key: string, action: () => Promise<void>) => {
@@ -102,47 +111,33 @@ export default function SettingsPluginDetailScreen() {
       setError(
         actionError instanceof Error
           ? actionError.message
-          : "Secret action failed.",
+          : "Plugin action failed.",
       );
     } finally {
       setBusyKey(null);
     }
   };
 
-  const handleSaveSecret = (key: string) => {
-    const value = (values[key] ?? "").trim();
-    if (!value) return;
+  const handleRunCapability =
+    (capability: PluginCapability) =>
+    (
+      args: PluginRunArgs,
+      onProgress?: (update: PluginProgressUpdate) => void,
+    ): Promise<PluginToolResult> =>
+      capability.kind === "action"
+        ? runPluginAction(plugin.id, capability.name, args, onProgress)
+        : runPluginTool(plugin.id, capability.name, args, onProgress);
+
+  const handleSaveSecret = (value: string, key: string) => {
     return runAction(`save:${key}`, async () => {
-      await secureSecretStore.setPluginSecret(plugin.id, key, value);
-      setValues((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
+      if (value) await secureSecretStore.setPluginSecret(plugin.id, key, value);
       await refreshConfiguredKeys();
     });
   };
 
-  const handleClearSecret = (key: string) => {
+  const handleDeleteSecret = (key: string) => {
     return runAction(`clear:${key}`, async () => {
       await secureSecretStore.deletePluginSecret(plugin.id, key);
-      setValues((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      await refreshConfiguredKeys();
-    });
-  };
-
-  const handleAddCustomSecret = () => {
-    const key = customKey.trim();
-    const value = customValue.trim();
-    if (!key || !value) return;
-    setCustomKey("");
-    setCustomValue("");
-    return runAction(`add:${key}`, async () => {
-      await secureSecretStore.setPluginSecret(plugin.id, key, value);
       await refreshConfiguredKeys();
     });
   };
@@ -183,7 +178,7 @@ export default function SettingsPluginDetailScreen() {
             {plugin.lastError}
           </Text>
         ) : null}
-        <View className="flex-row gap-sp-2">
+        <View className="flex-row flex-wrap gap-sp-2">
           <Button
             loading={busyKey === `toggle:${plugin.id}`}
             onPress={() =>
@@ -212,266 +207,106 @@ export default function SettingsPluginDetailScreen() {
         </View>
       </Card>
 
-      <Card className="gap-sp-3 px-sp-4 py-sp-4">
+      <View className="gap-sp-2">
         <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
-          Actions
+          Tools & actions
         </Text>
-        {pluginActions.filter((action) => action.pluginId === plugin.id)
-          .length === 0 ? (
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            This plugin defines no manual actions.
-          </Text>
+        {capabilities.length === 0 ? (
+          <Card className="px-sp-4 py-sp-4">
+            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              This plugin defines no tools or actions.
+            </Text>
+          </Card>
         ) : (
-          pluginActions
-            .filter((action) => action.pluginId === plugin.id)
-            .map((action) => {
-              const result = actionResults[`${action.pluginId}/${action.name}`];
-              const properties =
-                (action.inputSchema as
-                  | { properties?: Record<string, { type?: string }> }
-                  | undefined)?.properties ?? {};
-              const propertyEntries = Object.entries(properties);
-              return (
-                <View
-                  className="gap-sp-2"
-                  key={`${action.pluginId}/${action.name}`}
-                >
-                  <View className="flex-row items-center justify-between gap-sp-2">
-                    <View className="min-w-0 flex-1">
-                      <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
-                        {action.title}
-                      </Text>
-                      {action.description ? (
-                        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                          {action.description}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Button
-                      loading={busyKey === `action:${action.pluginId}/${action.name}`}
-                      onPress={() =>
-                        runAction(
-                          `action:${action.pluginId}/${action.name}`,
-                          async () => {
-                            try {
-                              const args: Record<string, unknown> = {};
-                              for (const [propKey, propDef] of propertyEntries) {
-                                const raw =
-                                  actionArgs[
-                                    `${action.pluginId}/${action.name}`
-                                  ]?.[propKey];
-                                if (raw === undefined || raw === "") continue;
-                                args[propKey] =
-                                  propDef.type === "number"
-                                    ? Number(raw)
-                                    : propDef.type === "boolean"
-                                      ? raw === "true"
-                                      : raw;
-                              }
-                              const runResult = await runPluginAction(
-                                action.pluginId,
-                                action.name,
-                                args,
-                                (update) =>
-                                  setActionProgress((current) => ({
-                                    ...current,
-                                    [`${action.pluginId}/${action.name}`]:
-                                      update.title,
-                                  })),
-                              );
-                              setActionProgress((current) => ({
-                                ...current,
-                                [`${action.pluginId}/${action.name}`]: undefined,
-                              }));
-                              setActionResults((current) => ({
-                                ...current,
-                                [`${action.pluginId}/${action.name}`]: {
-                                  attachments:
-                                    typeof runResult === "string"
-                                      ? undefined
-                                      : runResult.attachments,
-                                  output:
-                                    typeof runResult === "string"
-                                      ? runResult
-                                      : runResult.output,
-                                  title:
-                                    typeof runResult === "string"
-                                      ? undefined
-                                      : runResult.title,
-                                },
-                              }));
-                            } catch (actionError) {
-                              setActionResults((current) => ({
-                                ...current,
-                                [`${action.pluginId}/${action.name}`]: {
-                                  error:
-                                    actionError instanceof Error
-                                      ? actionError.message
-                                      : String(actionError),
-                                },
-                              }));
-                            }
-                          },
-                        )
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      Run
-                    </Button>
-                  </View>
-                  {propertyEntries.map(([propKey, propDef]) => (
-                    <Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      key={propKey}
-                      onChangeText={(text) =>
-                        setActionArgs((current) => ({
-                          ...current,
-                          [`${action.pluginId}/${action.name}`]: {
-                            ...(current[`${action.pluginId}/${action.name}`] ??
-                              {}),
-                            [propKey]: text,
-                          },
-                        }))
-                      }
-                      placeholder={
-                        propDef.type === "boolean" ? `${propKey} (true/false)` : propKey
-                      }
-                      value={
-                        actionArgs[`${action.pluginId}/${action.name}`]?.[
-                          propKey
-                        ] ?? ""
-                      }
-                    />
-                  ))}
-                  {actionProgress[`${action.pluginId}/${action.name}`] ? (
-                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                      {actionProgress[`${action.pluginId}/${action.name}`]}
-                    </Text>
-                  ) : null}
-                  {result?.error ? (
-                    <Text className="font-sans text-xs text-destructive dark:text-destructive-dark">
-                      {result.error}
-                    </Text>
-                  ) : result?.output ? (
-                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                      {result.output}
-                    </Text>
-                  ) : null}
-                  {result?.attachments?.length ? (
-                    <View className="gap-sp-1">
-                      {result.attachments.map((attachment, index) => (
-                        <Text
-                          className="font-sans text-xs text-primary dark:text-primary-dark"
-                          key={`${attachment.uri}-${index}`}
-                        >
-                          {attachment.filename ?? attachment.uri}
-                        </Text>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })
+          <View className="overflow-hidden rounded-ui border border-border dark:border-border-dark">
+            {capabilities.map((capability, index) => (
+              <View key={`${capability.kind}:${capability.name}`}>
+                {index > 0 ? <Separator /> : null}
+                <PluginCapabilityRunner
+                  capability={capability}
+                  onRun={handleRunCapability(capability)}
+                />
+              </View>
+            ))}
+          </View>
         )}
-      </Card>
+      </View>
 
-      <Card className="gap-sp-3 px-sp-4 py-sp-4">
+      <View className="gap-sp-2">
         <View className="flex-row items-center gap-sp-2">
           <KeyRound color={theme.text} size={16} />
           <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
             Secrets
           </Text>
         </View>
-        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-          API keys and tokens the plugin needs. Values are stored encrypted
-          on-device and are never sent to the model or the chat.
-        </Text>
-
-        {rows.length === 0 ? (
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            This plugin references no secrets. Add one below if its tools need
-            a key.
-          </Text>
-        ) : (
-          rows.map((row, index) => (
-            <View key={row.key}>
-              {index > 0 ? <Separator /> : null}
-              <View className="gap-sp-2 pt-sp-2">
-                <Label>{row.key}</Label>
-                <View className="flex-row items-center gap-sp-2">
-                  <Input
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    className="flex-1 font-mono"
-                    onChangeText={(text) =>
-                      setValues((current) => ({ ...current, [row.key]: text }))
-                    }
-                    placeholder={
-                      row.configured ? "••••••••  (set — replace)" : "Enter value"
-                    }
-                    secureTextEntry
-                    value={values[row.key] ?? ""}
-                  />
-                  <Button
-                    disabled={!(values[row.key] ?? "").trim()}
-                    loading={busyKey === `save:${row.key}`}
-                    onPress={() => handleSaveSecret(row.key)}
-                    size="sm"
-                  >
-                    Save
-                  </Button>
-                  {row.configured ? (
-                    <Button
-                      loading={busyKey === `clear:${row.key}`}
-                      onPress={() => handleClearSecret(row.key)}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Clear
-                    </Button>
-                  ) : null}
+        <Card className="overflow-hidden">
+          {configuredKeys.length === 0 ? (
+            <Text className="px-sp-4 py-sp-3 font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+              No secret keys configured yet.
+            </Text>
+          ) : (
+            configuredKeys.map((key, index) => (
+                <View key={key}>
+                  {index > 0 ? <Separator /> : null}
+                    <View className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3">
+                      <Text numberOfLines={1} className="min-w-0 flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+                        {key}
+                      </Text>
+                        <View className="flex-row gap-sp-2">
+                          <Button
+                            accessibilityLabel={`Edit ${key}`}
+                            disabled={busyKey !== null}
+                            onPress={() => { setError(null); setEditingKey(key); }}
+                            size="icon-xs"
+                            variant="ghost"
+                          >
+                            <Pencil color={theme.text} size={16} />
+                          </Button>
+                          <Button
+                            accessibilityLabel={`Delete ${key}`}
+                            disabled={busyKey !== null}
+                            loading={busyKey === `clear:${key}`}
+                            onPress={() => handleDeleteSecret(key)}
+                            size="icon-xs"
+                            variant="ghost"
+                          >
+                            <Trash2 color={theme.destructive} size={16} />
+                          </Button>
+                        </View>
+                    </View>
                 </View>
-              </View>
-            </View>
-          ))
-        )}
-
-        <Separator />
-
-        <View className="gap-sp-2">
-          <Label>Add a secret key</Label>
-          <Input
-            autoCapitalize="none"
-            autoCorrect={false}
-            className="font-mono"
-            onChangeText={setCustomKey}
-            placeholder="KEY_NAME (e.g. MY_API_KEY)"
-            value={customKey}
-          />
-          <View className="flex-row items-center gap-sp-2">
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              className="flex-1 font-mono"
-              onChangeText={setCustomValue}
-              placeholder="Value"
-              secureTextEntry
-              value={customValue}
-            />
+            ))
+          )}
+        </Card>
             <Button
-              disabled={!customKey.trim() || !customValue.trim()}
-              leftIcon={<Plus color={theme.text} size={14} />}
-              loading={busyKey === `add:${customKey.trim()}`}
-              onPress={handleAddCustomSecret}
-              size="sm"
+              leftIcon={<Plus color={theme.text} size={16} />}
+              onPress={() => { setError(null); setAddingSecret(true); }}
+              variant="outline"
             >
-              Add
+              Add more
             </Button>
-          </View>
-        </View>
-      </Card>
+      </View>
+
+      {addingSecret || editingKey !== null ? (
+        <SecretEntryDialog
+          key={editingKey ?? "new"}
+          title={addingSecret ? "Add secret" : "Edit secret"}
+          description=""
+          showContext={false}
+          cancelLabel="Cancel"
+          editableKey={addingSecret}
+          secretRequest={{
+            pluginName: plugin.name,
+            key: editingKey ?? "",
+            purpose: null,
+            alreadyConfigured: editingKey !== null,
+          }}
+          loading={busyKey !== null}
+          error={error}
+          onSubmit={handleSaveSecret}
+          onDismiss={() => { setAddingSecret(false); setEditingKey(null); setError(null); }}
+        />
+      ) : null}
 
       {error ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">

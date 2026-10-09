@@ -1106,7 +1106,6 @@ const ChatInput = memo(function ChatInput({
   const theme = useTheme();
   const { height: screenHeight } = useWindowDimensions();
   const { scrollToEnd } = useMessageScrollerActions();
-  const { pluginActions, runPluginAction } = useConfig();
   const router = useRouter();
   const sendingRef = useRef(false);
   const composerRef = useRef<TextInput>(null);
@@ -2165,58 +2164,6 @@ const ChatInput = memo(function ChatInput({
         </View>
 
         <ComposerTip />
-        {pluginActions.length > 0 ? (
-          <ScrollView
-            className="mt-sp-2"
-            contentContainerStyle={{
-              flexDirection: "row",
-              gap: 8,
-              paddingRight: 16,
-            }}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {pluginActions.map((action) => (
-              <Pressable
-                className="rounded-full border border-border bg-muted px-3 py-1.5"
-                key={`${action.pluginId}/${action.name}`}
-                onPress={() => {
-                  const hasInputs =
-                    Object.keys(
-                      (
-                        action.inputSchema as
-                          | { properties?: object }
-                          | undefined
-                      )?.properties ?? {},
-                    ).length > 0;
-                  if (hasInputs) {
-                    router.push(
-                      `/settings/plugins/${encodeURIComponent(action.pluginId)}` as never,
-                    );
-                    return;
-                  }
-                  runPluginAction(action.pluginId, action.name, {})
-                    .then((result) => {
-                      Alert.alert(
-                        typeof result === "string"
-                          ? action.title
-                          : (result.title ?? action.title),
-                        typeof result === "string" ? result : result.output,
-                      );
-                    })
-                    .catch((error) => {
-                      Alert.alert(
-                        action.title,
-                        error instanceof Error ? error.message : String(error),
-                      );
-                    });
-                }}
-              >
-                <Text className="text-xs text-foreground">{action.title}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        ) : null}
       </View>
 
       <FilePreviewDialog

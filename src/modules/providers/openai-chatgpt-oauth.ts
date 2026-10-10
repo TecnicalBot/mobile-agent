@@ -4,6 +4,7 @@ import * as SecureStore from "expo-secure-store";
 
 import { prepareLocalCallbackSession } from "@/core/services/local-server";
 import { initializeCrypto } from "@/core/services/crypto";
+import { watchForOAuthCancel } from "@/modules/providers/oauth-browser-cancel";
 
 const ISSUER = "https://auth.openai.com";
 const AUTHORIZE_URL = `${ISSUER}/api/accounts/authorize`;
@@ -325,6 +326,23 @@ export async function clearOpenAiChatGptTokensForAccount(accountId: string) {
   await SecureStore.deleteItemAsync(getAccountSessionKey(accountId));
 }
 
+export async function clearLegacyOpenAiChatGptTokens() {
+  legacyRefreshPromise = null;
+  await SecureStore.deleteItemAsync(LEGACY_SESSION_KEY);
+}
+
+export async function migrateLegacyOpenAiChatGptTokensToAccount(
+  accountId: string,
+) {
+  const legacy = await getOpenAiChatGptTokenInfo();
+
+  if (legacy.accessToken || legacy.refreshToken) {
+    await persistTokenInfoForAccount(accountId, legacy);
+  }
+
+  await clearLegacyOpenAiChatGptTokens();
+}
+
 async function completeLogin(input: {
   accountId?: string;
   clientId: string;
@@ -454,6 +472,9 @@ export async function handleChatGptLogin(options?: {
   });
 
   const { openBrowserAsync, dismissBrowser } = await import("expo-web-browser");
+  const cancelWatcher = await watchForOAuthCancel(
+    "ChatGPT sign-in was canceled before it completed.",
+  );
   const browserPromise = openBrowserAsync(authUrl);
   browserPromise.catch(() => null);
   const browserClosedPromise = browserPromise.then((result) => {
@@ -461,13 +482,18 @@ export async function handleChatGptLogin(options?: {
       return new Promise<never>(() => {});
     }
 
-    throw new Error("ChatGPT sign-in was canceled before it completed.");
+    const error = new Error(
+      "ChatGPT sign-in was canceled before it completed.",
+    );
+    error.name = "OAuthCanceledError";
+    throw error;
   });
 
   try {
     return await Promise.race([
       callbackPromise,
       browserClosedPromise,
+      cancelWatcher.cancelPromise,
       new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(new Error("Timed out waiting for the ChatGPT sign-in callback."));
@@ -475,6 +501,7 @@ export async function handleChatGptLogin(options?: {
       }),
     ]);
   } finally {
+    cancelWatcher.dispose();
     dismissBrowser();
   }
 }

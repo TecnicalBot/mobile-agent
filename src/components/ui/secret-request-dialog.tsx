@@ -120,9 +120,14 @@ export function SecretEntryDialog({
               value={key}
               onChangeText={setKey}
               disabled={loading}
-            /> : <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
+            /> : showContext ? <Text className="font-sans text-base font-medium text-foreground dark:text-foreground-dark">
               {secretRequest.key}
-            </Text>}
+            </Text> : <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={key}
+              disabled
+            />}
           </View>
           {showContext && secretRequest.purpose ? (
             <Text className="font-sans text-sm leading-snug text-muted-foreground dark:text-muted-foreground-dark">

@@ -40,6 +40,7 @@ import {
   type ProviderUsage,
 } from "@/modules/providers/openai-usage";
 import { isOpenAiChatGptProvider } from "@/modules/providers/openai";
+import { isOAuthCanceledError } from "@/modules/providers/oauth-browser-cancel";
 import {
   cancelPersistentModelDownload,
   getPersistentModelDownloadStatus,
@@ -78,6 +79,7 @@ export default function SettingsProvidersScreen() {
     activeProviderIds,
     activeProviderAccountIds,
     availableModels,
+    addOpenAiOAuthAccount,
     connectOpenAIOAuth,
     createModelPreset,
     createProvider,
@@ -85,7 +87,6 @@ export default function SettingsProvidersScreen() {
     currentModel,
     deleteProvider,
     deleteProviderAccount,
-    disconnectOpenAIOAuth,
     providers,
     providerAccounts,
     providerModelDiscovery,
@@ -367,6 +368,32 @@ export default function SettingsProvidersScreen() {
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const saveInlineApiKey = () => {
+    if (!selectedProvider) {
+      return;
+    }
+
+    const apiKey = newAccountApiKey.trim();
+
+    if (!apiKey) {
+      return;
+    }
+
+    void runAction(`add-account:${selectedProvider.id}`, async () => {
+      await createProviderAccount({
+        apiKey,
+        label: selectedProvider.label,
+        providerId: selectedProvider.id,
+      });
+      setNewAccountApiKey("");
+    }).catch((error) => {
+      Alert.alert(
+        "API key could not be saved",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    });
   };
 
   const resetCustomProviderForm = () => {
@@ -847,37 +874,44 @@ export default function SettingsProvidersScreen() {
                 </View>
 
                 {selectedProvider.authType === "apiKey" ? (
-                  <View className="gap-sp-2">
-                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      {selectedProviderActive ? "Active account" : "Account"}
-                    </Text>
-                    <Pressable
-                      onPress={() => {
-                        setSelectedAccountIds([]);
-                        setProviderPage(1);
-                      }}
-                      style={({ pressed }) =>
-                        pressed ? { opacity: 0.82 } : null
-                      }
-                      className="flex-row items-center justify-between overflow-hidden rounded-card border border-border px-sp-4 py-sp-3 dark:border-border-dark"
-                    >
-                      <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
-                        {selectedProviderActive
-                          ? (selectedProviderActiveAccount?.label ?? "None")
-                          : "Add account"}
+                  selectedProviderActive ? (
+                    <View className="gap-sp-2">
+                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                        Active account
                       </Text>
-                      {selectedProviderActive ? (
-                        <View className="flex-row items-center gap-sp-1">
-                          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                            Switch
-                          </Text>
-                          <ChevronRight color={theme.textSecondary} size={18} />
-                        </View>
-                      ) : (
-                        <ChevronRight color={theme.textSecondary} size={18} />
-                      )}
-                    </Pressable>
-                  </View>
+                      <ProviderAccountSummaryRow
+                        label={selectedProviderActiveAccount?.label ?? "None"}
+                        onPress={() => {
+                          setSelectedAccountIds([]);
+                          setProviderPage(1);
+                        }}
+                      />
+                    </View>
+                  ) : (
+                    <View className="gap-sp-2">
+                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                        API key
+                      </Text>
+                      <Input
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        onChangeText={setNewAccountApiKey}
+                        onSubmitEditing={saveInlineApiKey}
+                        placeholder="Paste your API key"
+                        returnKeyType="done"
+                        secureTextEntry
+                        value={newAccountApiKey}
+                      />
+                      <Button
+                        disabled={!newAccountApiKey.trim()}
+                        loading={busyKey === `add-account:${selectedProvider.id}`}
+                        onPress={saveInlineApiKey}
+                        variant="secondary"
+                      >
+                        Save
+                      </Button>
+                    </View>
+                  )
                 ) : null}
 
                 {selectedProvider.family === "ollama" &&
@@ -918,45 +952,62 @@ export default function SettingsProvidersScreen() {
                   </View>
                 ) : selectedProvider.authType === "oauth" ? (
                   <View className="gap-sp-3">
-                    {selectedProvider.oauthAccountEmail ? (
-                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                        {selectedProvider.oauthAccountEmail}
-                      </Text>
+                    {selectedProviderActive ? (
+                      <View className="gap-sp-2">
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          Active account
+                        </Text>
+                        <ProviderAccountSummaryRow
+                          label={
+                            selectedProviderActiveAccount?.label ??
+                            selectedProvider.oauthAccountEmail ??
+                            "None"
+                          }
+                          onPress={() => {
+                            setSelectedAccountIds([]);
+                            setProviderPage(1);
+                          }}
+                        />
+                      </View>
+                    ) : (
+                      <View className="gap-sp-3">
+                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                          {isOpenAiChatGptProvider(selectedProvider.id)
+                            ? "Sign in with your ChatGPT account to use your plan."
+                            : "Sign in with your OpenAI account to use Codex models."}
+                        </Text>
+                        <Button
+                          className="flex-1"
+                          loading={busyKey === `connect:${selectedProvider.id}`}
+                          onPress={() => {
+                            runAction(
+                              `connect:${selectedProvider.id}`,
+                              () => connectOpenAIOAuth(selectedProvider.id),
+                            ).catch((error) => {
+                              if (isOAuthCanceledError(error)) {
+                                return;
+                              }
+
+                              Alert.alert(
+                                "Sign in could not be completed",
+                                error instanceof Error
+                                  ? error.message
+                                  : "Please try again.",
+                              );
+                            });
+                          }}
+                          variant="secondary"
+                        >
+                          Sign in
+                        </Button>
+                      </View>
+                    )}
+                    {selectedProviderActive ? (
+                      <ProviderUsagePanel
+                        activeAccountId={selectedProviderActiveAccountId}
+                        providerId={selectedProvider.id}
+                      />
                     ) : null}
-                    <View className="flex-row gap-sp-2">
-                      <Button
-                        className="flex-1"
-                        loading={busyKey === `connect:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(
-                            `connect:${selectedProvider.id}`,
-                            () => connectOpenAIOAuth(selectedProvider.id),
-                          ).catch(console.error);
-                        }}
-                        variant="secondary"
-                      >
-                        Connect
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        loading={
-                          busyKey === `disconnect:${selectedProvider.id}`
-                        }
-                        onPress={() => {
-                          runAction(
-                            `disconnect:${selectedProvider.id}`,
-                            () => disconnectOpenAIOAuth(selectedProvider.id),
-                          ).catch(console.error);
-                        }}
-                        variant="outline"
-                      >
-                        Disconnect
-                      </Button>
-                    </View>
-                    <ProviderUsagePanel
-                      activeAccountId={selectedProviderActiveAccountId}
-                      providerId={selectedProvider.id}
-                    />
                   </View>
                 ) : selectedProvider.family === "ollama" ? (
                   <View className="gap-sp-3">
@@ -1006,7 +1057,7 @@ export default function SettingsProvidersScreen() {
                       </Button>
                     </View>
                   </View>
-                ) : (
+                ) : selectedProvider.authType === "apiKey" ? null : (
                   <View className="gap-sp-3">
                     <Input
                       autoCapitalize="none"
@@ -1020,48 +1071,29 @@ export default function SettingsProvidersScreen() {
                       }
                       value={baseUrlInput}
                     />
-                    <View className="flex-row gap-sp-2">
-                      <Button
-                        className="flex-1"
-                        disabled={
-                          selectedProviderNeedsBaseUrl && !baseUrlInput.trim()
-                        }
-                        loading={busyKey === `save:${selectedProvider.id}`}
-                        onPress={() => {
-                          runAction(`save:${selectedProvider.id}`, async () => {
-                            const normalizedBaseUrl = baseUrlInput.trim();
-                            await updateProvider(selectedProvider.id, {
-                              baseUrl:
-                                normalizedBaseUrl ||
-                                (selectedProviderNeedsBaseUrl
-                                  ? null
-                                  : selectedProvider.baseUrl),
-                              enabled: true,
-                              label: selectedItem.label,
-                            });
-                          }).catch(console.error);
-                        }}
-                        variant="secondary"
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        onPress={() => {
-                          runAction(
-                            `disable:${selectedProvider.id}`,
-                            async () => {
-                              await updateProvider(selectedProvider.id, {
-                                enabled: false,
-                              });
-                            },
-                          ).catch(console.error);
-                        }}
-                        variant="outline"
-                      >
-                        Disable
-                      </Button>
-                    </View>
+                    <Button
+                      disabled={
+                        selectedProviderNeedsBaseUrl && !baseUrlInput.trim()
+                      }
+                      loading={busyKey === `save:${selectedProvider.id}`}
+                      onPress={() => {
+                        runAction(`save:${selectedProvider.id}`, async () => {
+                          const normalizedBaseUrl = baseUrlInput.trim();
+                          await updateProvider(selectedProvider.id, {
+                            baseUrl:
+                              normalizedBaseUrl ||
+                              (selectedProviderNeedsBaseUrl
+                                ? null
+                                : selectedProvider.baseUrl),
+                            enabled: true,
+                            label: selectedItem.label,
+                          });
+                        }).catch(console.error);
+                      }}
+                      variant="secondary"
+                    >
+                      Save
+                    </Button>
                   </View>
                 )}
 
@@ -1458,7 +1490,34 @@ export default function SettingsProvidersScreen() {
                 ) : (
                   <DrawerFooter>
                     <Button
+                      loading={
+                        selectedProvider.authType === "oauth" &&
+                        busyKey === `add-account:${selectedProvider.id}`
+                      }
                       onPress={() => {
+                        if (selectedProvider.authType === "oauth") {
+                          void runAction(
+                            `add-account:${selectedProvider.id}`,
+                            () =>
+                              addOpenAiOAuthAccount({
+                                label: selectedProvider.label,
+                                providerId: selectedProvider.id,
+                              }),
+                          ).catch((error) => {
+                            if (isOAuthCanceledError(error)) {
+                              return;
+                            }
+
+                            Alert.alert(
+                              "Account could not be added",
+                              error instanceof Error
+                                ? error.message
+                                : "Please try again.",
+                            );
+                          });
+                          return;
+                        }
+
                         setNewAccountLabel("");
                         setNewAccountApiKey("");
                         setProviderPage(2);
@@ -1487,29 +1546,67 @@ export default function SettingsProvidersScreen() {
                   <DrawerTitle>Add account</DrawerTitle>
                 </DrawerHeader>
                 <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-                  <Input
-                    autoCapitalize="words"
-                    onChangeText={setNewAccountLabel}
-                    placeholder="Account label"
-                    value={newAccountLabel}
-                  />
-                  <Input
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={setNewAccountApiKey}
-                    placeholder="API key"
-                    secureTextEntry
-                    value={newAccountApiKey}
-                  />
+                  {selectedProvider.authType === "oauth" ? (
+                    <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                      Sign in with another{" "}
+                      {isOpenAiChatGptProvider(selectedProvider.id)
+                        ? "ChatGPT"
+                        : "OpenAI"}{" "}
+                      account. It will be labelled with the signed-in email.
+                    </Text>
+                  ) : (
+                    <>
+                      <Input
+                        autoCapitalize="words"
+                        onChangeText={setNewAccountLabel}
+                        placeholder="Account label"
+                        value={newAccountLabel}
+                      />
+                      <Input
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        onChangeText={setNewAccountApiKey}
+                        placeholder="API key"
+                        secureTextEntry
+                        value={newAccountApiKey}
+                      />
+                    </>
+                  )}
                 </DrawerBody>
                 <DrawerFooter>
                   <Button
                     disabled={
-                      !newAccountLabel.trim() ||
-                      !newAccountApiKey.trim()
+                      selectedProvider.authType === "oauth"
+                        ? false
+                        : !newAccountLabel.trim() || !newAccountApiKey.trim()
                     }
                     loading={busyKey !== null}
                     onPress={() => {
+                      if (selectedProvider.authType === "oauth") {
+                        void runAction(
+                          `add-account:${selectedProvider.id}`,
+                          async () => {
+                            await addOpenAiOAuthAccount({
+                              label: selectedProvider.label,
+                              providerId: selectedProvider.id,
+                            });
+                            setProviderPage(1);
+                          },
+                        ).catch((error) => {
+                          if (isOAuthCanceledError(error)) {
+                            return;
+                          }
+
+                          Alert.alert(
+                            "Account could not be added",
+                            error instanceof Error
+                              ? error.message
+                              : "Please try again.",
+                          );
+                        });
+                        return;
+                      }
+
                       const label = newAccountLabel.trim() || "Account";
                       const apiKey = newAccountApiKey.trim();
                       void runAction(
@@ -1534,7 +1631,9 @@ export default function SettingsProvidersScreen() {
                       });
                     }}
                   >
-                    Add account
+                    {selectedProvider.authType === "oauth"
+                      ? "Sign in"
+                      : "Add account"}
                   </Button>
                 </DrawerFooter>
               </DrawerPagerPage>
@@ -1691,6 +1790,34 @@ function ProviderUsagePanel({
         </View>
       ))}
     </View>
+  );
+}
+
+function ProviderAccountSummaryRow({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+      className="flex-row items-center justify-between overflow-hidden rounded-card border border-border px-sp-4 py-sp-3 dark:border-border-dark"
+    >
+      <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+        {label}
+      </Text>
+      <View className="flex-row items-center gap-sp-1">
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          Switch
+        </Text>
+        <ChevronRight color={theme.textSecondary} size={18} />
+      </View>
+    </Pressable>
   );
 }
 

@@ -106,6 +106,11 @@ requires:
 Installing a catalog plugin sets its `sourceUrl`, so the app's plugin updater
 refreshes it daily when a newer version is published.
 
+Plugins are **not vendored in this repo**. Each entry points directly at the
+upstream `.js` file so the catalog stays small and the app always imports the
+latest published version. Add a new plugin by appending an entry with its
+upstream raw URL; do not copy plugin files into this repository.
+
 ## Skill catalog
 
 The app fetches `skills.json` from the `main` branch at runtime, caches it for

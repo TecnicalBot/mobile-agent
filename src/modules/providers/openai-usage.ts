@@ -158,6 +158,35 @@ export function formatUsageWindowLabel(windowSeconds: number | null) {
   return "Usage limit";
 }
 
+/**
+ * Maps the backend `plan_type` value to the full human-friendly plan name so
+ * the UI reads "ChatGPT Plus" instead of the raw "plus" token.
+ */
+export function formatUsagePlanLabel(plan: string | null) {
+  if (!plan || !plan.trim()) {
+    return null;
+  }
+
+  switch (plan.trim().toLowerCase()) {
+    case "free":
+      return "ChatGPT Free";
+    case "plus":
+      return "ChatGPT Plus";
+    case "pro":
+      return "ChatGPT Pro";
+    case "team":
+      return "ChatGPT Team";
+    case "enterprise":
+      return "ChatGPT Enterprise";
+    default:
+      return `ChatGPT ${plan
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")}`;
+  }
+}
+
 export async function fetchOpenAiUsage(input: {
   accountId?: string | null;
   signal?: AbortSignal;

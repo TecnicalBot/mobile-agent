@@ -120,6 +120,11 @@ import { useTheme } from "@/hooks/use-theme";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
+import {
+  formatUsageWindowLabel,
+  getProviderUsage,
+  type ProviderUsage,
+} from "@/modules/providers/openai-usage";
 import { partitionSelectedFiles } from "@/modules/runtime/message-conversion";
 
 const REASONING_EFFORT_OPTIONS: {
@@ -222,6 +227,7 @@ export default function Screen() {
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
   const {
     activeModels,
+    activeProviderAccountIds,
     currentModel,
     currentModelSupportsImageGeneration,
     currentModelSupportsImageInput,
@@ -744,112 +750,131 @@ export default function Screen() {
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-                <InfoSection title="Model">
-                  <InfoRow
-                    label="Provider"
-                    value={
-                      chatInfo.currentModel?.providerLabel ?? "Unavailable"
-                    }
-                  />
-                  <InfoRow
-                    label="Selected model"
-                    value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
-                  />
-                  <InfoRow
-                    label="Reasoning"
-                    value={getReasoningEffortLabel(reasoningEffort)}
-                  />
-                </InfoSection>
+                {messages.length === 0 ? (
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    Start a chat to see model, usage, and context details here.
+                  </Text>
+                ) : (
+                  <>
+                    <InfoSection title="Model">
+                      <InfoRow
+                        label="Provider"
+                        value={
+                          chatInfo.currentModel?.providerLabel ?? "Unavailable"
+                        }
+                      />
+                      <InfoRow
+                        label="Selected model"
+                        value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
+                      />
+                      <InfoRow
+                        label="Reasoning"
+                        value={getReasoningEffortLabel(reasoningEffort)}
+                      />
+                    </InfoSection>
 
-                <InfoSection title="Latest turn">
-                  <InfoRow
-                    label="Input tokens"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.inputTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Output tokens"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.outputTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Total tokens"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.totalTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Cost"
-                    value={formatCurrency(
-                      chatInfo.latestTurn?.costTotal ?? null,
-                    )}
-                  />
-                </InfoSection>
+                    {chatInfo.currentModel ? (
+                      <ProviderUsageInfo
+                        accountId={
+                          activeProviderAccountIds[
+                            chatInfo.currentModel.providerId
+                          ] ?? null
+                        }
+                        providerId={chatInfo.currentModel.providerId}
+                      />
+                    ) : null}
 
-                <InfoSection
-                  subtitle={
-                    chatInfo.conversationTotals?.isPartial
-                      ? "Partial data"
-                      : undefined
-                  }
-                  title="Conversation totals"
-                >
-                  <InfoRow
-                    label="Input tokens"
-                    value={formatTokenCount(
-                      chatInfo.conversationTotals?.inputTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Output tokens"
-                    value={formatTokenCount(
-                      chatInfo.conversationTotals?.outputTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Total tokens"
-                    value={formatTokenCount(
-                      chatInfo.conversationTotals?.totalTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Cost"
-                    value={formatCurrency(
-                      chatInfo.conversationTotals?.costTotal ?? null,
-                    )}
-                  />
-                </InfoSection>
+                    <InfoSection title="Latest turn">
+                      <InfoRow
+                        label="Input tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.inputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Output tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.outputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Total tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.totalTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Cost"
+                        value={formatCurrency(
+                          chatInfo.latestTurn?.costTotal ?? null,
+                        )}
+                      />
+                    </InfoSection>
 
-                <InfoSection title="Context">
-                  <InfoRow
-                    label="Context window"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.contextWindow ??
-                        chatInfo.currentModel?.contextWindow ??
-                        null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Used"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.totalTokens ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Remaining"
-                    value={formatTokenCount(
-                      chatInfo.latestTurn?.remainingContext ?? null,
-                    )}
-                  />
-                  <InfoRow
-                    label="Usage"
-                    value={formatPercent(
-                      chatInfo.latestTurn?.contextUsagePercent ?? null,
-                    )}
-                  />
-                </InfoSection>
+                    <InfoSection
+                      subtitle={
+                        chatInfo.conversationTotals?.isPartial
+                          ? "Partial data"
+                          : undefined
+                      }
+                      title="Conversation totals"
+                    >
+                      <InfoRow
+                        label="Input tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.inputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Output tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.outputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Total tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.totalTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Cost"
+                        value={formatCurrency(
+                          chatInfo.conversationTotals?.costTotal ?? null,
+                        )}
+                      />
+                    </InfoSection>
+
+                    <InfoSection title="Context">
+                      <InfoRow
+                        label="Context window"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.contextWindow ??
+                            chatInfo.currentModel?.contextWindow ??
+                            null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Used"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.totalTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Remaining"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.remainingContext ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Usage"
+                        value={formatPercent(
+                          chatInfo.latestTurn?.contextUsagePercent ?? null,
+                        )}
+                      />
+                    </InfoSection>
+                  </>
+                )}
               </DrawerBody>
             </DrawerContent>
           </Drawer>
@@ -992,6 +1017,105 @@ function InfoRow({ label, value }: { label: string; value: string }) {
         {value}
       </Text>
     </View>
+  );
+}
+
+function ProviderUsageInfo({
+  accountId,
+  providerId,
+}: {
+  accountId: string | null;
+  providerId: string;
+}) {
+  const theme = useTheme();
+  const [usage, setUsage] = useState<ProviderUsage | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "unavailable">(
+    "loading",
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setStatus("loading");
+    setUsage(null);
+
+    getProviderUsage(providerId, accountId)
+      .then((next) => {
+        if (cancelled) {
+          return;
+        }
+
+        setUsage(next);
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus("unavailable");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, providerId]);
+
+  if (status === "unavailable") {
+    return null;
+  }
+
+  if (status === "loading") {
+    return (
+      <InfoSection title="Usage">
+        <View className="flex-row items-center gap-sp-2">
+          <ActivityIndicator color={theme.text} size="small" />
+          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+            Checking usage…
+          </Text>
+        </View>
+      </InfoSection>
+    );
+  }
+
+  const windows = [
+    usage?.primary ? { window: usage.primary } : null,
+    usage?.secondary ? { window: usage.secondary } : null,
+  ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  if (!usage || windows.length === 0) {
+    return null;
+  }
+
+  return (
+    <InfoSection
+      subtitle={usage.plan ? `${usage.plan} plan` : undefined}
+      title="Usage"
+    >
+      <View className="gap-sp-3">
+        {windows.map(({ window }) => (
+          <View className="gap-sp-1" key={window.resetAt ?? window.windowSeconds}>
+            <View className="flex-row items-center justify-between gap-sp-3">
+              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                {formatUsageWindowLabel(window.windowSeconds)}
+              </Text>
+              <Text className="font-sans text-xs text-foreground dark:text-foreground-dark">
+                {window.leftPercent}% left
+              </Text>
+            </View>
+            <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
+              <View
+                className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
+                style={{ width: `${Math.max(2, window.usedPercent)}%` }}
+              />
+            </View>
+            {window.resetAt ? (
+              <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
+                Resets {new Date(window.resetAt).toLocaleString()}
+              </Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </InfoSection>
   );
 }
 

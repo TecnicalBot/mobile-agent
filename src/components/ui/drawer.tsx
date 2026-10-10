@@ -243,6 +243,7 @@ export const DrawerContent = forwardRef<
     const theme = useTheme();
     const { height, width } = useWindowDimensions();
     const [mounted, setMounted] = useState(open);
+    const [blurReady, setBlurReady] = useState(false);
     const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
     const isVertical = direction === "top" || direction === "bottom";
     const maxHeight = Math.max(Math.floor(height * 0.9), 220);
@@ -266,6 +267,13 @@ export const DrawerContent = forwardRef<
     useEffect(() => {
       if (open) {
         setMounted(true);
+        // Defer expensive BlurView one frame so panel slide starts first.
+        // Prevents the black-frame stall seen on provider drawer open.
+        setBlurReady(false);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const raf = requestAnimationFrame(() => {
+          timer = setTimeout(() => setBlurReady(true), 60);
+        });
 
         Animated.timing(progress, {
           toValue: 1,
@@ -274,9 +282,13 @@ export const DrawerContent = forwardRef<
           useNativeDriver: true,
         }).start();
 
-        return;
+        return () => {
+          cancelAnimationFrame(raf);
+          if (timer) clearTimeout(timer);
+        };
       }
 
+      setBlurReady(false);
       Animated.timing(progress, {
         toValue: 0,
         duration: 160,
@@ -294,54 +306,60 @@ export const DrawerContent = forwardRef<
       setOpen(false);
     };
 
-    if (!mounted) {
-      return null;
-    }
-
-    const translateStyle =
-      direction === "top"
-        ? {
-            transform: [
-              {
-                translateY: progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-height, 0],
-                }),
-              },
-            ],
-          }
-        : direction === "left"
+    const translateStyle = useMemo(
+      () =>
+        direction === "top"
           ? {
               transform: [
                 {
-                  translateX: progress.interpolate({
+                  translateY: progress.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [-width, 0],
+                    outputRange: [-height, 0],
                   }),
                 },
               ],
             }
-          : direction === "right"
+          : direction === "left"
             ? {
                 transform: [
                   {
                     translateX: progress.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [width, 0],
+                      outputRange: [-width, 0],
                     }),
                   },
                 ],
               }
-            : {
-                transform: [
-                  {
-                    translateY: progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [height, 0],
-                    }),
-                  },
-                ],
-              };
+            : direction === "right"
+              ? {
+                  transform: [
+                    {
+                      translateX: progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [width, 0],
+                      }),
+                    },
+                  ],
+                }
+              : {
+                  transform: [
+                    {
+                      translateY: progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [height, 0],
+                      }),
+                    },
+                  ],
+                },
+      [direction, height, progress, width],
+    );
+
+    // Render on the same commit that `open` flips true.
+    // Previously we waited for the effect to setMounted(true), which left
+    // one blank frame (handle + X, empty body) on provider drawer open.
+    if (!mounted && !open) {
+      return null;
+    }
 
     return (
       <ReactNativeModal
@@ -350,7 +368,7 @@ export const DrawerContent = forwardRef<
         onRequestClose={handleDismiss}
         statusBarTranslucent
         transparent
-        visible={mounted}
+        visible={mounted || open}
       >
         <View
           className={cn(
@@ -379,11 +397,13 @@ export const DrawerContent = forwardRef<
             pointerEvents="none"
             style={{ opacity: progress }}
           >
-            <BlurView
-              className="absolute inset-0"
-              intensity={55}
-              tint="dark"
-            />
+            {blurReady ? (
+              <BlurView
+                className="absolute inset-0"
+                intensity={55}
+                tint="dark"
+              />
+            ) : null}
             <View
               className={cn("absolute inset-0 bg-black/45", overlayClassName)}
             />

@@ -116,6 +116,7 @@ export function SecretEntryDialog({
             {editableKey ? <Input
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
               placeholder="KEY_NAME"
               value={key}
               onChangeText={setKey}
@@ -148,7 +149,7 @@ export function SecretEntryDialog({
                <Input
                  autoCapitalize="none"
                  autoCorrect={false}
-                 autoFocus
+                 autoFocus={!editableKey}
                  secureTextEntry
                  placeholder="Enter secret value"
                  value={value}

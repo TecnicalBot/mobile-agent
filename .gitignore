@@ -48,3 +48,6 @@ example
 # Local Expo module Android build output
 /modules/*/android/build/
 /modules/*/android/.gradle/
+
+# Fetched agent skills (reproducible from skills-lock.json)
+.agents/skills/

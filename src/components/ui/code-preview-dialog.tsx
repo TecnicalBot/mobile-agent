@@ -64,6 +64,39 @@ export function CodePreviewDialog({
   language,
   onDismiss,
 }: CodePreviewDialogProps) {
+  return (
+    <Drawer
+      dismissible
+      onOpenChange={(open) => {
+        if (!open) {
+          onDismiss();
+        }
+      }}
+      open
+    >
+      <DrawerContent contentClassName="max-w-full" showHandle>
+        <CodePreviewContent
+          code={code}
+          html={html}
+          language={language}
+          onDismiss={onDismiss}
+        />
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+/**
+ * Preview body without its own modal. Render this inside an already-open
+ * drawer when switching to markup content so the modal itself never
+ * unmounts/remounts (which reads as a blink).
+ */
+export function CodePreviewContent({
+  html,
+  code,
+  language,
+  onDismiss,
+}: CodePreviewDialogProps) {
   const theme = useTheme();
   const [viewport, setViewport] = useState<Viewport>("mobile");
   const [mode, setMode] = useState<ViewMode>("preview");
@@ -160,16 +193,7 @@ export function CodePreviewDialog({
   }, []);
 
   return (
-    <Drawer
-      dismissible
-      onOpenChange={(open) => {
-        if (!open) {
-          onDismiss();
-        }
-      }}
-      open
-    >
-      <DrawerContent contentClassName="max-w-full" showHandle>
+    <>
         <View className="flex-row items-center justify-between gap-3">
           <View className="flex-1 gap-1">
             <DrawerTitle>Preview</DrawerTitle>
@@ -241,8 +265,7 @@ export function CodePreviewDialog({
             )
           ) : null}
         </View>
-      </DrawerContent>
-    </Drawer>
+    </>
   );
 }
 

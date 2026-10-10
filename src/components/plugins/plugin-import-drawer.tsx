@@ -1,5 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
+import { useRouter } from "expo-router";
 import { FileDown } from "lucide-react-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
@@ -34,6 +35,7 @@ export function PluginImportDrawer({
   open: boolean;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const { importPlugin } = useConfig();
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,10 @@ export function PluginImportDrawer({
       await importPlugin(source);
       setUrl("");
       onOpenChange(false);
+      // Land on the installed list so the new plugin is visible at once.
+      // (Pushing detail broke the back stack: back landed on the catalog
+      // with nothing listed, needing a second back to reach this list.)
+      router.replace("/settings/plugins/connected" as never);
     } catch (pickError) {
       setError(
         pickError instanceof Error
@@ -84,6 +90,7 @@ export function PluginImportDrawer({
       await importPlugin(source, url.trim());
       setUrl("");
       onOpenChange(false);
+      router.replace("/settings/plugins/connected" as never);
     } catch (fetchError) {
       setError(
         fetchError instanceof Error

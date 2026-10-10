@@ -110,12 +110,15 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
+    // Pause background polling while a drawer is open so the JS thread
+    // stays free for the open animation. Prevents intermittent stuck frames.
+    if (openDrawer !== null) return;
     const poll = setInterval(async () => {
       setAgentActive(await isBackgroundAgentHeld());
       setBatteryOptimizationGranted(await isIgnoringBatteryOptimizations());
     }, 2000);
     return () => clearInterval(poll);
-  }, []);
+  }, [openDrawer]);
 
   const providerCount = providers.length;
   const enabledToolCount = countEnabledBuiltInFileTools(toolSettings);

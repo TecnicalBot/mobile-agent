@@ -151,7 +151,10 @@ export default function SkillCatalogScreen() {
                     <View className="flex-row items-center gap-sp-3 px-sp-4 py-sp-4">
                       <View className="min-w-0 flex-1 gap-1">
                         <View className="flex-row items-center gap-sp-2">
-                          <Text className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark">
+                          <Text
+                            className="font-sans text-base font-semibold text-foreground dark:text-foreground-dark"
+                            numberOfLines={1}
+                          >
                             {entry.label}
                           </Text>
                           {entry.source ? (
@@ -160,7 +163,10 @@ export default function SkillCatalogScreen() {
                             </Text>
                           ) : null}
                         </View>
-                        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                        <Text
+                          className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark"
+                          numberOfLines={3}
+                        >
                           {entry.description}
                         </Text>
                       </View>

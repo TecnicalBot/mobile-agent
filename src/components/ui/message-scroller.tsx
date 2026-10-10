@@ -291,7 +291,6 @@ function MessageScrollerListInner<ItemT>(
     ItemSeparatorComponent = MessageScrollerSeparator,
     keyboardShouldPersistTaps = "handled",
     maintainVisibleContentPosition = DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION,
-    maxItemsInRecyclePool = 0,
     onContentSizeChange,
     onLayout,
     onScroll,
@@ -356,7 +355,6 @@ function MessageScrollerListInner<ItemT>(
       ItemSeparatorComponent={ItemSeparatorComponent}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
       maintainVisibleContentPosition={maintainVisibleContentPosition}
-      maxItemsInRecyclePool={maxItemsInRecyclePool}
       onContentSizeChange={handleContentSizeChange}
       onLayout={handleLayout}
       onScroll={handleScroll}

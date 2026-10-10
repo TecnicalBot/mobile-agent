@@ -3,9 +3,15 @@ import type { DocumentPickerAsset } from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
-import { inferMimeType } from "@/core/services/external-folder/external-folder-service";
+import {
+  inferFileNameFromUrl,
+  inferMimeType,
+  sanitizeFileName,
+} from "@/core/services/file-names";
 import type { WorkspaceRepository } from "@/core/db/database";
 import type { WorkspaceFile } from "@/core/types/app-state";
+// Re-exported so existing import paths keep working.
+export { inferFileNameFromUrl, sanitizeFileName };
 
 const WORKSPACE_ROOT_SEGMENTS = ["mobile-agent", "workspace"] as const;
 
@@ -118,22 +124,6 @@ const EXACT_TEXT_FILENAMES = new Set([
   "readme",
 ]);
 
-export function sanitizeFileName(name: string) {
-  const trimmed = name.trim();
-
-  if (!trimmed) {
-    return "untitled.txt";
-  }
-
-  const normalized = trimmed
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return normalized || "untitled.txt";
-}
-
 function sanitizePathSegment(name: string) {
   return sanitizeFileName(name).replace(/\.+/g, ".");
 }
@@ -192,21 +182,6 @@ export function isTextWorkspaceFile(file: Pick<WorkspaceFile, "displayName" | "m
   }
 
   return false;
-}
-
-export function inferFileNameFromUrl(url: string) {
-  const withoutQuery = url.split(/[?#]/)[0] ?? url;
-  const lastSegment = withoutQuery.split("/").filter(Boolean).pop() ?? "";
-
-  if (!lastSegment) {
-    return "";
-  }
-
-  try {
-    return decodeURIComponent(lastSegment);
-  } catch {
-    return lastSegment;
-  }
 }
 
 async function resolveExpectedContentLength(

@@ -11,8 +11,11 @@ import type {
 } from "@/core/types/app-state";
 import {
   inferFileNameFromUrl,
+  inferMimeType,
   sanitizeFileName,
-} from "@/core/services/workspace-file-service";
+} from "@/core/services/file-names";
+// Re-exported so existing import paths keep working.
+export { inferMimeType };
 
 export type ExternalFolderEntry = {
   path: string;
@@ -671,87 +674,6 @@ export function createExternalFolderService() {
       };
     },
   };
-}
-
-export function inferMimeType(fileName: string) {
-  const lowerName = fileName.toLowerCase();
-
-  if (lowerName.endsWith(".json")) {
-    return "application/json";
-  }
-
-  if (
-    lowerName.endsWith(".js") ||
-    lowerName.endsWith(".mjs") ||
-    lowerName.endsWith(".cjs")
-  ) {
-    return "application/javascript";
-  }
-
-  if (
-    lowerName.endsWith(".ts") ||
-    lowerName.endsWith(".mts") ||
-    lowerName.endsWith(".cts") ||
-    lowerName.endsWith(".tsx") ||
-    lowerName.endsWith(".jsx")
-  ) {
-    return "application/typescript";
-  }
-
-  if (
-    lowerName.endsWith(".css") ||
-    lowerName.endsWith(".scss") ||
-    lowerName.endsWith(".sass") ||
-    lowerName.endsWith(".less")
-  ) {
-    return "text/css";
-  }
-
-  if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
-    return "text/html";
-  }
-
-  if (lowerName.endsWith(".svg")) {
-    return "image/svg+xml";
-  }
-
-  if (lowerName.endsWith(".xml")) {
-    return "application/xml";
-  }
-
-  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
-    return "text/markdown";
-  }
-
-  if (lowerName.endsWith(".yml") || lowerName.endsWith(".yaml")) {
-    return "application/x-yaml";
-  }
-
-  if (lowerName.endsWith(".toml")) {
-    return "application/toml";
-  }
-
-  if (lowerName.endsWith(".sql")) {
-    return "application/sql";
-  }
-
-  if (lowerName.endsWith(".csv") || lowerName.endsWith(".tsv")) {
-    return "text/csv";
-  }
-
-  if (
-    lowerName.endsWith(".txt") ||
-    lowerName.endsWith(".log") ||
-    lowerName.endsWith(".env") ||
-    lowerName.endsWith(".sh") ||
-    lowerName.endsWith(".py") ||
-    lowerName.endsWith(".ini") ||
-    lowerName.endsWith(".conf")
-  ) {
-    return "text/plain";
-  }
-
-  return "application/octet-stream";
 }
 
 function mimeTypeForFileName(fileName: string, fallbackMimeType?: string) {

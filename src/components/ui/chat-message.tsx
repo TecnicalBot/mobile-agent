@@ -35,10 +35,12 @@ import {
   Trash2,
 } from "lucide-react-native";
 import {
+  createContext,
   memo,
   type ReactNode,
   Component,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useState,
@@ -109,6 +111,7 @@ import type {
   StoredMessage,
   WorkspaceFile,
 } from "@/core/types/app-state";
+import { downloadText } from "@/core/services/download-service";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
@@ -259,11 +262,52 @@ const MARKDOWN_RULES = {
   ),
 } satisfies RenderRules;
 
+export type ChatMediaPreviewTarget =
+  | { kind: "generated"; image: GeneratedImageAttachment }
+  | { kind: "uri"; alt: string; uri: string }
+  | { kind: "svg"; alt: string; markup: string };
+
+const ChatMediaContext = createContext<{
+  onPreviewImage: (target: ChatMediaPreviewTarget) => void;
+  workspaceFiles: WorkspaceFile[];
+}>({ onPreviewImage: () => {}, workspaceFiles: [] });
+
+function PreviewUriImage({ uri }: { uri: string }) {
+  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+  return (
+    <Image
+      contentFit="contain"
+      onLoad={(event) => {
+        const { height, width } = event.source;
+        if (width > 0 && height > 0) {
+          setAspectRatio(width / height);
+        }
+      }}
+      source={{ uri }}
+      style={{
+        aspectRatio,
+        borderRadius: 16,
+        maxHeight: 420,
+        width: "100%",
+      }}
+    />
+  );
+}
+
 function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
   const [aspectRatio, setAspectRatio] = useState(16 / 9);
   const [failed, setFailed] = useState(false);
+  const { onPreviewImage, workspaceFiles } = useContext(ChatMediaContext);
+  const resolvedUri = useMemo(() => {
+    if (!uri) return uri;
+    if (uri.startsWith("workspace://")) {
+      const file = workspaceFileFromUrl(uri, workspaceFiles);
+      if (file) return resolveWorkspaceFile(file.relativePath).uri;
+    }
+    return uri;
+  }, [uri, workspaceFiles]);
 
-  if (!uri || failed) {
+  if (!resolvedUri || failed) {
     return alt ? (
       <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
         {alt}
@@ -272,23 +316,33 @@ function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
   }
 
   return (
-    <Image
-      accessibilityLabel={alt || "Image"}
-      accessible
-      contentFit="contain"
-      onError={() => {
-        setFailed(true);
+    <Pressable
+      accessibilityHint="Opens the image preview"
+      accessibilityLabel={alt || "Open image preview"}
+      accessibilityRole="button"
+      onPress={() => {
+        onPreviewImage({ alt: alt || "Image", kind: "uri", uri: resolvedUri });
       }}
-      onLoad={(event) => {
-        const { height, width } = event.source;
+      style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
+    >
+      <Image
+        accessibilityLabel={alt || "Image"}
+        accessible
+        contentFit="contain"
+        onError={() => {
+          setFailed(true);
+        }}
+        onLoad={(event) => {
+          const { height, width } = event.source;
 
-        if (width > 0 && height > 0) {
-          setAspectRatio(width / height);
-        }
-      }}
-      source={{ uri }}
-      style={{ aspectRatio, maxWidth: "100%", width: "100%" }}
-    />
+          if (width > 0 && height > 0) {
+            setAspectRatio(width / height);
+          }
+        }}
+        source={{ uri: resolvedUri }}
+        style={{ aspectRatio, maxWidth: "100%", width: "100%" }}
+      />
+    </Pressable>
   );
 }
 
@@ -370,6 +424,7 @@ class SvgErrorBoundary extends Component<
 
 /** Renders raw inline <svg> markup like an image. Non-svg HTML stays dropped. */
 function InlineSvgBlock({ markup }: { markup: string }) {
+  const { onPreviewImage } = useContext(ChatMediaContext);
   const svg = extractSvgMarkup(markup);
   if (!svg) return null;
   if (svg.length > MAX_INLINE_SVG_LENGTH) {
@@ -381,9 +436,19 @@ function InlineSvgBlock({ markup }: { markup: string }) {
       fallback={<CopyableCodeBlock code={svg} language="svg" />}
       markup={svg}
     >
-      <View style={{ aspectRatio, width: "100%" }}>
-        <SvgXml height="100%" width="100%" xml={svg} />
-      </View>
+      <Pressable
+        accessibilityHint="Opens the SVG preview"
+        accessibilityLabel="Open SVG preview"
+        accessibilityRole="button"
+        onPress={() => {
+          onPreviewImage({ alt: "SVG image", kind: "svg", markup: svg });
+        }}
+        style={({ pressed }) => (pressed ? { opacity: 0.9 } : null)}
+      >
+        <View style={{ aspectRatio, width: "100%" }}>
+          <SvgXml height="100%" width="100%" xml={svg} />
+        </View>
+      </Pressable>
     </SvgErrorBoundary>
   );
 }
@@ -1002,8 +1067,8 @@ export const ChatMessage = memo(function ChatMessage({
     () => message.status === "streaming",
     [message.id],
   );
-  const [previewImage, setPreviewImage] =
-    useRecyclingState<GeneratedImageAttachment | null>(null, [message.id]);
+  const [imagePreview, setImagePreview] =
+    useRecyclingState<ChatMediaPreviewTarget | null>(null, [message.id]);
   const [previewFile, setPreviewFile] = useRecyclingState<WorkspaceFile | null>(
     null,
     [message.id],
@@ -1164,12 +1229,19 @@ export const ChatMessage = memo(function ChatMessage({
     },
     [setPreviewFile, workspaceFiles, workspaceRepository],
   );
+  const openImagePreview = useCallback((target: ChatMediaPreviewTarget) => {
+    setImagePreview(target);
+  }, [setImagePreview]);
+  const mediaContext = useMemo(
+    () => ({ onPreviewImage: openImagePreview, workspaceFiles }),
+    [openImagePreview, workspaceFiles],
+  );
   const closePreview = () => {
     setImageAction(null);
-    setPreviewImage(null);
+    setImagePreview(null);
   };
 
-  const handleDownloadImage = async (image: GeneratedImageAttachment) => {
+  const handleDownloadImage = async (image: { uri: string }) => {
     setImageAction("download");
 
     try {
@@ -1198,7 +1270,7 @@ export const ChatMessage = memo(function ChatMessage({
     }
   };
 
-  const handleShareImage = async (image: GeneratedImageAttachment) => {
+  const handleShareImage = async (image: { uri: string }) => {
     setImageAction("share");
 
     try {
@@ -1218,6 +1290,65 @@ export const ChatMessage = memo(function ChatMessage({
         dialogTitle: "Share generated image",
         mimeType: getImageMimeType(localFile.uri),
         UTI: "public.image",
+      });
+    } catch (error) {
+      if (isUserCanceledShare(error)) {
+        return;
+      }
+
+      Alert.alert(
+        "Share failed",
+        error instanceof Error ? error.message : "Failed to share the image.",
+      );
+    } finally {
+      setImageAction(null);
+    }
+  };
+
+  const handleDownloadSvg = async (markup: string) => {
+    setImageAction("download");
+
+    try {
+      const result = await downloadText(
+        markup,
+        `image-${Date.now()}.svg`,
+        "image/svg+xml",
+      );
+      if (result) {
+        Alert.alert("Image saved", `${result.name} has been saved to Downloads.`);
+      }
+    } catch (error) {
+      Alert.alert(
+        "Download failed",
+        error instanceof Error ? error.message : "Failed to save the image.",
+      );
+    } finally {
+      setImageAction(null);
+    }
+  };
+
+  const handleShareSvg = async (markup: string) => {
+    setImageAction("share");
+
+    try {
+      const available = await Sharing.isAvailableAsync();
+
+      if (!available) {
+        Alert.alert(
+          "Share unavailable",
+          "Sharing is not available on this device.",
+        );
+        return;
+      }
+
+      const localFile = new File(Paths.cache, `shared-image-${Date.now()}.svg`);
+      localFile.create({ intermediates: true, overwrite: true });
+      localFile.write(markup);
+
+      await Sharing.shareAsync(localFile.uri, {
+        dialogTitle: "Share SVG image",
+        mimeType: "image/svg+xml",
+        UTI: "public.svg-image",
       });
     } catch (error) {
       if (isUserCanceledShare(error)) {
@@ -1414,6 +1545,7 @@ export const ChatMessage = memo(function ChatMessage({
 
   return (
     <Message align={align}>
+      <ChatMediaContext.Provider value={mediaContext}>
       <View
         className={cn("gap-1", align === "end" ? "items-end" : "items-start", {
           "w-full": isAssistant,
@@ -1717,7 +1849,7 @@ export const ChatMessage = memo(function ChatMessage({
                           accessibilityRole="button"
                           className="overflow-hidden rounded-card border border-border dark:border-border-dark"
                           onPress={() => {
-                            setPreviewImage(image);
+                            setImagePreview({ image, kind: "generated" });
                           }}
                         >
                           <Image
@@ -1934,23 +2066,29 @@ export const ChatMessage = memo(function ChatMessage({
             closePreview();
           }
         }}
-        open={previewImage !== null}
+        open={imagePreview !== null}
       >
         <DrawerContent
           className="w-full max-w-full"
           contentClassName="max-w-full"
           showCloseButton
           showHandle
-          size={560}
+          size={720}
         >
           <DrawerHeader>
-            <DrawerTitle>Generated image</DrawerTitle>
+            <DrawerTitle>
+              {imagePreview?.kind === "generated"
+                ? "Generated image"
+                : imagePreview?.kind === "svg"
+                  ? "SVG image"
+                  : "Image"}
+            </DrawerTitle>
           </DrawerHeader>
           <DrawerBody className="gap-sp-3" contentContainerClassName="gap-sp-3">
-            {previewImage ? (
+            {imagePreview?.kind === "generated" ? (
               <Image
                 contentFit="contain"
-                source={{ uri: previewImage.uri }}
+                source={{ uri: imagePreview.image.uri }}
                 style={{
                   aspectRatio: 1,
                   borderRadius: 16,
@@ -1959,6 +2097,33 @@ export const ChatMessage = memo(function ChatMessage({
                 }}
               />
             ) : null}
+            {imagePreview?.kind === "uri" ? (
+              <PreviewUriImage uri={imagePreview.uri} />
+            ) : null}
+            {imagePreview?.kind === "svg" ? (
+              <SvgErrorBoundary
+                fallback={
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    This SVG could not be rendered.
+                  </Text>
+                }
+                markup={imagePreview.markup}
+              >
+                <View
+                  style={{
+                    aspectRatio: svgAspectRatio(imagePreview.markup),
+                    maxHeight: 420,
+                    width: "100%",
+                  }}
+                >
+                  <SvgXml
+                    height="100%"
+                    width="100%"
+                    xml={imagePreview.markup}
+                  />
+                </View>
+              </SvgErrorBoundary>
+            ) : null}
           </DrawerBody>
           <DrawerFooter className="flex-row gap-sp-2">
             <Button
@@ -1966,8 +2131,15 @@ export const ChatMessage = memo(function ChatMessage({
               leftIcon={<Download color={theme.text} size={16} />}
               loading={imageAction === "download"}
               onPress={() => {
-                if (previewImage) {
-                  handleDownloadImage(previewImage).catch(console.error);
+                if (!imagePreview) return;
+                if (imagePreview.kind === "generated") {
+                  handleDownloadImage(imagePreview.image).catch(console.error);
+                } else if (imagePreview.kind === "uri") {
+                  handleDownloadImage({ uri: imagePreview.uri }).catch(
+                    console.error,
+                  );
+                } else {
+                  handleDownloadSvg(imagePreview.markup).catch(console.error);
                 }
               }}
               variant="outline"
@@ -1979,8 +2151,15 @@ export const ChatMessage = memo(function ChatMessage({
               leftIcon={<Share2 color={theme.background} size={16} />}
               loading={imageAction === "share"}
               onPress={() => {
-                if (previewImage) {
-                  handleShareImage(previewImage).catch(console.error);
+                if (!imagePreview) return;
+                if (imagePreview.kind === "generated") {
+                  handleShareImage(imagePreview.image).catch(console.error);
+                } else if (imagePreview.kind === "uri") {
+                  handleShareImage({ uri: imagePreview.uri }).catch(
+                    console.error,
+                  );
+                } else {
+                  handleShareSvg(imagePreview.markup).catch(console.error);
                 }
               }}
             >
@@ -2032,6 +2211,7 @@ export const ChatMessage = memo(function ChatMessage({
         file={previewFile}
         onDismiss={() => setPreviewFile(null)}
       />
+      </ChatMediaContext.Provider>
     </Message>
   );
 });
@@ -2432,10 +2612,31 @@ function createMarkdownStyles(input: {
   } satisfies StyleSheet.NamedStyles<any>;
 }
 
-const getLocalImageFile = async (image: GeneratedImageAttachment) => {
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+const getLocalImageFile = async (image: { uri: string }) => {
   const extension = getImageExtension(image.uri);
   const fileName = `generated-image-${Date.now()}.${extension}`;
   const localFile = new File(Paths.cache, fileName);
+
+  if (image.uri.startsWith("data:")) {
+    const comma = image.uri.indexOf(",");
+    const meta = image.uri.slice(5, comma < 0 ? 5 : comma);
+    const data = comma < 0 ? "" : image.uri.slice(comma + 1);
+    const bytes = meta.includes(";base64")
+      ? base64ToBytes(data)
+      : new TextEncoder().encode(decodeURIComponent(data));
+    localFile.create({ intermediates: true, overwrite: true });
+    localFile.write(bytes);
+    return localFile;
+  }
 
   if (image.uri.startsWith("file://")) {
     return new File(image.uri);

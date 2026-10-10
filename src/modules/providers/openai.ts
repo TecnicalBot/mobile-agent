@@ -61,3 +61,12 @@ export function isOpenAiOAuthProvider(
 export function isOpenAiChatGptProvider(providerId: string) {
   return getOpenAiOAuthFlavor(providerId) === "chatgpt";
 }
+
+/**
+ * True when requests on this provider are billed to the user's ChatGPT/Codex
+ * subscription (OAuth sign-in) rather than metered per token. There is no
+ * per-request cost to show for these.
+ */
+export function isOpenAiSubscriptionProvider(providerId: string) {
+  return getOpenAiOAuthFlavor(providerId) !== null;
+}

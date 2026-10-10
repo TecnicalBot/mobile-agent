@@ -34,11 +34,6 @@ import { invalidateModelsDevCatalog } from "@/modules/config/models-dev-catalog"
 import { getSupportedProviderDefinition } from "@/modules/config/registry";
 import { fetchOnDeviceModelCatalogCached } from "@/modules/on-device/catalog";
 import { getOnDeviceToolsMode } from "@/modules/on-device/runtime-policy";
-import {
-  formatUsageWindowLabel,
-  getProviderUsage,
-  type ProviderUsage,
-} from "@/modules/providers/openai-usage";
 import { isOpenAiChatGptProvider } from "@/modules/providers/openai";
 import { isOAuthCanceledError } from "@/modules/providers/oauth-browser-cancel";
 import {
@@ -1004,13 +999,7 @@ export default function SettingsProvidersScreen() {
                         </Button>
                       </View>
                     )}
-                    {selectedProviderActive ? (
-                      <ProviderUsagePanel
-                        activeAccountId={selectedProviderActiveAccountId}
-                        providerId={selectedProvider.id}
-                      />
-                    ) : null}
-                  </View>
+                    </View>
                 ) : selectedProvider.family === "ollama" ? (
                   <View className="gap-sp-3">
                     <Input
@@ -1695,102 +1684,6 @@ function AccountSelectRow({
           </Text>
         ) : null}
       </Pressable>
-    </View>
-  );
-}
-
-function ProviderUsagePanel({
-  activeAccountId,
-  providerId,
-}: {
-  activeAccountId: string | null;
-  providerId: string;
-}) {
-  const theme = useTheme();
-  const [usage, setUsage] = useState<ProviderUsage | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "unavailable">(
-    "loading",
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    setStatus("loading");
-    setUsage(null);
-
-    getProviderUsage(providerId, activeAccountId)
-      .then((next) => {
-        if (cancelled) {
-          return;
-        }
-
-        setUsage(next);
-        setStatus("ready");
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStatus("unavailable");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeAccountId, providerId]);
-
-  if (status === "unavailable") {
-    return null;
-  }
-
-  if (status === "loading") {
-    return (
-      <View className="flex-row items-center gap-sp-2">
-        <ActivityIndicator color={theme.text} size="small" />
-        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-          Checking usage…
-        </Text>
-      </View>
-    );
-  }
-
-  const windows = [
-    usage?.primary ? { label: "primary" as const, window: usage.primary } : null,
-    usage?.secondary
-      ? { label: "secondary" as const, window: usage.secondary }
-      : null,
-  ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-
-  if (!usage || windows.length === 0) {
-    return null;
-  }
-
-  return (
-    <View className="gap-sp-3">
-      {windows.map(({ window }) => (
-        <View className="gap-sp-1" key={window.resetAt ?? window.windowSeconds}>
-          <View className="flex-row items-center justify-between gap-sp-3">
-            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-              {usage.plan
-                ? `${usage.plan} · ${formatUsageWindowLabel(window.windowSeconds)}`
-                : formatUsageWindowLabel(window.windowSeconds)}
-            </Text>
-            <Text className="font-sans text-xs text-foreground dark:text-foreground-dark">
-              {window.leftPercent}% left
-            </Text>
-          </View>
-          <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
-            <View
-              className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
-              style={{ width: `${Math.max(2, window.usedPercent)}%` }}
-            />
-          </View>
-          {window.resetAt ? (
-            <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
-              Resets {new Date(window.resetAt).toLocaleString()}
-            </Text>
-          ) : null}
-        </View>
-      ))}
     </View>
   );
 }

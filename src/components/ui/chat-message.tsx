@@ -4,7 +4,6 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import * as IntentLauncher from "expo-intent-launcher";
-import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import * as Speech from "expo-speech";
@@ -127,7 +126,6 @@ import { useSQLiteContext } from "expo-sqlite";
 import { createDrizzleDb } from "@/core/db/repositories/shared";
 import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
-import { Asset } from "expo-media-library";
 
 refractor.register(jsx);
 refractor.register(tsx);
@@ -1245,7 +1243,14 @@ export const ChatMessage = memo(function ChatMessage({
     setImageAction("download");
 
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      // Loaded lazily so expo-media-library (a native-only module) is never
+      // evaluated in the node/server-manifest bundle during `export:embed`.
+      const {
+        Asset,
+        requestPermissionsAsync,
+      } = await import("expo-media-library");
+
+      const permission = await requestPermissionsAsync(true);
 
       if (!permission.granted) {
         Alert.alert(

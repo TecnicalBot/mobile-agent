@@ -26,7 +26,19 @@ export type PluginToolSpec = {
   executeBody: string;
 };
 
+export type PluginActionSpec = {
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  mutating?: boolean;
+  name: string;
+  output?: "both" | "model" | "silent" | "user";
+  timeoutMs?: number;
+  title?: string;
+  runBody: string;
+};
+
 export type BuildPluginInput = {
+  actions?: PluginActionSpec[];
   author?: string;
   description?: string;
   name: string;
@@ -71,9 +83,35 @@ export function buildPluginSource(input: BuildPluginInput): string {
     return lines.join("\n");
   });
 
+  const actionEntries = (input.actions ?? []).map((action) => {
+    const lines = [
+      `    ${JSON.stringify(action.name)}: {`,
+      ...(action.title ? [`      title: ${JSON.stringify(action.title)},`] : []),
+      ...(action.description
+        ? [`      description: ${JSON.stringify(action.description)},`]
+        : []),
+      ...(action.inputSchema
+        ? [`      inputSchema: ${JSON.stringify(action.inputSchema)},`]
+        : []),
+      ...(action.mutating ? ["      mutating: true,"] : []),
+      ...(action.output ? [`      output: ${JSON.stringify(action.output)},`] : []),
+      ...(typeof action.timeoutMs === "number"
+        ? [`      timeoutMs: ${action.timeoutMs},`]
+        : []),
+      "      async run(args, context) {",
+      indentBlock(action.runBody, 8),
+      "      },",
+      "    },",
+    ];
+    return lines.join("\n");
+  });
+
   const hookBlocks = [
     ...(toolEntries.length > 0
       ? [["    tool: {", toolEntries.join("\n"), "    },"].join("\n")]
+      : []),
+    ...(actionEntries.length > 0
+      ? [["    action: {", actionEntries.join("\n"), "    },"].join("\n")]
       : []),
     ...(input.system && input.system.length > 0
       ? [`    system: ${JSON.stringify(input.system)},`]
@@ -95,7 +133,7 @@ export function buildPluginSource(input: BuildPluginInput): string {
 }
 
 export type ValidationResult =
-  | { ok: true; toolCount: number }
+  | { ok: true; actionCount: number; toolCount: number }
   | { ok: false; error: string };
 
 export async function validatePluginSource(
@@ -112,5 +150,6 @@ export async function validatePluginSource(
   }
 
   const toolCount = Object.keys(result.plugin.hooks.tool ?? {}).length;
-  return { ok: true, toolCount };
+  const actionCount = Object.keys(result.plugin.hooks.action ?? {}).length;
+  return { ok: true, toolCount, actionCount };
 }

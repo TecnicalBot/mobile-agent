@@ -73,6 +73,11 @@ stores only each plugin's public HTTPS URL (same as skills); the app downloads
 the `.js` source at install time and keeps the device copy refreshed via its
 `sourceUrl`. Do not commit plugin `.js` files into this repository.
 
+The in-app agent can also author plugins directly in chat (create/update/list/
+delete tools and actions, including `mutating`, `output`, and `timeoutMs`, plus
+optional system instructions) via its `managePlugin` tool — no file upload
+needed.
+
 ## Complete example
 
 ```js

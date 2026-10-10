@@ -71,7 +71,7 @@ describe("plugin builder", () => {
     });
 
     const validation = await validatePluginSource(source);
-    expect(validation).toEqual({ ok: true, toolCount: 2 });
+    expect(validation).toEqual({ ok: true, toolCount: 2, actionCount: 0 });
   });
 
   it("validatePluginSource rejects broken JavaScript", async () => {
@@ -90,6 +90,51 @@ describe("plugin builder", () => {
 
     const validation = await validatePluginSource(source);
     expect(validation.ok).toBe(false);
+  });
+
+  it("builds sources with manually-runnable actions", async () => {
+    const source = buildPluginSource({
+      name: "action-plugin",
+      version: "1.0.0",
+      description: "Actiony",
+      actions: [
+        {
+          name: "summarize",
+          title: "Summarize my notes",
+          description: "Summarize stored notes",
+          inputSchema: {
+            type: "object",
+            properties: { limit: { type: "integer" } },
+          },
+          mutating: false,
+          output: "user",
+          timeoutMs: 5000,
+          runBody: "return { summary: \`\${args.limit ?? 3} notes\` };",
+        },
+      ],
+    });
+
+    expect(source).toContain("action: {");
+    expect(source).toContain('title: "Summarize my notes"');
+    expect(source).toContain('output: "user"');
+    expect(source).toContain("timeoutMs: 5000");
+
+    const result = await runPluginSetupWithContext(source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const summarize = result.plugin.hooks.action?.summarize;
+    expect(summarize).toBeDefined();
+    expect(typeof summarize?.run).toBe("function");
+
+    const output = await summarize?.run(
+      { limit: 5 },
+      { abortSignal: new AbortController().signal },
+    );
+    expect(output).toEqual({ summary: "5 notes" });
+
+    const validation = await validatePluginSource(source);
+    expect(validation).toEqual({ ok: true, toolCount: 0, actionCount: 1 });
   });
 });
 

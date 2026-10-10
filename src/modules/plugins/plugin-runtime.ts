@@ -129,9 +129,7 @@ export function createPluginRuntime(
           return result.text;
         },
       },
-      emit(event, payload) {
-        console.log(`[plugin:${pluginId}] ${event}`, payload);
-      },
+      emit() {},
       fetch: (request, init) =>
         globalThis.fetch(request, {
           ...init,

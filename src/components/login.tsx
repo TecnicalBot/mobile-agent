@@ -32,16 +32,8 @@ export default function Login() {
 
     const state = Math.random().toString(36).slice(2);
 
-    console.log("REDIRECT URI:", redirectUri);
-    console.log("CODE VERIFIER:", codeVerifier);
-    console.log("GENERATED STATE:", state);
-
     prepareOpenAICallbackSession(state, async (code, returnedState) => {
-      console.log("AUTH CODE:", code);
-      console.log("RETURNED STATE:", returnedState);
-
       if (returnedState !== state) {
-        console.log("Invalid state");
         return;
       }
 
@@ -57,11 +49,8 @@ export default function Login() {
 
         await SecureStore.setItemAsync("openai_access_token", accessToken);
         await SecureStore.setItemAsync("openai_refresh_token", refreshToken);
-      } catch (error) {
-        // console.log("Exchange error:", error);
+      } catch {
       }
-
-      console.log("State matched. Now exchange token.");
     });
 
     const authUrl =
@@ -78,8 +67,6 @@ export default function Login() {
         state,
         originator: "opencode",
       }).toString();
-
-    console.log("AUTH URL:", authUrl);
 
     await WebBrowser.openBrowserAsync(authUrl);
   };
@@ -113,7 +100,6 @@ async function exchangeOpenAICodeForToken(params: {
   const data = await res.json();
 
   if (!res.ok) {
-    console.log("Token exchange failed:", data);
     throw new Error(
       data.error_description || data.error || "Token exchange failed",
     );
@@ -140,7 +126,6 @@ export async function refreshOpenAIToken(refreshToken: string) {
   const data = await res.json();
 
   if (!res.ok) {
-    console.log("Refresh failed:", data);
     throw new Error(
       data.error_description || data.error || "Token refresh failed",
     );

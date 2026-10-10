@@ -462,7 +462,7 @@ export default function Screen() {
           includeBottomTabInset={false}
         >
           <View className="flex-row items-center justify-between gap-sp-3">
-            <View className="flex flex-row border">
+            <View className="flex flex-row">
               <SidebarTrigger accessibilityLabel="Open sidebar" />
               <Button
                 accessibilityLabel="New chat"

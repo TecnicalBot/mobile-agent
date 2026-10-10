@@ -3895,11 +3895,8 @@ Your output must be:
 
     async function executeAgentRun(runId: string) {
         if (!runRegistryRef.current.claim(runId)) {
-            console.log("[executeAgentRun] claim refused", { runId });
             return;
         }
-        console.log("[executeAgentRun] claimed", { runId });
-
         try {
             const ui = createRunUiPublisher({
                 runId,
@@ -3942,7 +3939,6 @@ Your output must be:
             };
 
             await executeClaimedAgentRun(runId, deps);
-            console.log("[executeAgentRun] run finished (no throw)", { runId });
         } catch (error) {
             console.error("[executeAgentRun] run threw", { runId, error });
             runRegistryRef.current.clear(runId);

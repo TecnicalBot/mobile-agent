@@ -280,13 +280,6 @@ export async function executeClaimedAgentRun(
     return;
   }
 
-  console.log("[agent-run] started", {
-    runId: run.id,
-    status: run.status,
-    providerId: run.providerId,
-    modelId: run.modelId,
-  });
-
   const reportProjectionFailure = (context: string, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : null;
@@ -525,11 +518,6 @@ export async function executeClaimedAgentRun(
   };
   const startingAssistantText =
     run.status === "resumable" ? "" : assistantMessage.content;
-
-  console.log("[agent-run] setting message to streaming", {
-    runId: run.id,
-    assistantMessageId: assistantMessage.id,
-  });
 
   await repositories.messageRepository.updateContent({
     id: assistantMessage.id,
@@ -1768,13 +1756,6 @@ export async function executeClaimedAgentRun(
             return result.text;
           };
 
-    console.log("[agent-run] preparing messages for LLM", {
-      runId: run.id,
-      messageCount: runtimeMessages.length,
-      providerId: run.providerId,
-      modelId: run.modelId,
-    });
-
     const contextResult = await prepareMessagesForLLMWithSummary({
       contextWindow: contextWindowFromCatalog,
       messages: runtimeMessages,
@@ -1825,12 +1806,6 @@ export async function executeClaimedAgentRun(
         createdAt: resumedRun?.startedAt ?? run.startedAt,
       }),
     );
-
-    console.log("[agent-run] starting model stream", {
-      runId: run.id,
-      providerId: run.providerId,
-      modelId: run.modelId,
-    });
 
     const runtimeResultPromise = modelRuntime.generateTextStream({
       abortSignal: abortController.signal,

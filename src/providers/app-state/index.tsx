@@ -39,12 +39,14 @@ import {
     stopBackgroundAgent,
 } from "background-agent-service";
 import {
+    clearOpenAiTokens,
     clearOpenAiTokensForAccount,
     getOpenAiTokenInfo,
     getOpenAiTokenInfoForAccount,
     handleLogin,
 } from "@/modules/providers/openai-oauth";
 import {
+    clearLegacyOpenAiChatGptTokens,
     clearOpenAiChatGptTokensForAccount,
     getOpenAiChatGptTokenInfo,
     getOpenAiChatGptTokenInfoForAccount,
@@ -193,12 +195,16 @@ type AppStateContextValue = {
     deleteWorkspaceFile: (fileId: string) => Promise<void>;
     clearMcpServerCredentials: (serverId: string) => Promise<void>;
     connectOpenAIOAuth: (providerId?: string) => Promise<void>;
+    addOpenAiOAuthAccount: (input: {
+        label?: string;
+        providerId: string;
+    }) => Promise<void>;
     connectMcpServerOAuth: (serverId: string) => Promise<void>;
     createProviderAccount: (input: {
         apiKey?: string;
         label: string;
         providerId: string;
-    }) => Promise<void>;
+    }) => Promise<ProviderAccount>;
     switchProviderAccount: (input: {
         accountId: string;
         providerId: string;
@@ -1259,6 +1265,59 @@ Your output must be:
                                 targetAccountId,
                             );
                         }
+
+                        // Accounts are labelled with the signed-in email.
+                        const email =
+                            existingAccountInfo.email ?? legacyInfo.email;
+                        const targetAccount = openaiAccounts[0];
+                        if (email && targetAccount.label !== email) {
+                            await repositories.providerAccountRepository?.updateLabel(
+                                targetAccountId,
+                                email,
+                            );
+                        }
+                    }
+                }
+
+                // Migrate legacy ChatGPT-plan OAuth tokens into an account
+                if (accountsByProvider.has("openai-chatgpt")) {
+                    const chatGptAccounts =
+                        accountsByProvider.get("openai-chatgpt") ?? [];
+                    const targetAccountId = chatGptAccounts[0]?.id;
+                    if (targetAccountId) {
+                        const existingAccountInfo =
+                            await getOpenAiChatGptTokenInfoForAccount(
+                                targetAccountId,
+                            );
+                        const legacyInfo = await getOpenAiChatGptTokenInfo();
+                        if (
+                            (legacyInfo.accessToken || legacyInfo.refreshToken) &&
+                            !existingAccountInfo.accessToken &&
+                            !existingAccountInfo.refreshToken
+                        ) {
+                            const { migrateLegacyOpenAiChatGptTokensToAccount } =
+                                await import(
+                                    "@/modules/providers/openai-chatgpt-oauth"
+                                );
+                            await migrateLegacyOpenAiChatGptTokensToAccount(
+                                targetAccountId,
+                            );
+                            await secureSecretStore.setActiveProviderAccount(
+                                "openai-chatgpt",
+                                targetAccountId,
+                            );
+                        }
+
+                        // Accounts are labelled with the signed-in email.
+                        const email =
+                            existingAccountInfo.email ?? legacyInfo.email;
+                        const targetAccount = chatGptAccounts[0];
+                        if (email && targetAccount.label !== email) {
+                            await repositories.providerAccountRepository?.updateLabel(
+                                targetAccountId,
+                                email,
+                            );
+                        }
                     }
                 }
             }
@@ -2062,6 +2121,8 @@ Your output must be:
         );
 
         await hydrate();
+
+        return account;
     }
 
     async function switchProviderAccount(input: {
@@ -2079,24 +2140,34 @@ Your output must be:
         accountId: string;
         providerId: string;
     }) {
-        if (!repositoriesRef.current.providerAccountRepository) {
+        const accountRepo = repositoriesRef.current.providerAccountRepository;
+
+        if (!accountRepo) {
             throw new Error("Provider accounts are not available.");
         }
 
-        const remainingAccounts = (
-            await repositoriesRef.current.providerAccountRepository.listByProvider(
-                input.providerId,
-            )
-        ).filter((account) => account.id !== input.accountId);
+        const accounts = await accountRepo.listByProvider(input.providerId);
+        const target = accounts.find((account) => account.id === input.accountId);
+        const remainingAccounts = accounts.filter(
+            (account) => account.id !== input.accountId,
+        );
 
         const activeAccountId = await secureSecretStore.getActiveProviderAccountId(
             input.providerId,
         );
 
-        await secureSecretStore.deleteProviderAccountApiKey(input.accountId);
-        await repositoriesRef.current.providerAccountRepository.delete(
-            input.accountId,
-        );
+        if (target?.credentialKind === "oauth") {
+            // OAuth accounts keep their tokens in a per-account session slot
+            // rather than the API-key slot, so clear the right store.
+            if (getOpenAiOAuthFlavor(input.providerId) === "chatgpt") {
+                await clearOpenAiChatGptTokensForAccount(input.accountId);
+            } else {
+                await clearOpenAiTokensForAccount(input.accountId);
+            }
+        } else {
+            await secureSecretStore.deleteProviderAccountApiKey(input.accountId);
+        }
+        await accountRepo.delete(input.accountId);
 
         if (activeAccountId === input.accountId) {
             // Switch active to another account if available
@@ -2105,6 +2176,22 @@ Your output must be:
                 input.providerId,
                 nextAccount?.id ?? null,
             );
+        }
+
+        // Once the last account is gone, drop any legacy session tokens so the
+        // provider does not silently report as ready from stale credentials.
+        if (
+            target?.credentialKind === "oauth" &&
+            remainingAccounts.length === 0
+        ) {
+            if (getOpenAiOAuthFlavor(input.providerId) === "chatgpt") {
+                await clearLegacyOpenAiChatGptTokens();
+            } else {
+                await clearOpenAiTokens();
+            }
+
+            setOAuthEmailInSnapshot(input.providerId, null);
+            await persistOAuthEmail(input.providerId, null);
         }
 
         await hydrate();
@@ -3020,16 +3107,10 @@ Your output must be:
             : await getOpenAiTokenInfo();
     }
 
-    async function connectOpenAIOAuth(providerId: string = "openai") {
-        const accountRepo = repositoriesRef.current.providerAccountRepository;
-        let accountId =
-            (await secureSecretStore.getActiveProviderAccountId(providerId)) ?? null;
-
-        if (!accountId && accountRepo) {
-            const accounts = await accountRepo.listByProvider(providerId);
-            accountId = accounts[0]?.id ?? null;
-        }
-
+    async function loginOpenAiOAuthForAccount(
+        providerId: string,
+        accountId: string | null,
+    ) {
         if (getOpenAiOAuthFlavor(providerId) === "chatgpt") {
             await handleChatGptLogin(accountId ? { accountId } : undefined);
         } else {
@@ -3055,10 +3136,139 @@ Your output must be:
             await repositoriesRef.current.configRepository
                 .updateProvider(providerId, { enabled: true })
                 .catch(() => { });
+
+            // Accounts are labelled with the signed-in email so switching
+            // between multiple sign-ins is unambiguous.
+            if (accountId && tokenInfo.email) {
+                await repositoriesRef.current.providerAccountRepository
+                    ?.updateLabel(accountId, tokenInfo.email)
+                    .catch(() => { });
+            }
         }
 
         setOAuthEmailInSnapshot(providerId, tokenInfo.email);
         await persistOAuthEmail(providerId, tokenInfo.email);
+
+        return tokenInfo;
+    }
+
+    /**
+     * Stages the OAuth sign-in in the provider's legacy token slot first so a
+     * canceled or failed sign-in never leaves a half-created account behind.
+     * Once the tokens exist, move them into a real account row.
+     */
+    async function attachLegacyOAuthToAccount(
+        providerId: string,
+        accountId: string,
+    ) {
+        const accountRepo = repositoriesRef.current.providerAccountRepository;
+
+        if (getOpenAiOAuthFlavor(providerId) === "chatgpt") {
+            const { migrateLegacyOpenAiChatGptTokensToAccount } = await import(
+                "@/modules/providers/openai-chatgpt-oauth"
+            );
+            await migrateLegacyOpenAiChatGptTokensToAccount(accountId);
+        } else {
+            const { migrateLegacyOpenAiTokensToAccount } = await import(
+                "@/modules/providers/openai-oauth"
+            );
+            await migrateLegacyOpenAiTokensToAccount(accountId);
+        }
+
+        const tokenInfo = await readOAuthTokenInfo(providerId, accountId);
+
+        await secureSecretStore.setActiveProviderAccount(providerId, accountId);
+
+        await repositoriesRef.current.configRepository
+            .updateProvider(providerId, { enabled: true })
+            .catch(() => { });
+
+        if (tokenInfo.email) {
+            await accountRepo
+                ?.updateLabel(accountId, tokenInfo.email)
+                .catch(() => { });
+        }
+
+        setOAuthEmailInSnapshot(providerId, tokenInfo.email);
+        await persistOAuthEmail(providerId, tokenInfo.email);
+    }
+
+    /**
+     * Reuses the credential-less placeholder account the hydrate step creates
+     * for a first sign-in, otherwise returns a fresh account. This keeps the
+     * first connect from leaving a second empty row behind.
+     */
+    async function resolveOAuthAccountForSignIn(providerId: string) {
+        const accountRepo = repositoriesRef.current.providerAccountRepository;
+
+        if (!accountRepo) {
+            return null;
+        }
+
+        const accounts = await accountRepo.listByProvider(providerId);
+
+        for (const account of accounts) {
+            const tokenInfo = await readOAuthTokenInfo(providerId, account.id);
+
+            if (!tokenInfo.accessToken && !tokenInfo.refreshToken) {
+                return account.id;
+            }
+        }
+
+        const account = await accountRepo.create({
+            credentialKind: "oauth",
+            providerId,
+            label: "Account",
+        });
+
+        return account.id;
+    }
+
+    async function connectOpenAIOAuth(providerId: string = "openai") {
+        await loginOpenAiOAuthForAccount(providerId, null);
+
+        const legacyTokenInfo = await readOAuthTokenInfo(providerId, null);
+
+        if (legacyTokenInfo.accessToken || legacyTokenInfo.refreshToken) {
+            const accountId = await resolveOAuthAccountForSignIn(providerId);
+
+            if (accountId) {
+                await attachLegacyOAuthToAccount(providerId, accountId);
+            }
+        }
+
+        await hydrate().catch(() => { });
+    }
+
+    async function addOpenAiOAuthAccount(input: {
+        label?: string;
+        providerId: string;
+    }) {
+        const accountRepo = repositoriesRef.current.providerAccountRepository;
+
+        if (!accountRepo) {
+            throw new Error("Provider accounts are not available.");
+        }
+
+        await loginOpenAiOAuthForAccount(input.providerId, null);
+
+        const legacyTokenInfo = await readOAuthTokenInfo(
+            input.providerId,
+            null,
+        );
+
+        if (!legacyTokenInfo.accessToken && !legacyTokenInfo.refreshToken) {
+            throw new Error("The sign-in did not return a credential.");
+        }
+
+        const account = await accountRepo.create({
+            credentialKind: "oauth",
+            providerId: input.providerId,
+            label: input.label?.trim() || "Account",
+        });
+
+        await attachLegacyOAuthToAccount(input.providerId, account.id);
+
         await hydrate().catch(() => { });
     }
 
@@ -4497,6 +4707,7 @@ Your output must be:
                 clearConversationFolder,
                 connectMcpServerOAuth,
                 connectOpenAIOAuth,
+                addOpenAiOAuthAccount,
                 createProviderAccount,
                 switchProviderAccount,
                 deleteProviderAccount,
@@ -4687,6 +4898,7 @@ export function useConfig() {
         providerAccounts: context.providerAccounts,
         connectMcpServerOAuth: context.connectMcpServerOAuth,
         connectOpenAIOAuth: context.connectOpenAIOAuth,
+        addOpenAiOAuthAccount: context.addOpenAiOAuthAccount,
         createMcpServer: context.createMcpServer,
         createMcpServerOAuth: context.createMcpServerOAuth,
         writeMemory: context.writeMemory,

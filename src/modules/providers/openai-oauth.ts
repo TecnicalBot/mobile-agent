@@ -1,4 +1,5 @@
 import { prepareOpenAICallbackSession } from "@/core/services/local-server";
+import { watchForOAuthCancel } from "@/modules/providers/oauth-browser-cancel";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -261,8 +262,8 @@ export async function handleLogin(options?: {
             await persistTokenInfo(info);
           }
 
-          await returnToAppAfterOAuth();
           resolve(info);
+          void returnToAppAfterOAuth();
         } catch (e) {
           reject(e);
         }
@@ -287,6 +288,9 @@ export async function handleLogin(options?: {
       originator: "opencode",
     }).toString();
 
+  const cancelWatcher = await watchForOAuthCancel(
+    "OpenAI sign-in was canceled before it completed.",
+  );
   const browserPromise = WebBrowser.openBrowserAsync(authUrl);
   browserPromise.catch(() => null);
   const browserClosedPromise = browserPromise.then((result) => {
@@ -294,13 +298,16 @@ export async function handleLogin(options?: {
       return new Promise<never>(() => {});
     }
 
-    throw new Error("ChatGPT OAuth was canceled before it completed.");
+    const error = new Error("ChatGPT OAuth was canceled before it completed.");
+    error.name = "OAuthCanceledError";
+    throw error;
   });
 
   try {
     return await Promise.race([
       callbackPromise,
       browserClosedPromise,
+      cancelWatcher.cancelPromise,
       new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(new Error("Timed out waiting for the ChatGPT OAuth callback."));
@@ -308,6 +315,7 @@ export async function handleLogin(options?: {
       }),
     ]);
   } finally {
+    cancelWatcher.dispose();
     WebBrowser.dismissBrowser();
   }
 }

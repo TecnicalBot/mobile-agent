@@ -7,6 +7,7 @@ import {
   findModelsDevModel,
   type ModelsDevModelInfo,
 } from "@/modules/config/models-dev-catalog";
+import { isOpenAiSubscriptionProvider } from "@/modules/providers/openai";
 import type { ModelUsageSnapshot, ResolvedModel } from "@/core/types/app-state";
 
 function getOllamaContextWindow(model: ResolvedModel): number | null {
@@ -25,10 +26,12 @@ type DisplayUsage = {
   costInput: number | null;
   costOutput: number | null;
   costTotal: number | null;
+  hasPaidUsage: boolean;
   inputTokens: number | null;
   isPartial: boolean;
   modelLabel: string;
   outputTokens: number | null;
+  planCovered: boolean;
   providerLabel: string;
   remainingContext: number | null;
   totalTokens: number | null;
@@ -100,10 +103,12 @@ function enrichUsage(
     costInput: inputCost,
     costOutput: outputCost,
     costTotal: totalCost,
+    hasPaidUsage: !isOpenAiSubscriptionProvider(usage.providerId),
     inputTokens: usage.inputTokens,
     isPartial: false,
     modelLabel: usage.modelLabel,
     outputTokens: usage.outputTokens,
+    planCovered: isOpenAiSubscriptionProvider(usage.providerId),
     providerLabel: usage.providerLabel,
     remainingContext,
     totalTokens: usedTokens,
@@ -172,6 +177,7 @@ export function useChatInfo() {
                 enriched.map((usage) => usage.costOutput),
               ),
               costTotal: sumNullableNumbers(enriched.map((usage) => usage.costTotal)),
+              hasPaidUsage: enriched.some((usage) => !usage.planCovered),
               inputTokens: sumNullableNumbers(
                 enriched.map((usage) => usage.inputTokens),
               ),
@@ -183,6 +189,7 @@ export function useChatInfo() {
               outputTokens: sumNullableNumbers(
                 enriched.map((usage) => usage.outputTokens),
               ),
+              planCovered: enriched.every((usage) => usage.planCovered),
               providerLabel:
                 providerLabels.size === 1
                   ? (enriched[0]?.providerLabel ?? "Unknown")

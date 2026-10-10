@@ -800,12 +800,15 @@ export default function Screen() {
                           chatInfo.latestTurn?.totalTokens ?? null,
                         )}
                       />
-                      <InfoRow
-                        label="Cost"
-                        value={formatCurrency(
-                          chatInfo.latestTurn?.costTotal ?? null,
-                        )}
-                      />
+                      {chatInfo.latestTurn &&
+                      !chatInfo.latestTurn.planCovered ? (
+                        <InfoRow
+                          label="Cost"
+                          value={formatCurrency(
+                            chatInfo.latestTurn.costTotal ?? null,
+                          )}
+                        />
+                      ) : null}
                     </InfoSection>
 
                     <InfoSection
@@ -834,12 +837,14 @@ export default function Screen() {
                           chatInfo.conversationTotals?.totalTokens ?? null,
                         )}
                       />
-                      <InfoRow
-                        label="Cost"
-                        value={formatCurrency(
-                          chatInfo.conversationTotals?.costTotal ?? null,
-                        )}
-                      />
+                      {chatInfo.conversationTotals?.hasPaidUsage ? (
+                        <InfoRow
+                          label="Cost"
+                          value={formatCurrency(
+                            chatInfo.conversationTotals.costTotal ?? null,
+                          )}
+                        />
+                      ) : null}
                     </InfoSection>
 
                     <InfoSection title="Context">

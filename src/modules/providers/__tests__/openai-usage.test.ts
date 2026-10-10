@@ -5,6 +5,7 @@ import { getValidOpenAiChatGptTokenInfo } from "@/modules/providers/openai-chatg
 import { getValidOpenAiTokenInfo } from "@/modules/providers/openai-oauth";
 import {
   clearProviderUsageCache,
+  formatUsagePlanLabel,
   formatUsageWindowLabel,
   getProviderUsage,
   normalizeUsageResponse,
@@ -125,6 +126,24 @@ describe("formatUsageWindowLabel", () => {
     expect(formatUsageWindowLabel(7_200)).toBe("2-hour limit");
     expect(formatUsageWindowLabel(null)).toBe("Usage limit");
     expect(formatUsageWindowLabel(0)).toBe("Usage limit");
+  });
+});
+
+describe("formatUsagePlanLabel", () => {
+  it("maps known plan types to full plan names", () => {
+    expect(formatUsagePlanLabel("plus")).toBe("ChatGPT Plus");
+    expect(formatUsagePlanLabel("PLUS")).toBe("ChatGPT Plus");
+    expect(formatUsagePlanLabel("pro")).toBe("ChatGPT Pro");
+    expect(formatUsagePlanLabel("free")).toBe("ChatGPT Free");
+    expect(formatUsagePlanLabel("team")).toBe("ChatGPT Team");
+    expect(formatUsagePlanLabel("enterprise")).toBe("ChatGPT Enterprise");
+  });
+
+  it("title-cases unknown plan types and returns null for empty", () => {
+    expect(formatUsagePlanLabel("pro_max")).toBe("ChatGPT Pro Max");
+    expect(formatUsagePlanLabel(null)).toBeNull();
+    expect(formatUsagePlanLabel("")).toBeNull();
+    expect(formatUsagePlanLabel("   ")).toBeNull();
   });
 });
 

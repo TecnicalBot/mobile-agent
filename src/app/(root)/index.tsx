@@ -121,6 +121,7 @@ import { useVoiceInput } from "@/hooks/use-voice-input";
 import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
 import {
+  formatUsagePlanLabel,
   formatUsageWindowLabel,
   getProviderUsage,
   type ProviderUsage,
@@ -1083,7 +1084,7 @@ function ProviderUsageInfo({
 
   return (
     <InfoSection
-      subtitle={usage.plan ? `${usage.plan} plan` : undefined}
+      subtitle={formatUsagePlanLabel(usage.plan) ?? undefined}
       title="Usage"
     >
       <View className="gap-sp-3">

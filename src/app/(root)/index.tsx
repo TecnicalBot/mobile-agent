@@ -750,40 +750,36 @@ export default function Screen() {
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
-                {messages.length === 0 ? (
-                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                    Start a chat to see model, usage, and context details here.
-                  </Text>
-                ) : (
+                <InfoSection title="Model">
+                  <InfoRow
+                    label="Provider"
+                    value={
+                      chatInfo.currentModel?.providerLabel ?? "Unavailable"
+                    }
+                  />
+                  <InfoRow
+                    label="Selected model"
+                    value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
+                  />
+                  <InfoRow
+                    label="Reasoning"
+                    value={getReasoningEffortLabel(reasoningEffort)}
+                  />
+                </InfoSection>
+
+                {chatInfo.currentModel ? (
+                  <ProviderUsageInfo
+                    accountId={
+                      activeProviderAccountIds[
+                        chatInfo.currentModel.providerId
+                      ] ?? null
+                    }
+                    providerId={chatInfo.currentModel.providerId}
+                  />
+                ) : null}
+
+                {messages.length === 0 ? null : (
                   <>
-                    <InfoSection title="Model">
-                      <InfoRow
-                        label="Provider"
-                        value={
-                          chatInfo.currentModel?.providerLabel ?? "Unavailable"
-                        }
-                      />
-                      <InfoRow
-                        label="Selected model"
-                        value={chatInfo.currentModel?.modelLabel ?? "Unavailable"}
-                      />
-                      <InfoRow
-                        label="Reasoning"
-                        value={getReasoningEffortLabel(reasoningEffort)}
-                      />
-                    </InfoSection>
-
-                    {chatInfo.currentModel ? (
-                      <ProviderUsageInfo
-                        accountId={
-                          activeProviderAccountIds[
-                            chatInfo.currentModel.providerId
-                          ] ?? null
-                        }
-                        providerId={chatInfo.currentModel.providerId}
-                      />
-                    ) : null}
-
                     <InfoSection title="Latest turn">
                       <InfoRow
                         label="Input tokens"

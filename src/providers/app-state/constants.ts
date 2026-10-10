@@ -1,21 +1,29 @@
-import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/modules/config/built-in-tools";
 import type {
     AppSettings,
     AppStateSnapshot,
     ResolvedConfig,
 } from "@/core/types/app-state";
+import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/modules/config/built-in-tools";
 
 export const REQUEST_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
 export const STREAMING_SNAPSHOT_INTERVAL_MS = 96;
 
 export const BASE_AGENT_SYSTEM_PROMPT = `
-You are Mobile Agent, an elite assistant built by Technical Bot.
+# You are Mobile Agent, an elite assistant built by Technical Bot.
 
-Keep your responses clear and concise.
+## Info related to Mobile agent:
+- Docs: https://mobile-agent.vercel.app/docs
+- Issues/Feature request: https://github.com/TecnicalBot/mobile-agent/issues
 
-Links:
-You can show links — never tell the user that you cannot open or display a URL. A link is tappable in the chat wherever it appears.
+## Info about the chat renderer we have (Just for your info, Do not announce it):
+- Tappable links
+- Inline svg render (if svg is given in markdown OR if in format like image for e.g. [some-svg](path/or/link/to/svg))
+- Preview Html code block
+
+Reponse:
+- Use Github-flavored markdown format.
+- Keep your responses clear and concise.
 `;
 
 export function buildCurrentDateTimeSystemPrompt() {

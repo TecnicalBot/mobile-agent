@@ -15,11 +15,27 @@ const MAX_DESCRIPTION_LENGTH = 1024;
 const MAX_AUTHOR_LENGTH = 64;
 const MAX_VERSION_LENGTH = 32;
 const MAX_TOOLS_PER_PLUGIN = 20;
+const MAX_ACTIONS_PER_PLUGIN = 20;
 const MAX_TOOL_NAME_LENGTH = 64;
 const MAX_TOOL_DESCRIPTION_LENGTH = 1024;
+const MAX_ACTION_TITLE_LENGTH = 120;
 const MAX_EXECUTE_BODY_LENGTH = 4000;
+const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const MAX_SYSTEM_PARTS = 8;
 const MAX_SYSTEM_PART_LENGTH = 2000;
+
+const outputRouteSchema = z
+  .enum(["both", "model", "silent", "user"])
+  .describe(
+    "Where the result goes: 'model' (default, agent sees it), 'user' (rendered for the user, agent only gets a stub), 'both', or 'silent' (not surfaced).",
+  );
+
+const timeoutMsSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(MAX_TIMEOUT_MS)
+  .describe("Max execution time in milliseconds (default 120000).");
 
 const toolSchema = z.object({
   name: z
@@ -48,6 +64,8 @@ const toolSchema = z.object({
     .describe(
       "Whether this tool changes state (sends, writes, deletes). Defaults to false. Mutating tools require user approval before running.",
     ),
+  output: outputRouteSchema.optional(),
+  timeoutMs: timeoutMsSchema.optional(),
   executeBody: z
     .string()
     .trim()
@@ -55,6 +73,54 @@ const toolSchema = z.object({
     .max(MAX_EXECUTE_BODY_LENGTH)
     .describe(
       "A self-contained JavaScript function body. `args` is the tool input object; `api.fetch(url, init)`, `api.storage.get/set/delete(key)`, `api.secrets.get/set/delete(key)`, and `api.log(...)` are available. No imports, no require(). Return a JSON-serializable value or string.",
+    ),
+});
+
+const actionSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_TOOL_NAME_LENGTH)
+    .regex(/^[a-zA-Z0-9_]+$/)
+    .describe(
+      "Action name — letters, numbers, and underscores only, no spaces.",
+    ),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ACTION_TITLE_LENGTH)
+    .optional()
+    .describe("Short, user-facing title shown on the action button."),
+  description: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_TOOL_DESCRIPTION_LENGTH)
+    .optional()
+    .describe("What this action does, shown in Settings > Plugins."),
+  inputSchema: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Optional JSON Schema object for the action arguments, e.g. { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] }. Omit for a no-input action.",
+    ),
+  mutating: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this action changes state (sends, writes, deletes). Defaults to false. Mutating actions require user approval before running.",
+    ),
+  output: outputRouteSchema.optional(),
+  timeoutMs: timeoutMsSchema.optional(),
+  runBody: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_EXECUTE_BODY_LENGTH)
+    .describe(
+      "A self-contained JavaScript function body. `args` is the action input object; `api.ai.generate({ prompt })` (one-shot generation with the active model), `api.fetch`, `api.storage`, `api.secrets`, and `api.log` are available. No imports, no require(). Return a JSON-serializable value or string.",
     ),
 });
 
@@ -78,7 +144,7 @@ export function createPluginTools(input: {
     tools: {
       managePlugin: tool({
         description:
-          "Create, update, delete, or list plugins. Plugins are installable capabilities that add tools (and optional system-prompt instructions) the agent can use across conversations. Use createPlugin when the user asks to add a reusable capability (checking weather, querying an API, syncing two services); use updatePlugin to modify an existing plugin; use deletePlugin to remove one; use listPlugins to show installed plugins. Each plugin tool has a name, a description, a JSON Schema inputSchema, and an execute body — a single self-contained JavaScript function body. Inside the body, `args` is the tool input and `api.fetch/storage/secrets/log` are available; do NOT use imports or require(). Mutating tools (ones that send/write/delete) must set mutating: true so the user approves them. If a tool needs an API key or token, reference it only by key name inside the execute body via `await api.secrets.get(\"MY_API_KEY\")` where MY_API_KEY is a descriptive UPPER_SNAKE key. NEVER ask the user to paste a secret value into the chat and NEVER guess or echo a stored value. After creating a plugin, report any returned secretsMissing keys so the user knows what to configure — you may also collect a missing secret in-chat by calling the requestSecret tool with the plugin id (from listPlugins) and the key name; the user types the value into a masked, encrypted on-device prompt that you never see. If the user defers, continue without the secret.",
+          "Create, update, delete, or list plugins. Plugins are installable capabilities that add tools, manually-runnable actions, and optional system-prompt instructions the agent can use across conversations. Use createPlugin when the user asks to add a reusable capability (checking weather, querying an API, summarizing on tap, syncing two services); use updatePlugin to modify an existing plugin; use deletePlugin to remove one; use listPlugins to show installed plugins. Each plugin exposes tools, actions, or both. A tool runs automatically whenever the agent decides to call it. An action is a manually-runnable capability: give it a short user-facing title, and the user runs it from Settings > Plugins (its optional inputSchema turns into a form). Each tool has a name, a description, a JSON Schema inputSchema, and an execute body — a single self-contained JavaScript function body. Each action has a name, an optional title, an optional JSON Schema inputSchema, and a run body — a self-contained JavaScript function body inside which `api.ai.generate({ prompt })` is also available. Inside tool/action bodies, `args` is the input and `api.fetch/storage/secrets/log` are available; do NOT use imports or require(). Mutating tools/actions (ones that send/write/delete) must set mutating: true so the user approves them. Set output to 'user' to render the result for the user, or 'both' to render it and still let the agent see it; set timeoutMs to override the default 120 seconds. If a tool or action needs an API key or token, reference it only by key name inside the body via `await api.secrets.get(\"MY_API_KEY\")` where MY_API_KEY is a descriptive UPPER_SNAKE key. NEVER ask the user to paste a secret value into the chat and NEVER guess or echo a stored value. After creating a plugin, report any returned secretsMissing keys so the user knows what to configure — you may also collect a missing secret in-chat by calling the requestSecret tool with the plugin id (from listPlugins) and the key name; the user types the value into a masked, encrypted on-device prompt that you never see. If the user defers, continue without the secret.",
         inputSchema: z
           .object({
             action: z.enum([
@@ -120,6 +186,13 @@ export function createPluginTools(input: {
               .max(MAX_TOOLS_PER_PLUGIN)
               .optional()
               .describe("Tools the plugin provides to the agent."),
+            actions: z
+              .array(actionSchema)
+              .max(MAX_ACTIONS_PER_PLUGIN)
+              .optional()
+              .describe(
+                "Manually-runnable capabilities shown in Settings > Plugins.",
+              ),
             system: z
               .array(z.string().trim().min(1).max(MAX_SYSTEM_PART_LENGTH))
               .max(MAX_SYSTEM_PARTS)
@@ -136,10 +209,11 @@ export function createPluginTools(input: {
             (value) =>
               value.action !== "createPlugin" ||
               Boolean(value.tools?.length) ||
+              Boolean(value.actions?.length) ||
               Boolean(value.system?.length),
             {
               message:
-                "createPlugin needs at least one tool or a system section.",
+                "createPlugin needs at least one tool, one action, or a system section.",
             },
           ),
         execute: async (args) => {
@@ -207,6 +281,7 @@ export function createPluginTools(input: {
 
           const name = (args.name as string).trim();
           const tools = args.tools ?? [];
+          const actions = args.actions ?? [];
           const system = args.system ?? [];
           const version = args.version?.trim() || "1.0.0";
           const id = buildPluginId(name);
@@ -232,6 +307,7 @@ export function createPluginTools(input: {
             description: args.description?.trim(),
             author: args.author?.trim(),
             tools,
+            actions,
             system,
           });
 
@@ -270,6 +346,7 @@ export function createPluginTools(input: {
                 version: result.plugin.version,
                 wasUpdate: result.wasUpdate,
                 tools: validation.toolCount,
+                actions: validation.actionCount,
                 requiredSecrets,
                 secretsMissing,
               }),
@@ -284,6 +361,7 @@ export function createPluginTools(input: {
             version: result.plugin.version,
             description: result.plugin.description,
             toolCount: validation.toolCount,
+            actionCount: validation.actionCount,
             requiredSecrets,
             secretsMissing,
             message: secretsMissing.length > 0

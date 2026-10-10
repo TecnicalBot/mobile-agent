@@ -1,5 +1,3 @@
-import * as MediaLibrary from "expo-media-library";
-import { Asset } from "expo-media-library";
 import { Download, Monitor, Smartphone, X, Code, Eye } from "lucide-react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -150,7 +148,14 @@ export function CodePreviewContent({
         result: "tmpfile",
       });
 
-      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      // Loaded lazily so expo-media-library (a native-only module) is never
+      // evaluated in the node/server-manifest bundle during `export:embed`.
+      const {
+        Asset,
+        requestPermissionsAsync,
+      } = await import("expo-media-library");
+
+      const permission = await requestPermissionsAsync(true);
 
       if (!permission.granted) {
         Alert.alert(

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -46,6 +47,55 @@ function requiredList(schema: JsonSchema): string[] {
     : [];
 }
 
+export function isValueMissing(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+/** Object fields and arrays-of-objects render as drill-in rows, not cards. */
+export function isDrillableField(fieldSchema: JsonSchema): boolean {
+  if (isSchemaObject(fieldSchema)) return true;
+  if (isSchemaArray(fieldSchema)) {
+    const items = isObject(fieldSchema.items)
+      ? (fieldSchema.items as JsonSchema)
+      : {};
+    return schemaType(items) === "object" || isObject(items.properties);
+  }
+  return false;
+}
+
+export type DrillField = {
+  name: string;
+  fieldSchema: JsonSchema;
+  required: boolean;
+};
+
+/** Splits an object schema into inline scalars + drill-in fields. */
+export function splitFormSchema(schema: JsonSchema | undefined): {
+  scalarSchema: JsonSchema;
+  drillFields: DrillField[];
+} {
+  const properties = schemaProperties(schema ?? {});
+  const required = requiredList(schema ?? {});
+  const scalarProperties: Record<string, JsonSchema> = {};
+  const drillFields: DrillField[] = [];
+
+  for (const [name, fieldSchema] of Object.entries(properties)) {
+    if (isDrillableField(fieldSchema)) {
+      drillFields.push({ fieldSchema, name, required: required.includes(name) });
+    } else {
+      scalarProperties[name] = fieldSchema;
+    }
+  }
+
+  return {
+    drillFields,
+    scalarSchema: { ...schema, properties: scalarProperties, type: "object" },
+  };
+}
+
 function schemaEnum(schema: JsonSchema): string[] | undefined {
   const values = schema.enum;
   if (!Array.isArray(values)) return undefined;
@@ -66,6 +116,78 @@ function schemaDescription(schema: JsonSchema): string | undefined {
 
 function displayName(name: string): string {
   return name.replace(/[_-]+/g, " ").trim() || name;
+}
+
+const MULTILINE_FIELD_NAMES = new Set([
+  "spec",
+  "json",
+  "jsonspec",
+  "content",
+  "body",
+  "text",
+  "message",
+  "prompt",
+  "description",
+  "notes",
+  "note",
+  "code",
+  "html",
+  "payload",
+  "data",
+]);
+
+function schemaFormat(schema: JsonSchema): string | undefined {
+  const format = schema.format;
+  return typeof format === "string" ? format.toLowerCase() : undefined;
+}
+
+/** Long-form strings (JSON specs, content, prompts) get a textarea. */
+export function isMultilineField(name: string, fieldSchema: JsonSchema): boolean {
+  if (isSchemaNumber(fieldSchema) || isSchemaBoolean(fieldSchema)) return false;
+  const format = schemaFormat(fieldSchema);
+  if (format === "textarea" || format === "json") return true;
+  if (
+    fieldSchema.multiline === true ||
+    (fieldSchema as Record<string, unknown>)["x-multiline"] === true
+  ) {
+    return true;
+  }
+  if (MULTILINE_FIELD_NAMES.has(name.trim().toLowerCase())) return true;
+  return (schemaDescription(fieldSchema) ?? "").toLowerCase().includes("json");
+}
+
+/** String fields that must parse as JSON when non-empty (e.g. spec). */
+export function isJsonField(name: string, fieldSchema: JsonSchema): boolean {
+  if (schemaFormat(fieldSchema) === "json") return true;
+  if (name.trim().toLowerCase() === "spec") return true;
+  const description = (schemaDescription(fieldSchema) ?? "").toLowerCase();
+  return description.includes("as json") || description.includes("valid json");
+}
+
+/** Returns the label of the first non-empty field with invalid JSON, if any. */
+export function findInvalidJsonField(
+  schema: JsonSchema | undefined,
+  args: PluginRunArgs,
+): string | null {
+  const properties = schemaProperties(schema ?? {});
+  for (const [name, fieldSchema] of Object.entries(properties)) {
+    const raw = (args as Record<string, unknown>)[name];
+    if (typeof raw === "string" && raw.trim() && isJsonField(name, fieldSchema)) {
+      try {
+        JSON.parse(raw);
+      } catch {
+        return schemaTitle(fieldSchema, displayName(name));
+      }
+    }
+    if (isObject(raw) && isSchemaObject(fieldSchema)) {
+      const nested = findInvalidJsonField(
+        fieldSchema,
+        raw as PluginRunArgs,
+      );
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
 /**
@@ -275,6 +397,7 @@ function SchemaField({
     <TextField
       description={description}
       disabled={disabled}
+      fieldSchema={fieldSchema}
       keyboardType={isSchemaNumber(fieldSchema) ? "numeric" : "default"}
       label={label}
       name={name}
@@ -437,6 +560,7 @@ function ArrayField({
 function TextField({
   description,
   disabled,
+  fieldSchema,
   keyboardType,
   label,
   name,
@@ -446,6 +570,7 @@ function TextField({
 }: {
   description?: string;
   disabled: boolean;
+  fieldSchema: JsonSchema;
   keyboardType?: "default" | "numeric";
   label: string;
   name: string;
@@ -458,21 +583,34 @@ function TextField({
       : typeof value === "number" || typeof value === "boolean"
         ? String(value)
         : "";
+  const multiline = isMultilineField(name, fieldSchema);
 
   return (
     <View className="gap-sp-2">
       <Label required={required}>{label}</Label>
       <FieldDescription description={description} />
-      <Input
-        autoCapitalize="none"
-        autoCorrect={false}
-        disabled={disabled}
-        keyboardType={keyboardType}
-        multiline={false}
-        onChangeText={onChange}
-        placeholder={name}
-        value={text}
-      />
+      {multiline ? (
+        <Textarea
+          autoCapitalize="none"
+          autoCorrect={false}
+          className="min-h-36"
+          disabled={disabled}
+          onChangeText={onChange as (text: string) => void}
+          placeholder={name}
+          value={text}
+        />
+      ) : (
+        <Input
+          autoCapitalize="none"
+          autoCorrect={false}
+          disabled={disabled}
+          keyboardType={keyboardType}
+          multiline={false}
+          onChangeText={onChange}
+          placeholder={name}
+          value={text}
+        />
+      )}
     </View>
   );
 }

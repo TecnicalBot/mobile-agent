@@ -283,7 +283,7 @@ export default function SettingsPluginDetailScreen() {
               onPress={() => { setError(null); setAddingSecret(true); }}
               variant="outline"
             >
-              Add more
+              Add
             </Button>
       </View>
 

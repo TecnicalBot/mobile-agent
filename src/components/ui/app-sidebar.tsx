@@ -44,7 +44,7 @@ import {
   Upload,
   Users,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useState, memo, useCallback, useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { ChatImportDrawer } from "@/components/chat/chat-import-drawer";
@@ -65,9 +65,11 @@ export function AppSidebar() {
     conversations,
     createConversation,
     currentConversation,
+    deleteConversation,
     renameConversation,
     runStatusByConversation,
     selectConversation,
+    setConversationPinned,
   } = useChat();
   const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -77,81 +79,68 @@ export function AppSidebar() {
   const [exportConversationId, setExportConversationId] = useState<
     string | null
   >(null);
-  const pinnedConversations = conversations.filter(
-    (conversation) => conversation.pinnedAt,
+  const pinnedConversations = useMemo(
+    () => conversations.filter((conversation) => conversation.pinnedAt),
+    [conversations],
   );
-  const otherConversations = conversations.filter(
-    (conversation) => !conversation.pinnedAt,
+  const otherConversations = useMemo(
+    () => conversations.filter((conversation) => !conversation.pinnedAt),
+    [conversations],
+  );
+  const pinnedCount = pinnedConversations.length;
+  const currentConversationId = currentConversation?.id;
+
+  const handleExportConversation = useCallback((conversationId: string) => {
+    setExportConversationId(conversationId);
+  }, []);
+
+  const handleRenameRequest = useCallback((conversation: Conversation) => {
+    setRenameTarget(conversation);
+    setRenameTitle(conversation.title);
+    setRenameError(null);
+  }, []);
+
+  const handleSelectConversation = useCallback(
+    (conversationId: string) => {
+      selectConversation(conversationId)
+        .then(() => {
+          router.push("/");
+        })
+        .catch(console.error);
+    },
+    [router, selectConversation],
+  );
+
+  const handleTogglePin = useCallback(
+    (conversationId: string, pinned: boolean) => {
+      setConversationPinned(conversationId, !pinned).catch(console.error);
+    },
+    [setConversationPinned],
+  );
+
+  const handleDeleteConversation = useCallback(
+    (conversationId: string) => {
+      deleteConversation(conversationId).catch(console.error);
+    },
+    [deleteConversation],
   );
 
   function renderConversation(conversation: (typeof conversations)[number]) {
-    const active = conversation.id === currentConversation?.id;
-
     return (
-      <SidebarMenuItem key={conversation.id}>
-        <SidebarClose asChild>
-          <SidebarMenuButton
-            isActive={active}
-            onPress={() => {
-              selectConversation(conversation.id)
-                .then(() => {
-                  router.push("/");
-                })
-                .catch(console.error);
-            }}
-          >
-            <View className="min-w-0 flex-1 flex-row items-center gap-sp-2">
-              <Text
-                className={cn(
-                  "min-w-0 flex-1 font-sans text-sm font-medium",
-                  active
-                    ? "text-background dark:text-background-dark"
-                    : "text-foreground dark:text-foreground-dark",
-                )}
-                numberOfLines={1}
-              >
-                {conversation.title}
-              </Text>
-              <View className="shrink-0 flex-row items-center justify-center gap-sp-2">
-                {runStatusByConversation[conversation.id] === "running" ||
-                runStatusByConversation[conversation.id] === "queued" ||
-                runStatusByConversation[conversation.id] === "resumable" ? (
-                  <ActivityIndicator
-                    color={active ? theme.background : theme.textSecondary}
-                    size="small"
-                  />
-                ) : runStatusByConversation[conversation.id] ===
-                    "waiting_for_approval" ||
-                  runStatusByConversation[conversation.id] ===
-                    "waiting_for_question" ? (
-                  <Pause
-                    color={active ? theme.background : theme.textSecondary}
-                    size={14}
-                  />
-                ) : null}
-                <ChatOptions
-                  color={active ? theme.background : theme.textSecondary}
-                  conversationId={conversation.id}
-                  onExport={() => handleExportConversation(conversation.id)}
-                  onRename={() => {
-                    setRenameTarget(conversation);
-                    setRenameTitle(conversation.title);
-                    setRenameError(null);
-                  }}
-                  pinned={Boolean(conversation.pinnedAt)}
-                  pinnedCount={pinnedConversations.length}
-                />
-              </View>
-            </View>
-          </SidebarMenuButton>
-        </SidebarClose>
-      </SidebarMenuItem>
+      <ConversationRow
+        key={conversation.id}
+        active={conversation.id === currentConversationId}
+        conversation={conversation}
+        onDelete={handleDeleteConversation}
+        onExport={handleExportConversation}
+        onRename={handleRenameRequest}
+        onSelect={handleSelectConversation}
+        onTogglePin={handleTogglePin}
+        pinnedCount={pinnedCount}
+        runStatus={runStatusByConversation[conversation.id]}
+      />
     );
   }
-
-  const handleExportConversation = (conversationId: string) => {
-    setExportConversationId(conversationId);
-  };
 
   const submitRename = () => {
     if (!renameTarget || !renameTitle.trim() || renaming) {
@@ -418,22 +407,97 @@ export function AppSidebar() {
   );
 }
 
-function ChatOptions({
-  color,
-  conversationId,
+const ConversationRow = memo(function ConversationRow({
+  active,
+  conversation,
+  onDelete,
   onExport,
   onRename,
+  onSelect,
+  onTogglePin,
+  pinnedCount,
+  runStatus,
+}: {
+  active: boolean;
+  conversation: Conversation;
+  onDelete: (id: string) => void;
+  onExport: (id: string) => void;
+  onRename: (conversation: Conversation) => void;
+  onSelect: (id: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
+  pinnedCount: number;
+  runStatus: string | null | undefined;
+}) {
+  const theme = useTheme();
+  const pinned = Boolean(conversation.pinnedAt);
+  return (
+    <SidebarMenuItem>
+      <SidebarClose asChild>
+        <SidebarMenuButton
+          isActive={active}
+          onPress={() => onSelect(conversation.id)}
+        >
+          <View className="min-w-0 flex-1 flex-row items-center gap-sp-2">
+            <Text
+              className={cn(
+                "min-w-0 flex-1 font-sans text-sm font-medium",
+                active
+                  ? "text-background dark:text-background-dark"
+                  : "text-foreground dark:text-foreground-dark",
+              )}
+              numberOfLines={1}
+            >
+              {conversation.title}
+            </Text>
+            <View className="shrink-0 flex-row items-center justify-center gap-sp-2">
+              {runStatus === "running" ||
+              runStatus === "queued" ||
+              runStatus === "resumable" ? (
+                <ActivityIndicator
+                  color={active ? theme.background : theme.textSecondary}
+                  size="small"
+                />
+              ) : runStatus === "waiting_for_approval" ||
+                runStatus === "waiting_for_question" ? (
+                <Pause
+                  color={active ? theme.background : theme.textSecondary}
+                  size={14}
+                />
+              ) : null}
+              <ChatOptions
+                color={active ? theme.background : theme.textSecondary}
+                onDelete={() => onDelete(conversation.id)}
+                onExport={() => onExport(conversation.id)}
+                onRename={() => onRename(conversation)}
+                onTogglePin={() => onTogglePin(conversation.id, pinned)}
+                pinned={pinned}
+                pinnedCount={pinnedCount}
+              />
+            </View>
+          </View>
+        </SidebarMenuButton>
+      </SidebarClose>
+    </SidebarMenuItem>
+  );
+});
+
+function ChatOptions({
+  color,
+  onDelete,
+  onExport,
+  onRename,
+  onTogglePin,
   pinned,
   pinnedCount,
 }: {
   color: string;
-  conversationId: string;
+  onDelete: () => void;
   onExport: () => void;
   onRename: () => void;
+  onTogglePin: () => void;
   pinned: boolean;
   pinnedCount: number;
 }) {
-  const { deleteConversation, setConversationPinned } = useChat();
   const theme = useTheme();
   return (
     <DropdownMenu>
@@ -465,12 +529,7 @@ function ChatOptions({
             </Text>
           </View>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!pinned && pinnedCount >= 3}
-          onPress={() => {
-            setConversationPinned(conversationId, !pinned).catch(console.error);
-          }}
-        >
+        <DropdownMenuItem disabled={!pinned && pinnedCount >= 3} onPress={onTogglePin}>
           <View className="flex-row items-center gap-sp-2">
             {pinned ? (
               <PinOff color={theme.text} size={16} />
@@ -486,11 +545,7 @@ function ChatOptions({
             </Text>
           </View>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onPress={() => {
-            deleteConversation(conversationId).catch(console.error);
-          }}
-        >
+        <DropdownMenuItem onPress={onDelete}>
           <View className="flex-row items-center gap-sp-2">
             <Trash2 color={theme.destructive} size={16} />
             <Text className="font-sans text-base text-destructive dark:text-destructive-dark">

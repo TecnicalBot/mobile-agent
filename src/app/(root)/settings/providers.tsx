@@ -297,7 +297,9 @@ export default function SettingsProvidersScreen() {
     };
 
     void syncDownloads();
-    const interval = setInterval(() => void syncDownloads(), 750);
+    // 1500ms instead of 750ms: halves setState churn while the provider
+    // drawer is open, leaving headroom for the slide animation.
+    const interval = setInterval(() => void syncDownloads(), 1500);
     return () => {
       disposed = true;
       clearInterval(interval);

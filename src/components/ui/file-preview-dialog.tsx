@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { CodePreviewDialog } from "@/components/ui/code-preview-dialog";
+import { CodePreviewContent } from "@/components/ui/code-preview-dialog";
 
 import { CsvTable, CsvTableLoading } from "@/components/ui/csv-table";
 import {
@@ -114,9 +114,7 @@ export function FilePreviewDialog({
     }
   };
 
-  if (file && getFilePreviewKind(file) === "markup") {
-    return <MarkupFilePreviewDialog key={file.id} file={file} onDismiss={onDismiss} />;
-  }
+  const isMarkup = !!file && getFilePreviewKind(file) === "markup";
 
   return (
     <Drawer
@@ -130,41 +128,47 @@ export function FilePreviewDialog({
     >
       <DrawerContent contentClassName="max-w-full" showHandle>
         {file ? (
-          <>
-            <View className="flex-row items-center justify-between gap-3">
-              <View className="flex-1 gap-1">
-                <DrawerTitle numberOfLines={1}>{file.displayName}</DrawerTitle>
-                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                  {file.mimeType ?? "File"}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityLabel="Download file"
-                accessibilityRole="button"
-                className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark"
-                disabled={downloading}
-                onPress={handleDownload}
-              >
-                {downloading ? <ActivityIndicator color={theme.text} /> : <Download color={theme.text} size={20} />}
-              </Pressable>
-              <DrawerClose asChild>
+          isMarkup ? (
+            // Same drawer stays mounted while the markup loads and when the
+            // preview swaps in, so drawer-to-drawer blinks are gone.
+            <MarkupPreviewBody key={file.id} file={file} onDismiss={onDismiss} />
+          ) : (
+            <>
+              <View className="flex-row items-center justify-between gap-3">
+                <View className="flex-1 gap-1">
+                  <DrawerTitle numberOfLines={1}>{file.displayName}</DrawerTitle>
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    {file.mimeType ?? "File"}
+                  </Text>
+                </View>
                 <Pressable
-                  accessibilityLabel="Close file preview"
+                  accessibilityLabel="Download file"
+                  accessibilityRole="button"
                   className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark"
+                  disabled={downloading}
+                  onPress={handleDownload}
                 >
-                  <X color={theme.text} size={20} />
+                  {downloading ? <ActivityIndicator color={theme.text} /> : <Download color={theme.text} size={20} />}
                 </Pressable>
-              </DrawerClose>
-            </View>
-            <FilePreviewBody key={`${file.id}:${file.updatedAt}`} file={file} />
-          </>
+                <DrawerClose asChild>
+                  <Pressable
+                    accessibilityLabel="Close file preview"
+                    className="h-11 w-11 items-center justify-center rounded-full bg-card dark:bg-card-dark"
+                  >
+                    <X color={theme.text} size={20} />
+                  </Pressable>
+                </DrawerClose>
+              </View>
+              <FilePreviewBody key={`${file.id}:${file.updatedAt}`} file={file} />
+            </>
+          )
         ) : null}
       </DrawerContent>
     </Drawer>
   );
 }
 
-function MarkupFilePreviewDialog({ file, onDismiss }: { file: WorkspaceFile; onDismiss: () => void }) {
+function MarkupPreviewBody({ file, onDismiss }: { file: WorkspaceFile; onDismiss: () => void }) {
   const theme = useTheme();
   const [code, setCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -180,17 +184,12 @@ function MarkupFilePreviewDialog({ file, onDismiss }: { file: WorkspaceFile; onD
   }, [file.relativePath]);
   const html = useMemo(() => code === null ? null : buildPreviewDocument(code, language, { title: file.displayName }), [code, language, file.displayName]);
   if (code !== null && html) {
-    return <CodePreviewDialog code={code} html={html} language={language} onDismiss={onDismiss} />;
+    return <CodePreviewContent code={code} html={html} language={language} onDismiss={onDismiss} />;
   }
   return (
-    <Drawer open onOpenChange={(open) => { if (!open) onDismiss(); }}>
-      <DrawerContent contentClassName="max-w-full" showHandle>
-        <DrawerTitle>{file.displayName}</DrawerTitle>
-        <View className="flex-1 items-center justify-center">
-          {error ? <Text style={{ color: theme.text }}>{error}</Text> : <ActivityIndicator color={theme.text} />}
-        </View>
-      </DrawerContent>
-    </Drawer>
+    <View className="flex-1 items-center justify-center">
+      {error ? <Text style={{ color: theme.text }}>{error}</Text> : <ActivityIndicator color={theme.text} />}
+    </View>
   );
 }
 

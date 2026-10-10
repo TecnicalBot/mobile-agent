@@ -58,3 +58,6 @@ example
 desktop/out/
 desktop/release/
 desktop/.pnpm-workspace-state-v1.json
+
+# Fetched agent skills (reproducible from skills-lock.json)
+.agents/skills/

@@ -37,6 +37,7 @@ import {
 import {
   memo,
   type ReactNode,
+  Component,
   useCallback,
   useEffect,
   useMemo,
@@ -71,6 +72,7 @@ import Animated, {
 import { refractor } from "refractor";
 import jsx from "refractor/jsx";
 import tsx from "refractor/tsx";
+import { SvgXml } from "react-native-svg";
 
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
@@ -136,6 +138,9 @@ const MARKDOWN_PARSER = registerChatMarkdownRules(
 );
 
 const MARKDOWN_MAX_RENDER_LENGTH = 30_000;
+
+/** Inline <svg> markup longer than this falls back to a code block + preview. */
+const MAX_INLINE_SVG_LENGTH = 50_000;
 
 type ChatMessageProps = {
   canEditAndResend?: boolean;
@@ -246,6 +251,12 @@ const MARKDOWN_RULES = {
       </CopyableMarkdownBlock>
     );
   },
+  html_block: (node) => (
+    <InlineSvgBlock key={node.key} markup={htmlNodeContent(node)} />
+  ),
+  html_inline: (node) => (
+    <InlineSvgBlock key={node.key} markup={htmlNodeContent(node)} />
+  ),
 } satisfies RenderRules;
 
 function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
@@ -278,6 +289,102 @@ function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
       source={{ uri }}
       style={{ aspectRatio, maxWidth: "100%", width: "100%" }}
     />
+  );
+}
+
+function htmlNodeContent(node: ASTNode): string {
+  return typeof node.content === "string" ? node.content : "";
+}
+
+function extractSvgMarkup(source: string): string | null {
+  const start = source.search(/<svg[\s>]/i);
+  if (start === -1) return null;
+  const endTag = "</svg>";
+  const end = source.toLowerCase().lastIndexOf(endTag);
+  if (end === -1 || end < start) return null;
+  return source.slice(start, end + endTag.length);
+}
+
+function svgAspectRatio(markup: string): number {
+  const viewBox =
+    /viewBox\s*=\s*["']?\s*-?[\d.]+\s+-?[\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']?/i.exec(
+      markup,
+    );
+  if (viewBox) {
+    const width = Number(viewBox[1]);
+    const height = Number(viewBox[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return width / height;
+    }
+  }
+  const openTag = /<svg[^>]*>/i.exec(markup)?.[0] ?? "";
+  const width = /\swidth\s*=\s*["']?([\d.]+)/i.exec(openTag)?.[1];
+  const height = /\sheight\s*=\s*["']?([\d.]+)/i.exec(openTag)?.[1];
+  const parsedWidth = width ? Number(width) : NaN;
+  const parsedHeight = height ? Number(height) : NaN;
+  if (
+    Number.isFinite(parsedWidth) &&
+    Number.isFinite(parsedHeight) &&
+    parsedWidth > 0 &&
+    parsedHeight > 0
+  ) {
+    return parsedWidth / parsedHeight;
+  }
+  return 1;
+}
+
+type SvgErrorBoundaryProps = {
+  children: ReactNode;
+  fallback: ReactNode;
+  markup: string;
+};
+
+/**
+ * SvgXml throws while rendering malformed XML (e.g. a still-streaming
+ * message). Without this, one bad block unmounts the whole chat list.
+ */
+class SvgErrorBoundary extends Component<
+  SvgErrorBoundaryProps,
+  { failed: boolean; lastMarkup: string }
+> {
+  state = { failed: false, lastMarkup: this.props.markup };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: SvgErrorBoundaryProps,
+    state: { failed: boolean; lastMarkup: string },
+  ) {
+    if (props.markup !== state.lastMarkup) {
+      return { failed: false, lastMarkup: props.markup };
+    }
+    return null;
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+/** Renders raw inline <svg> markup like an image. Non-svg HTML stays dropped. */
+function InlineSvgBlock({ markup }: { markup: string }) {
+  const svg = extractSvgMarkup(markup);
+  if (!svg) return null;
+  if (svg.length > MAX_INLINE_SVG_LENGTH) {
+    return <CopyableCodeBlock code={svg} language="svg" />;
+  }
+  const aspectRatio = svgAspectRatio(svg);
+  return (
+    <SvgErrorBoundary
+      fallback={<CopyableCodeBlock code={svg} language="svg" />}
+      markup={svg}
+    >
+      <View style={{ aspectRatio, width: "100%" }}>
+        <SvgXml height="100%" width="100%" xml={svg} />
+      </View>
+    </SvgErrorBoundary>
   );
 }
 

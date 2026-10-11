@@ -122,9 +122,6 @@ import {
   saveCustomPresets,
 } from "@/modules/chat/regenerate-presets";
 import { workspaceFileFromUrl } from "@/modules/files/workspace-link";
-import { useSQLiteContext } from "expo-sqlite";
-import { createDrizzleDb } from "@/core/db/repositories/shared";
-import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
 
 refractor.register(jsx);
@@ -1199,11 +1196,6 @@ export const ChatMessage = memo(function ChatMessage({
     await Clipboard.setStringAsync(message.content);
     setCopied(true);
   };
-  const sqlite = useSQLiteContext();
-  const workspaceRepository = useMemo(
-    () => createWorkspaceRepository(createDrizzleDb(sqlite)),
-    [sqlite],
-  );
   const handleLinkPress = useCallback(
     (url: string) => {
       const workspaceFile = workspaceFileFromUrl(url, workspaceFiles);
@@ -1215,17 +1207,24 @@ export const ChatMessage = memo(function ChatMessage({
 
       if (url.startsWith("workspace://")) {
         const id = url.slice("workspace://".length);
-        workspaceRepository.getById(id).then((file) => {
-          if (file) setPreviewFile(file);
-          else Alert.alert("File unavailable", "This file is no longer in the workspace.");
-        }).catch((error) => Alert.alert("Could not open file", String(error)));
+        const file = workspaceFiles.find((entry) => entry.id === id);
+
+        if (file) {
+          setPreviewFile(file);
+        } else {
+          Alert.alert(
+            "File unavailable",
+            "This file is no longer in the workspace.",
+          );
+        }
+
         return false;
       }
       openExternalLink(url).catch(console.error);
 
       return false;
     },
-    [setPreviewFile, workspaceFiles, workspaceRepository],
+    [setPreviewFile, workspaceFiles],
   );
   const openImagePreview = useCallback((target: ChatMediaPreviewTarget) => {
     setImagePreview(target);

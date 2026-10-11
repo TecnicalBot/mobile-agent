@@ -3,12 +3,24 @@
  *
  * The renderer cannot use `node:path` (it runs with `contextIsolation` and no
  * Node integration), so the handful of operations the `expo-file-system` shim
- * needs are implemented here instead. The Windows-only assumption is
- * deliberate: the desktop shell targets Windows, and `\\`-style joins would be
- * wrong on the platforms we do not build for.
+ * needs are implemented here instead. Windows and POSIX separators are both
+ * understood, and a path is only treated as Windows-shaped when it carries a
+ * drive letter, so the same helpers serve every desktop target.
  */
 
 const WINDOWS_ABSOLUTE = /^[A-Za-z]:[\\/]/;
+
+/**
+ * Windows compares paths case-insensitively; Linux and macOS do not.
+ *
+ * Folding case on a case-sensitive filesystem would let a path that is outside
+ * an allowed root compare equal to one inside it (or the reverse), so the
+ * behaviour is keyed off the host platform. `typeof process` guards the import
+ * in the renderer, where this module is bundled without Node integration and
+ * `isInsideRoot` is never called.
+ */
+const CASE_INSENSITIVE_PATHS =
+  typeof process !== "undefined" && process.platform === "win32";
 
 export function isWindowsAbsolute(path: string): boolean {
   return WINDOWS_ABSOLUTE.test(path);
@@ -120,9 +132,15 @@ function safeDecode(value: string): string {
  * inside the app's own data directories, so a compromised renderer cannot read
  * or write arbitrary files.
  */
+function normaliseForComparison(value: string): string {
+  const trimmed = value.replace(/[\\/]+$/, "");
+
+  return CASE_INSENSITIVE_PATHS ? trimmed.toLowerCase() : trimmed;
+}
+
 export function isInsideRoot(root: string, path: string): boolean {
-  const normalisedRoot = root.replace(/[\\/]+$/, "").toLowerCase();
-  const normalisedPath = path.replace(/[\\/]+$/, "").toLowerCase();
+  const normalisedRoot = normaliseForComparison(root);
+  const normalisedPath = normaliseForComparison(path);
 
   if (normalisedPath === normalisedRoot) {
     return true;

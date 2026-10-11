@@ -12,7 +12,7 @@ import { dirname, resolve } from "node:path";
  * Everything under `src/core/db` that the main process touches is shared
  * verbatim with the app: the schema, the migrations and the Drizzle
  * repositories are imported across the boundary, which is what keeps Android
- * and Windows on one implementation.
+ * and the desktop builds on one implementation.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

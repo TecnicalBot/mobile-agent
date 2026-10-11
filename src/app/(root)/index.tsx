@@ -456,7 +456,16 @@ export default function Screen() {
 
   return (
     <ChatErrorBoundary>
-      <KeyboardAvoidingView behavior="padding" className="flex-1">
+      {/* `KeyboardAvoidingView` comes from react-native-keyboard-controller, a
+          third-party component that NativeWind's className→style interop does
+          not cover on web, so `className="flex-1"` alone leaves the screen
+          collapsed to its content height. Keep the className for native (where
+          it is applied) and add the explicit style so web/desktop fill too —
+          both resolve to the same flex, so there is no double-application. */}
+      <KeyboardAvoidingView
+        behavior="padding"
+        className="flex-1"
+        style={{ flex: 1 }}>
         <Container
           contentClassName="flex-1 gap-sp-1 !px-4"
           includeBottomTabInset={false}

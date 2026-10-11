@@ -34,6 +34,16 @@ import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { Button } from "./button";
 
+// On web react-native-css-interop does not know about React Native Reanimated's
+// `Animated.View`, so `className` (bg-card, px-sp-4, …) silently disappears and
+// the sidebar renders as a transparent panel whose items overlap the content
+// behind it. Register the same className→style mapping the project already uses
+// for FlashList so the panel gets its background, padding and border on every
+// platform.
+import { cssInterop } from "nativewind";
+
+cssInterop(Animated.View, { className: "style" });
+
 type SidebarContextValue = {
   open: boolean;
   setOpen: (open: boolean) => void;

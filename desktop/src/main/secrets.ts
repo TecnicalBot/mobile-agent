@@ -6,8 +6,11 @@ import { app, safeStorage } from "electron";
 /**
  * Key/value secret storage for the renderer, replacing `expo-secure-store`.
  *
- * Values are encrypted with Electron's `safeStorage`, which is DPAPI-backed on
- * Windows and therefore scoped to the logged-in user account. The encrypted
+ * Values are encrypted with Electron's `safeStorage`, which is backed by the
+ * OS keychain on each platform (DPAPI on Windows, libsecret on Linux, Keychain
+ * on macOS) and therefore scoped to the logged-in user account. When no OS
+ * keyring is available, `safeStorage.isEncryptionAvailable()` reports false and
+ * values are stored unencrypted rather than refusing to save. The encrypted
  * blob lives in a single JSON file under `userData`.
  *
  * Android's `expo-secure-store` is also per-app storage with no export, so the

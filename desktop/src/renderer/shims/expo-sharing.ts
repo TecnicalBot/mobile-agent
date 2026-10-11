@@ -18,7 +18,7 @@ import { bridge } from "./bridge";
  *
  * `shareFileAsync` is implemented rather than stubbed. Desktop sharing is a
  * real thing: the main process can hand a file to the same shell the app uses
- * to open links, which is what the Windows "Open with" / mail-client flows want.
+ * to open links, which is what the "Open with" / mail-client flows want.
  */
 
 export type ShareContent = { url?: string; message?: string; title?: string };

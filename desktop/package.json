@@ -2,7 +2,7 @@
   "name": "mobile-agent-desktop",
   "productName": "Mobile Agent",
   "version": "2.1.2",
-  "description": "Windows desktop shell for Mobile Agent.",
+  "description": "Cross-platform desktop shell (Windows, Linux, macOS) for Mobile Agent.",
   "private": true,
   "author": "Mobile Agent",
   "license": "UNLICENSED",
@@ -44,6 +44,25 @@
           ]
         }
       ],
+      "icon": "../assets/images/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "maintainer": "Mobile Agent <tecnicalbot@users.noreply.github.com>",
       "icon": "../assets/images/icon.png"
     },
     "nsis": {

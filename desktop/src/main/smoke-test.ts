@@ -53,6 +53,30 @@ const RENDERER_CHECKS = `
     }
   };
 
+  // Paths are built from the host's own conventions rather than hard-coded to
+  // Windows: the same suite runs on the Linux and macOS builds. The separators
+  // are chosen at runtime, and the "outside the allow-list" targets are the
+  // canonical system file for the platform. The app info is read defensively so
+  // a missing bridge still surfaces through the "bridge present" check below
+  // rather than aborting the whole injected block.
+  const appInfo = window.desktop && window.desktop.app;
+  const isWindows = !!appInfo && appInfo.platform === "win32";
+  const sep = isWindows ? "\\\\" : "/";
+  const outsideSystemPath = isWindows
+    ? "C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts"
+    : "/etc/hosts";
+  const outsideFileUrl = isWindows
+    ? "file:///C:/Windows/System32/drivers/etc/hosts"
+    : "file:///etc/hosts";
+  const outsideTraversalPath =
+    (appInfo ? appInfo.tempPath : "") +
+    sep +
+    ".." +
+    sep +
+    ".." +
+    sep +
+    (isWindows ? "Windows\\\\System32\\\\drivers\\\\etc\\\\hosts" : "etc/hosts");
+
   await check("bridge present", () => {
     if (!window.desktop) {
       throw new Error("window.desktop is undefined; the preload did not run");
@@ -124,7 +148,7 @@ const RENDERER_CHECKS = `
   });
 
   await check("fsSync: write then read back", () => {
-    const path = window.desktop.app.tempPath + "\\\\mobile-agent-smoke.txt";
+    const path = window.desktop.app.tempPath + sep + "mobile-agent-smoke.txt";
     const fsSync = window.desktop.fsSync;
 
     fsSync.createFile(path, { intermediates: true, overwrite: true });
@@ -149,11 +173,11 @@ const RENDERER_CHECKS = `
   });
 
   await check("fsSync: directory create and list", () => {
-    const root = window.desktop.app.tempPath + "\\\\mobile-agent-smoke-dir";
+    const root = window.desktop.app.tempPath + sep + "mobile-agent-smoke-dir";
     const fsSync = window.desktop.fsSync;
 
     fsSync.createDirectory(root, { intermediates: true, idempotent: true });
-    fsSync.createFile(root + "\\\\a.txt", { intermediates: true, overwrite: true });
+    fsSync.createFile(root + sep + "a.txt", { intermediates: true, overwrite: true });
 
     const entries = fsSync.list(root);
     const names = entries.map((entry) => entry.path.split(/[\\\\/]/).pop());
@@ -171,7 +195,7 @@ const RENDERER_CHECKS = `
     const fsSync = window.desktop.fsSync;
 
     try {
-      fsSync.readTextFile("C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts");
+      fsSync.readTextFile(outsideSystemPath);
     } catch {
       return "rejected as expected";
     }
@@ -183,14 +207,12 @@ const RENDERER_CHECKS = `
     const fsSync = window.desktop.fsSync;
 
     try {
-      fsSync.readTextFile(
-        window.desktop.app.tempPath + "\\\\..\\\\..\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts",
-      );
+      fsSync.readTextFile(outsideTraversalPath);
     } catch {
       return "rejected as expected";
     }
 
-    throw new Error("escaped an allowed root with ..\\\\ segments");
+    throw new Error("escaped an allowed root with .. segments");
   });
 
   await check("fs: async stat of the documents root", async () => {
@@ -211,7 +233,7 @@ const RENDERER_CHECKS = `
 
     for (const target of [
       "javascript:alert(1)",
-      "file:///C:/Windows/System32/drivers/etc/hosts",
+      outsideFileUrl,
       "ms-msdt:/id",
       "not-a-scheme",
     ]) {

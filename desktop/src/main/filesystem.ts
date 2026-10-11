@@ -12,7 +12,7 @@ import {
   createWriteStream,
 } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 
@@ -39,7 +39,7 @@ import { fromFileUri, isInsideRoot, toFileUri } from "../shared/paths";
 const allowedRoots = new Set<string>();
 
 export function allowRoot(path: string): void {
-  allowedRoots.add(path.replace(/[\\/]+$/, ""));
+  allowedRoots.add(resolve(path));
 }
 
 /** Grants access to a directory the user explicitly picked in a dialog. */
@@ -48,7 +48,11 @@ export function allowPickedRoot(path: string): void {
 }
 
 function resolvePath(input: string): string {
-  const path = fromFileUri(input);
+  // `resolve` collapses `.` / `..` segments and normalises separators before
+  // the allow-list check. Without it the prefix comparison below would accept
+  // `/tmp/root/../../etc/passwd`, because the raw string still starts with the
+  // allowed root even though it points somewhere else entirely.
+  const path = resolve(fromFileUri(input));
 
   for (const root of allowedRoots) {
     if (isInsideRoot(root, path)) {

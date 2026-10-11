@@ -122,7 +122,8 @@
     "desktop:start": "electron desktop",
     "desktop:smoke": "electron desktop --smoke-test",
     "desktop:dist": "pnpm run desktop:build && electron-builder --win --projectDir desktop",
-    "postinstall": "node ./scripts/patch-ai-sdk-react-native.js"
+    "postinstall": "node ./scripts/patch-ai-sdk-react-native.js",
+    "desktop:dist:linux": "pnpm run desktop:build && electron-builder --linux --projectDir desktop"
   },
   "private": true,
   "packageManager": "pnpm@10.29.2",

@@ -152,6 +152,7 @@
           "scheduler-alarm",
           "termux-stream",
           "html-video-export",
+          "quote-selection",
           "expo-ai-kit",
           "whisper.rn",
           "react-native-tcp-socket"

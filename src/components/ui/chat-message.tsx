@@ -54,6 +54,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  type StyleProp,
   Text,
   type TextStyle,
   View,
@@ -166,7 +167,41 @@ type ChatMessageProps = {
   workspaceFiles: WorkspaceFile[];
 };
 
+/**
+ * Selectable text block used for markdown inline content. Matches the
+ * library's default `textgroup` output exactly, plus `selectable` and a themed
+ * `selectionColor` (Android only — iOS ignores it). It has to be a component
+ * because `MARKDOWN_RULES` is a static object and cannot call `useTheme`.
+ */
+function SelectableTextGroup({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<TextStyle>;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Text selectable selectionColor={theme.backgroundSelected} style={style}>
+      {children}
+    </Text>
+  );
+}
+
 const MARKDOWN_RULES = {
+  // Every block's inline content is grouped into a `textgroup`. Marking it
+  // `selectable` turns on native text selection for paragraphs, headings, list
+  // items, table cells and blockquotes — including nested bold/italic/links and
+  // inline code. The rendering is the library's default `<Text>` element plus
+  // the selection props, so layout and styling are untouched. `selectable` has
+  // no effect on how the text is painted; `selectionColor` only themes the
+  // Android selection highlight.
+  textgroup: (node, children, parent, styles) => (
+    <SelectableTextGroup key={node.key} style={styles.textgroup}>
+      {children}
+    </SelectableTextGroup>
+  ),
   code_block: (node) => (
     <CopyableCodeBlock code={trimCodeBlock(node.content)} key={node.key} />
   ),

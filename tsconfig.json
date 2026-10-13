@@ -13,7 +13,8 @@
       "device-automation": ["./modules/device-automation/index.ts"],
       "saf-file-operations": ["./modules/saf-file-operations/index.ts"],
       "termux-stream": ["./modules/termux-stream/index.ts"],
-      "html-video-export": ["./modules/html-video-export/index.ts"]
+      "html-video-export": ["./modules/html-video-export/index.ts"],
+      "quote-selection": ["./modules/quote-selection/index.ts"]
     }
   },
   "include": [

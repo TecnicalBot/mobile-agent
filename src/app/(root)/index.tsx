@@ -53,6 +53,10 @@ import Animated, {
   LinearTransition,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import {
+  enableQuoteSelection,
+  subscribeToQuoteSelection,
+} from "quote-selection";
 
 import { ComposerTip } from "@/components/chat/composer-tip";
 import { Container } from "@/components/shared/container";
@@ -120,6 +124,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
+import { appendQuote, formatQuotedText } from "@/modules/chat/quote-text";
 import {
   formatUsagePlanLabel,
   formatUsageWindowLabel,
@@ -1289,6 +1294,26 @@ const ChatInput = memo(function ChatInput({
 
     setPrompt("");
   }, [editDraft, editNonce]);
+
+  // Native Android text selection offers a "Quote (Ask)" item (see the
+  // `quote-selection` Expo module). Quoting drops the highlighted text into the
+  // composer as a markdown blockquote so the user can ask a follow-up.
+  useEffect(() => {
+    enableQuoteSelection();
+
+    return subscribeToQuoteSelection((text) => {
+      const quote = formatQuotedText(text);
+      if (!quote) {
+        return;
+      }
+
+      setPrompt((current) => appendQuote(current, quote));
+
+      requestAnimationFrame(() => {
+        composerRef.current?.focus();
+      });
+    });
+  }, []);
 
   const maxComposerInputHeight = Math.min(320, screenHeight * 0.35);
   // The native content size can go stale when the field is cleared while

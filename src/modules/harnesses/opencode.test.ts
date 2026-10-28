@@ -55,6 +55,27 @@ describe("OpenCode pairing", () => {
 });
 
 describe("OpenCode connection security", () => {
+  it("allows private LAN HTTP only when enabled by the connection flow", () => {
+    expect(
+      normalizeOpenCodeUrl("http://192.168.1.20:4096", {
+        allowInsecureLan: true,
+      }),
+    ).toBe("http://192.168.1.20:4096");
+    expect(() =>
+      normalizeOpenCodeUrl("http://public.example", { allowInsecureLan: true }),
+    ).toThrow();
+    expect(() =>
+      normalizeOpenCodeUrl("http://0.0.0.0:4096", { allowInsecureLan: true }),
+    ).toThrow();
+  });
+
+  it("lets the UI correct a scanned localhost advertisement without losing its code", () => {
+    expect(
+      parseOpenCodePairingLink("http://127.0.0.0:4096/auth/connect/secret", {
+        allowAddressOverride: true,
+      }),
+    ).toEqual({ url: "http://127.0.0.0:4096", code: "secret" });
+  });
   it.each([
     "http://127.0.0.1:4096",
     "http://localhost:4096",
@@ -132,12 +153,10 @@ describe("OpenCode snapshots", () => {
   it("restores chronological messages, requests, active status, and history cursor without mutations", async () => {
     const client = {
       message: {
-        list: vi
-          .fn()
-          .mockResolvedValue({
-            data: [{ id: "new" }, { id: "old" }],
-            cursor: { next: "older" },
-          }),
+        list: vi.fn().mockResolvedValue({
+          data: [{ id: "new" }, { id: "old" }],
+          cursor: { next: "older" },
+        }),
       },
       permission: { list: vi.fn().mockResolvedValue([{ id: "permission" }]) },
       session: {

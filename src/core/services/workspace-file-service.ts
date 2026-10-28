@@ -3,6 +3,7 @@ import type { DocumentPickerAsset } from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
+import { workspacePathSegments } from "@/core/services/workspace-path";
 import {
   inferFileNameFromUrl,
   inferMimeType,
@@ -166,7 +167,7 @@ export function getWorkspaceDirectory() {
 }
 
 export function resolveWorkspaceFile(relativePath: string) {
-  const segments = relativePath.split("/").filter(Boolean);
+  const segments = workspacePathSegments(relativePath);
 
   return new File(getWorkspaceDirectory(), ...segments);
 }

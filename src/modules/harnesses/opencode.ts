@@ -9,10 +9,14 @@ export type OpenCodeConnection = {
   username: string;
   password: string;
   directory: string;
+  allowInsecureLan?: boolean;
 };
 
 /** A scanned link is untrusted input: only accept OpenCode's exact pairing path. */
-export function parseOpenCodePairingLink(value: string): {
+export function parseOpenCodePairingLink(
+  value: string,
+  options?: { allowAddressOverride?: boolean },
+): {
   url: string;
   code: string;
 } {
@@ -26,14 +30,39 @@ export function parseOpenCodePairingLink(value: string): {
     throw new Error(
       "Scan an OpenCode pairing QR code or paste its pairing link.",
     );
+  if (!["http:", "https:"].includes(link.protocol))
+    throw new Error("Unsupported pairing URL.");
   return {
-    url: normalizeOpenCodeUrl(`${link.origin}${match[1]}`),
+    // Scanning alone never sends a request. An unreachable advertised address can
+    // be corrected explicitly, then the final endpoint is validated before use.
+    url: options?.allowAddressOverride
+      ? `${link.origin}${match[1]}`
+      : normalizeOpenCodeUrl(`${link.origin}${match[1]}`),
     code: match[2],
   };
 }
 
-/** Never send credentials to a redirect or a non-loopback cleartext endpoint. */
-export function normalizeOpenCodeUrl(value: string): string {
+function isPrivateAddress(host: string) {
+  const parts = host.split(".").map(Number);
+  if (
+    parts.length === 4 &&
+    parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+  ) {
+    return (
+      parts[0] === 10 ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
+    );
+  }
+  return /^\[f[cd][0-9a-f]{2}:/i.test(host);
+}
+
+/** Plain LAN HTTP requires explicit consent. Public cleartext endpoints stay blocked. */
+export function normalizeOpenCodeUrl(
+  value: string,
+  options?: { allowInsecureLan?: boolean },
+): string {
   const url = new URL(value.trim());
   if (url.username || url.password || url.search || url.hash) {
     throw new Error(
@@ -41,7 +70,17 @@ export function normalizeOpenCodeUrl(value: string): string {
     );
   }
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
+  if (url.hostname === "0.0.0.0" || url.hostname === "[::]")
+    throw new Error(
+      "Use your desktop's LAN address, not its wildcard listening address.",
+    );
+  if (
+    url.protocol !== "https:" &&
+    !(
+      url.protocol === "http:" &&
+      (local || (options?.allowInsecureLan && isPrivateAddress(url.hostname)))
+    )
+  ) {
     throw new Error(
       "Use HTTPS for remote servers, or HTTP on localhost through Termux or a secure tunnel.",
     );
@@ -53,7 +92,7 @@ export function makeOpenCodeClient(
   connection: OpenCodeConnection,
   transport: typeof globalThis.fetch,
 ): OpenCodeClient {
-  const baseUrl = normalizeOpenCodeUrl(connection.url);
+  const baseUrl = normalizeOpenCodeUrl(connection.url, connection);
   return OpenCode.make({
     baseUrl,
     headers: connection.password

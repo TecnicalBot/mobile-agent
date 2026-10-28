@@ -13,6 +13,7 @@ import { VideoRenderHost } from "@/components/ui/video-render-host";
 import { migrateAppDatabase } from "@/core/db/database";
 import { AppStateProvider } from "@/providers/app-state";
 import { HarnessProvider } from "@/providers/harness-state";
+import { PhoneBridgeProvider } from "@/providers/phone-bridge-state";
 import { UpdateProvider, useUpdate } from "@/providers/check-for-updates";
 import { AppQueryProvider } from "@/providers/query-provider";
 import {
@@ -323,6 +324,7 @@ export default function MainLayout() {
               onInit={migrateAppDatabase}
             >
               <AppStateProvider>
+                <PhoneBridgeProvider>
                 <HarnessProvider>
                 <UpdateProvider>
                   <SplashScreenController ready={fontsReady} />
@@ -337,6 +339,7 @@ export default function MainLayout() {
                   <Slot />
                 </UpdateProvider>
                 </HarnessProvider>
+                </PhoneBridgeProvider>
               </AppStateProvider>
             </SQLiteProvider>
           </AppQueryProvider>

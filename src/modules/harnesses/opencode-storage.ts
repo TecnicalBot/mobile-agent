@@ -23,7 +23,10 @@ export async function loadOpenCodeConnection(): Promise<SavedOpenCodeConnection 
   )
     return null;
   return {
-    url: normalizeOpenCodeUrl(connection.url),
+    url: normalizeOpenCodeUrl(connection.url, {
+      allowInsecureLan: connection.allowInsecureLan === true,
+    }),
+    allowInsecureLan: connection.allowInsecureLan === true,
     password: connection.password,
     username: connection.username,
     directory: connection.directory,

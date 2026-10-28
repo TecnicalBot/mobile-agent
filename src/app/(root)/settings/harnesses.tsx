@@ -17,6 +17,8 @@ import {
 import { OpenCodeConnectionForm } from "@/components/settings/opencode-connection-form";
 import { useTheme } from "@/hooks/use-theme";
 import { useHarness } from "@/providers/harness-state";
+import { PhoneBridgeDrawer } from "@/components/settings/phone-bridge-drawer";
+import { usePhoneBridge } from "@/providers/phone-bridge-state";
 import { useConfig } from "@/hooks/use-config";
 import { DrawerPager, DrawerPagerPage } from "@/components/ui/drawer-pager";
 import { Separator } from "@/components/ui/separator";
@@ -31,6 +33,8 @@ export default function SettingsHarnessesScreen() {
   const router = useRouter();
   const theme = useTheme();
   const harness = useHarness();
+  const bridge = usePhoneBridge();
+  const [bridgeOpen, setBridgeOpen] = useState(false);
   const { selectModel, currentModel } = useConfig();
   const loading = harness.status === "connecting";
   const [open, setOpen] = useState(false);
@@ -99,6 +103,22 @@ export default function SettingsHarnessesScreen() {
           ))
         )}
       </Card>
+      <Card className="overflow-hidden">
+        <Pressable
+          accessibilityRole="button"
+          className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
+          onPress={() => setBridgeOpen(true)}
+        >
+          <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+            Phone tools
+          </Text>
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            {bridge.sharing ? "Sharing" : "Set up"}
+          </Text>
+          <ChevronRight color={theme.textSecondary} size={18} />
+        </Pressable>
+      </Card>
+      <PhoneBridgeDrawer open={bridgeOpen} onOpenChange={setBridgeOpen} />
       <Drawer
         open={open}
         onOpenChange={(value) => {

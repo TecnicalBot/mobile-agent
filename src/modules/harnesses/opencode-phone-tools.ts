@@ -33,6 +33,7 @@ export async function attachOpenCodePhoneTools(input: {
           url: input.url,
           oauth: false,
           protocol: "legacy",
+          codemode: false,
           headers: { Authorization: `Bearer ${input.token}` },
           timeout: { execution: 900000 },
         },
@@ -43,6 +44,17 @@ export async function attachOpenCodePhoneTools(input: {
       { server, location },
       { signal: input.signal },
     );
+    const catalog = await input.client.mcp.list(
+      { location },
+      { signal: input.signal },
+    );
+    if (
+      !catalog.data.some(
+        (item) => item.name === server && item.status.status === "connected",
+      )
+    ) {
+      throw new Error("OpenCode did not connect to the phone tools bridge.");
+    }
     return remove;
   } catch (error) {
     await remove().catch(() => {});

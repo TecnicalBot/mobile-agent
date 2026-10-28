@@ -10,6 +10,8 @@ import {
 } from "react";
 import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
+import { usePhoneBridge } from "@/providers/phone-bridge-state";
+import { attachOpenCodePhoneTools } from "@/modules/harnesses/opencode-phone-tools";
 import type { ModelInfo, OpenCodeClient, SessionInfo } from "@opencode/client";
 import type {
   Conversation,
@@ -35,6 +37,15 @@ import {
 } from "@/modules/harnesses/opencode-presentation";
 
 function useHarnessController() {
+  const phoneBridge = usePhoneBridge();
+  const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
+  const phoneBindings = useRef(
+    new WeakMap<OpenCodeClient, Map<string, Promise<void>>>(),
+  );
+  useEffect(() => {
+    setPhoneToolsEnabled(false);
+    phoneBindings.current = new WeakMap();
+  }, [phoneBridge.sharing?.token]);
   const [client, setClient] = useState<OpenCodeClient | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -89,14 +100,18 @@ function useHarnessController() {
         throw new Error("OpenCode V2 is required.");
       if (epoch !== generation.current) return;
       const previous = connection.current;
-      if (previous && (
-        previous.url !== saved.url || previous.username !== saved.username ||
-        previous.password !== saved.password || previous.directory !== saved.directory
-      )) {
+      if (
+        previous &&
+        (previous.url !== saved.url ||
+          previous.username !== saved.username ||
+          previous.password !== saved.password ||
+          previous.directory !== saved.directory)
+      ) {
         // Native session IDs belong to their connection, never carry them to a new host.
         setActive(false);
         setSessionID(null);
         setSelectedRef(null);
+        setPhoneToolsEnabled(false);
       }
       connection.current = saved;
       setClient(api);
@@ -193,6 +208,7 @@ function useHarnessController() {
     setSessionID(null);
     setSelectedRef(null);
     setError(null);
+    setPhoneToolsEnabled(false);
   }, []);
 
   const mutate = useCallback(
@@ -278,6 +294,67 @@ function useHarnessController() {
     [snapshot, sessionID],
   );
 
+  const ensurePhoneTools = async (
+    api: OpenCodeClient,
+    directory: string,
+    signal: AbortSignal,
+  ) => {
+    const shared = phoneBridge.sharing;
+    if (!shared) throw new Error("Start phone tool sharing first.");
+    let bindings = phoneBindings.current.get(api);
+    if (!bindings) {
+      bindings = new Map();
+      phoneBindings.current.set(api, bindings);
+    }
+    const key = `${shared.token}:${directory}`;
+    let binding = bindings.get(key);
+    if (!binding) {
+      binding = attachOpenCodePhoneTools({
+        client: api,
+        directory,
+        url: shared.url,
+        token: shared.token,
+        signal,
+      })
+        .then((remove) => {
+          phoneBridge.onRevoke(remove, shared.token);
+        })
+        .catch((cause) => {
+          bindings.delete(key);
+          throw cause;
+        });
+      bindings.set(key, binding);
+    }
+    await binding;
+  };
+
+  const connectPhoneTools = async () => {
+    if (!client) throw new Error("Connect OpenCode first.");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const directory = sessionID
+        ? (
+            await client.session.get(
+              { sessionID },
+              { signal: controller.signal },
+            )
+          ).location.directory
+        : (
+            await client.location.get(
+              connection.current?.directory
+                ? { location: { directory: connection.current.directory } }
+                : undefined,
+              { signal: controller.signal },
+            )
+          ).directory;
+      await ensurePhoneTools(client, directory, controller.signal);
+      setPhoneToolsEnabled(true);
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
   const sendMessage = async (input: SendMessageInput) => {
     if (input.selectedFileIds?.length)
       throw new Error("Phone attachments are not shared with OpenCode.");
@@ -302,6 +379,10 @@ function useHarnessController() {
           connection.current = { ...connection.current, sessionID: id };
           await saveOpenCodeConnection(connection.current);
         }
+      }
+      if (phoneToolsEnabled && phoneBridge.sharing) {
+        const session = await api.session.get({ sessionID: id }, { signal });
+        await ensurePhoneTools(api, session.location.directory, signal);
       }
       await api.session.prompt(
         {
@@ -362,6 +443,8 @@ function useHarnessController() {
     pendingToolApproval,
     pendingQuestionnaire,
     mutating,
+    connectPhoneTools,
+    phoneToolsEnabled: phoneToolsEnabled && Boolean(phoneBridge.sharing),
     connect,
     disconnect,
     selectModel,

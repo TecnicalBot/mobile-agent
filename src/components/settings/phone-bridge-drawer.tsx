@@ -12,9 +12,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { PHONE_BRIDGE_PORT } from "@/modules/bridge/native-http-server";
 import { useHarness } from "@/providers/harness-state";
-import { attachOpenCodePhoneTools } from "@/modules/harnesses/opencode-phone-tools";
 
 export function PhoneBridgeDrawer({
   open,
@@ -56,7 +54,7 @@ export function PhoneBridgeDrawer({
               <Text
                 selectable
                 className="font-sans text-sm text-foreground dark:text-foreground-dark"
-              >{`adb forward tcp:${PHONE_BRIDGE_PORT} tcp:${PHONE_BRIDGE_PORT}`}</Text>
+              >{`adb forward tcp:${new URL(bridge.sharing.url).port} tcp:${new URL(bridge.sharing.url).port}`}</Text>
               {harness.connected ? (
                 <Button
                   variant="outline"
@@ -66,16 +64,9 @@ export function PhoneBridgeDrawer({
                     const client = harness.client;
                     if (!shared || !client || attaching) return;
                     setAttaching(true);
-                    const controller = new AbortController();
-                    const timeout = setTimeout(() => controller.abort(), 30000);
-                    void attachOpenCodePhoneTools({
-                      client,
-                      url: shared.url,
-                      token: shared.token,
-                      signal: controller.signal,
-                    })
-                      .then((remove) => {
-                        bridge.onRevoke(remove);
+                    void harness
+                      .connectPhoneTools()
+                      .then(() => {
                         setNotice("OpenCode connected to phone tools.");
                       })
                       .catch(() =>
@@ -84,12 +75,13 @@ export function PhoneBridgeDrawer({
                         ),
                       )
                       .finally(() => {
-                        clearTimeout(timeout);
                         setAttaching(false);
                       });
                   }}
                 >
-                  Connect OpenCode
+                  {harness.phoneToolsEnabled
+                    ? "Reconnect OpenCode"
+                    : "Connect OpenCode"}
                 </Button>
               ) : null}
               <Button

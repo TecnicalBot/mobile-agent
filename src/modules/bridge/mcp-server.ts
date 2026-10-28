@@ -37,7 +37,10 @@ export function createBridgeMcpServer(options: BridgeOptions) {
       {
         capabilities: { tools: {} },
         instructions:
-          "These tools run on the user's phone, not on your host. Only the explicitly shared phone folder is accessible through folder tools. workspace:// references point to files on the phone, not local host paths. Ask for approval when required; never bypass a denied request.",
+          "These tools run on the user's phone, not on your host. Only the explicitly shared phone folder is accessible through folder tools. workspace:// references point to files on the phone, not local host paths. Ask for approval when required; never bypass a denied request." +
+          (tools.has("listSkills")
+            ? " Mobile Agent phone skills are additional to your host-native skills. When asked about available skills, call this server's listSkills and include its results. Before generating documents or videos, discover relevant phone skills with listSkills, then load their instructions with skill. Supporting files are available through skillReadFile. Do not say phone skills are unavailable without checking this server."
+            : ""),
       },
     );
     const transport = new WebStandardStreamableHTTPServerTransport({

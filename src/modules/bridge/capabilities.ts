@@ -85,12 +85,20 @@ export async function createPhoneBridgeCapabilities(input: {
         ),
     };
     const skills = createSkillTools({ repository, onRecord }).tools;
+    const enabledSkills = await repository.list();
+    const skillSummary = enabledSkills
+      .slice(0, 40)
+      .map((skill) => skill.title)
+      .join(", ");
     tools.push(
       adaptAiBridgeTool(
         "listSkills",
         tool({
           description:
-            "List the enabled Mobile Agent skills. Load a matching skill before generating documents or videos.",
+            "List the enabled Mobile Agent phone skills, separate from host-native skills. Load a matching skill with this server's skill tool before generating documents or videos." +
+            (skillSummary
+              ? ` Available at connection time: ${skillSummary}.`
+              : ""),
           inputSchema: z.object({}),
           execute: async () =>
             (await repository.list()).map((skill) => ({

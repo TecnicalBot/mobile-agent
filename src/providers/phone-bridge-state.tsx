@@ -43,6 +43,7 @@ function usePhoneBridgeController() {
     grant: PhoneBridgeGrant;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  const sharingRef = useRef(sharing);
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState<ExternalFolderSession | null>(null);
   const [approval, setApproval] = useState<BridgeApproval | null>(null);
@@ -60,6 +61,7 @@ function usePhoneBridgeController() {
     resolveApproval.current?.(false);
     resolveApproval.current = null;
     setApproval(null);
+    sharingRef.current = null;
     setSharing(null);
     const current = runtime.current;
     runtime.current = null;
@@ -98,10 +100,12 @@ function usePhoneBridgeController() {
     starting.current = true;
     setBusy(true);
     setError(null);
-    await stop();
-    const epoch = generation.current;
+    let epoch = generation.current;
     let endpoint: ReturnType<typeof createBridgeMcpServer> | null = null;
+    let phase: "prepare" | "listen" = "prepare";
     try {
+      await stop();
+      epoch = generation.current;
       const token = `${Crypto.randomUUID()}${Crypto.randomUUID()}`;
       const tools = await createPhoneBridgeCapabilities({
         grant,
@@ -122,25 +126,35 @@ function usePhoneBridgeController() {
         isAvailable: () =>
           epoch === generation.current && AppState.currentState === "active",
       });
+      phase = "listen";
       const listener = await startPhoneBridgeListener(endpoint.handle);
       if (epoch !== generation.current) {
-        listener.close();
+        await listener.close();
         await endpoint.close();
         return;
       }
       const server = endpoint;
       runtime.current = {
         close: async () => {
-          listener.close();
+          await listener.close();
           await server.close();
         },
       };
-      setSharing({ url: listener.url, token, toolCount: tools.length, grant });
+      const shared = {
+        url: listener.url,
+        token,
+        toolCount: tools.length,
+        grant,
+      };
+      sharingRef.current = shared;
+      setSharing(shared);
     } catch {
       await endpoint?.close();
       if (epoch === generation.current)
         setError(
-          "Could not start phone tools. Check the selected folder and whether the bridge port is already in use.",
+          phase === "listen"
+            ? "Could not open the phone tools listener. Restart the app and try again."
+            : "Could not prepare phone tools. Re-select the shared folder or try again.",
         );
     } finally {
       starting.current = false;
@@ -156,8 +170,12 @@ function usePhoneBridgeController() {
     return selected;
   }
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Fast Refresh can retain React state after cleaning up the listener.
+    // Never keep displaying a sharing grant whose MCP sessions were revoked.
+    sharingRef.current = null;
+    setSharing(null);
+    return () => {
       generation.current += 1;
       resolveApproval.current?.(false);
       const current = runtime.current;
@@ -166,9 +184,8 @@ function usePhoneBridgeController() {
       for (const callback of revokeCallbacks.current)
         void callback().catch(() => {});
       revokeCallbacks.current = [];
-    },
-    [],
-  );
+    };
+  }, []);
 
   return {
     sharing,
@@ -180,8 +197,10 @@ function usePhoneBridgeController() {
     start,
     stop,
     pickFolder,
-    onRevoke: (callback: () => Promise<void>) => {
-      revokeCallbacks.current.push(callback);
+    onRevoke: (callback: () => Promise<void>, token: string) => {
+      if (sharingRef.current?.token === token)
+        revokeCallbacks.current.push(callback);
+      else void callback().catch(() => {});
     },
     clearFolder: async () => {
       await stop();

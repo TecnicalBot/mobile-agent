@@ -3,10 +3,29 @@ import { createHttpRequestDecoder } from "./http-framing";
 
 export const PHONE_BRIDGE_PORT = 43877;
 
+type PhoneBridgeListener = { url: string; close: () => Promise<void> };
+type ListenerRegistry = {
+  current: PhoneBridgeListener | null;
+  pending: Promise<void>;
+};
+const registryKey = Symbol.for("mobile-agent.phone-bridge.listener");
+const globalRegistry = globalThis as typeof globalThis & {
+  [registryKey]?: ListenerRegistry;
+};
+const registry = (globalRegistry[registryKey] ??= {
+  current: null,
+  pending: Promise.resolve(),
+});
+
+function isAddressInUse(cause: unknown) {
+  return /EADDRINUSE|Address already in use/i.test(String(cause));
+}
+
 /** Loopback only. Remote hosts must use an explicitly configured secure tunnel. */
-export async function startPhoneBridgeListener(
+async function bindPhoneBridgeListener(
   handle: (request: Request) => Promise<Response>,
-) {
+  port: number,
+): Promise<PhoneBridgeListener> {
   if (Platform.OS === "web")
     throw new Error("Phone tool hosting requires a native app.");
   const { default: TcpSocket } = await import("react-native-tcp-socket");
@@ -84,7 +103,7 @@ export async function startPhoneBridgeListener(
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen({ host: "127.0.0.1", port: PHONE_BRIDGE_PORT }, () => {
+    server.listen({ host: "127.0.0.1", port }, () => {
       server.removeListener("error", reject);
       resolve();
     });
@@ -92,13 +111,50 @@ export async function startPhoneBridgeListener(
   server.on("error", () => {
     for (const socket of sockets) socket.destroy();
   });
-  return {
-    url: `http://127.0.0.1:${PHONE_BRIDGE_PORT}/mcp`,
+  const address = server.address();
+  if (!address?.port) {
+    server.close();
+    throw new Error("Phone bridge did not receive a port.");
+  }
+  let closing: Promise<void> | null = null;
+  const listener: PhoneBridgeListener = {
+    url: `http://127.0.0.1:${address.port}/mcp`,
     close() {
+      if (closing) return closing;
       closed = true;
       for (const socket of sockets) socket.destroy();
       sockets.clear();
-      server.close();
+      if (registry.current === listener) registry.current = null;
+      closing = new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      return closing;
     },
   };
+  return listener;
+}
+
+/** Reclaim listeners owned by this JS runtime across Fast Refresh/remounts. */
+export function startPhoneBridgeListener(
+  handle: (request: Request) => Promise<Response>,
+): Promise<PhoneBridgeListener> {
+  const opening = registry.pending.then(async () => {
+    await registry.current?.close();
+    let listener: PhoneBridgeListener;
+    try {
+      listener = await bindPhoneBridgeListener(handle, PHONE_BRIDGE_PORT);
+    } catch (cause) {
+      // A native listener can outlive a full JS reload. Do not kill an unknown
+      // socket or assume the fixed port is ours: ask the OS for an unused port.
+      if (!isAddressInUse(cause)) throw cause;
+      listener = await bindPhoneBridgeListener(handle, 0);
+    }
+    registry.current = listener;
+    return listener;
+  });
+  registry.pending = opening.then(
+    () => {},
+    () => {},
+  );
+  return opening;
 }

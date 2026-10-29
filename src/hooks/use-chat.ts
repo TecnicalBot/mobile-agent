@@ -54,9 +54,17 @@ export function useChat() {
     },
     editAndResendMessage: unsupported,
     pickConversationFolder: unsupported,
-    currentSelectedAgentId: null,
-    conversationAgentName: "OpenCode",
-    agents: [],
+    currentSelectedAgentId: harness.currentAgentID,
+    conversationAgentName: harness.currentAgentName,
+    agents: harness.agents,
+    setConversationAgent: async (
+      conversationId: string,
+      agentIdOrName: string | null,
+    ) => {
+      if (conversationId && conversationId !== harness.sessionID)
+        throw new Error("Select the OpenCode chat before changing its agent.");
+      await harness.selectAgent(agentIdOrName);
+    },
     skills: [],
     workspaceFiles: [],
   };

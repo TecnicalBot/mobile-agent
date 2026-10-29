@@ -107,6 +107,8 @@ export function OpenCodeConnectionForm({
     setBusy(true);
     setError(null);
     const timeout = setTimeout(() => controller.abort(), 15000);
+    let phase: "pair" | "verify" | "save" =
+      pairing && !redeemed ? "pair" : "verify";
     try {
       let next = { ...connection, url: validatedUrl, allowInsecureLan };
       if (pairing && !redeemed) {
@@ -140,16 +142,28 @@ export function OpenCodeConnectionForm({
         next,
         expoFetch as typeof globalThis.fetch,
       );
+      phase = "verify";
       const info = await api.server.info({ signal: controller.signal });
       if (!/^2\./.test(info.version)) throw new Error("version");
       await api.session.list({ limit: 1 }, { signal: controller.signal });
       if (controller.signal.aborted) return;
+      phase = "save";
       await saveOpenCodeConnection(next);
       if (mounted.current) onConnected();
     } catch {
       if (mounted.current)
         setError(
-          "Could not connect. Check the server or scan a fresh pairing code.",
+          controller.signal.aborted
+            ? "OpenCode connection timed out. Check the server address and network before retrying."
+            : ["127.0.0.1", "localhost", "[::1]"].includes(
+                  new URL(validatedUrl).hostname,
+                )
+              ? "This QR points to localhost on the phone. For desktop pairing, generate the QR with opencode pair --url http://DESKTOP_IP:PORT. Use localhost only if OpenCode runs on this phone."
+              : phase === "pair"
+                ? "Could not redeem the pairing code. Check the desktop address, then scan a fresh OpenCode pairing QR."
+                : phase === "save"
+                  ? "OpenCode responded, but the connection could not be saved securely."
+                  : "Pairing credentials were saved, but OpenCode verification failed. Retry Connect without scanning again.",
         );
     } finally {
       clearTimeout(timeout);

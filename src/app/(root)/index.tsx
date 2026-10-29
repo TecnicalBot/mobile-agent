@@ -724,12 +724,13 @@ export default function Screen() {
                 }}
                 workspaceFiles={workspaceFiles}
                 agents={agents}
+                harnessAgents={harness.active}
                 currentSelectedAgentId={currentSelectedAgentId}
                 conversationAgentName={conversationAgentName}
                 setConversationAgent={setConversationAgent}
                 currentConversationId={currentConversation?.id ?? null}
                 onOpenAgentSettings={() =>
-                  router.push("/settings/agents" as never)
+                  router.push(harness.active ? "/settings/harnesses" : "/settings/agents")
                 }
               />
             </MessageScrollerProvider>
@@ -1285,6 +1286,7 @@ const ChatInput = memo(function ChatInput({
   updateToolApprovalMode,
   workspaceFiles,
   agents,
+  harnessAgents = false,
   currentSelectedAgentId,
   conversationAgentName,
   setConversationAgent,
@@ -1353,6 +1355,7 @@ const ChatInput = memo(function ChatInput({
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
   workspaceFiles: WorkspaceFile[];
   agents: AgentConfig[];
+  harnessAgents?: boolean;
   currentSelectedAgentId: string | null;
   conversationAgentName: string;
   setConversationAgent: (
@@ -1445,7 +1448,12 @@ const ChatInput = memo(function ChatInput({
     content: string;
     selectedFileIds: string[];
   }>(null);
-  const primaryAgents = useMemo(() => listPrimaryAgents(agents), [agents]);
+  const primaryAgents = useMemo(
+    () => harnessAgents
+      ? agents.filter((agent) => agent.enabled && !agent.hidden && agent.mode !== "subagent")
+      : listPrimaryAgents(agents),
+    [agents, harnessAgents],
+  );
   const [filesSearch, setFilesSearch] = useState("");
   const [modelsSearch, setModelsSearch] = useState("");
   const [skillsSearch, setSkillsSearch] = useState("");
@@ -2982,16 +2990,17 @@ const ChatInput = memo(function ChatInput({
               <DrawerSelectRow
                 key={agent.id}
                 onPress={() => {
-                  if (!currentConversationId) return;
-                  setConversationAgent(currentConversationId, agent.name)
+                  if (!currentConversationId && !harnessAgents) return;
+                  setConversationAgent(currentConversationId ?? "", agent.name)
                     .then(() => {
                       setAgentsDrawerOpen(false);
                     })
                     .catch(console.error);
                 }}
                 selected={
-                  resolveAgent(agents, currentSelectedAgentId).name ===
-                  agent.name
+                  harnessAgents
+                    ? agent.id === currentSelectedAgentId
+                    : resolveAgent(agents, currentSelectedAgentId).name === agent.name
                 }
                 subtitle={agent.description ?? undefined}
                 title={
@@ -3009,7 +3018,7 @@ const ChatInput = memo(function ChatInput({
                 onOpenAgentSettings();
               }}
               selected={false}
-              title="Manage agents"
+              title={harnessAgents ? "Manage harness" : "Manage agents"}
             />
           </DrawerBody>
         </DrawerContent>

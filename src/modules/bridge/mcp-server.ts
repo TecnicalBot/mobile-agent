@@ -6,11 +6,38 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { isAllowedBridgeHost } from "./reach";
-import type { BridgeOptions } from "./types";
+import type { BridgeApproval, BridgeOptions } from "./types";
 
 const MAX_SESSIONS = 8;
 const MAX_CONCURRENT_CALLS = 4;
 const MAX_BODY = 2_500_000;
+
+function parseErrorResponse() {
+  return new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: { code: -32700, message: "Parse error: Invalid JSON" },
+      id: null,
+    }),
+    { status: 400, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+/**
+ * React Native's Request (whatwg-fetch) stores the body as text but has no
+ * ReadableStream, so the SDK's own body reader sees `undefined` and rejects
+ * every message as invalid JSON. Parse once here and hand the transport a
+ * parsed body instead.
+ */
+async function parseRequest(request: Request) {
+  try {
+    const text = await request.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY) return null;
+    return { value: JSON.parse(text) as unknown };
+  } catch {
+    return null;
+  }
+}
 
 function matchesToken(received: string, expected: string) {
   if (received.length !== expected.length) return false;
@@ -24,6 +51,24 @@ function matchesToken(received: string, expected: string) {
 export function createBridgeMcpServer(options: BridgeOptions) {
   if (options.token.length < 32)
     throw new Error("Bridge tokens must have at least 32 characters.");
+  // The SDK allocates internal stream IDs with global crypto.randomUUID even
+  // in JSON response mode. React Native's get-random-values shim only supplies
+  // getRandomValues. Reuse the host's secure UUID generator, leaving any
+  // existing crypto methods intact.
+  if (!globalThis.crypto) {
+    Object.defineProperty(globalThis, "crypto", {
+      value: {},
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (typeof globalThis.crypto.randomUUID !== "function") {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: options.randomId,
+      configurable: true,
+      writable: true,
+    });
+  }
   const tools = new Map(options.tools.map((tool) => [tool.name, tool]));
   const sessions = new Map<
     string,
@@ -35,6 +80,19 @@ export function createBridgeMcpServer(options: BridgeOptions) {
   // never interleave. The old global flag blocked reads behind long renders.
   let writeQueue: Promise<unknown> = Promise.resolve();
   let initializing = 0;
+  let approvalQueue: Promise<unknown> = Promise.resolve();
+
+  function approve(request: BridgeApproval) {
+    // The phone has one approval drawer/resolver. Never let concurrent MCP
+    // calls overwrite each other's prompt; execution may overlap afterwards.
+    const decision = approvalQueue.then(() =>
+      stopped || !options.isAvailable() || request.signal.aborted
+        ? false
+        : options.approve(request),
+    );
+    approvalQueue = decision.catch(() => {});
+    return decision;
+  }
 
   function runWrite<T>(work: () => Promise<T>): Promise<T> {
     const run = writeQueue.then(work, work);
@@ -93,24 +151,24 @@ export function createBridgeMcpServer(options: BridgeOptions) {
       activeCalls += 1;
       try {
         const input = await tool.parse(request.params.arguments ?? {});
-        extra.signal.throwIfAborted();
+        if (extra.signal.aborted) throw new Error("Cancelled");
         // Every call is approved locally, including reads that can disclose private files.
         if (
-          !(await options.approve({
+          !(await approve({
             toolName: tool.name,
             arguments: input,
             signal: extra.signal,
           }))
         )
           return fail("The user denied this phone tool request.");
-        extra.signal.throwIfAborted();
+        if (extra.signal.aborted) throw new Error("Cancelled");
         if (stopped || !options.isAvailable())
           return fail("Phone tool access was revoked.");
         const execute = () => tool.execute(input, extra.signal);
         const output = tool.readOnly
           ? await execute()
           : await runWrite(execute);
-        extra.signal.throwIfAborted();
+        if (extra.signal.aborted) throw new Error("Cancelled");
         const text =
           typeof output === "string" ? output : JSON.stringify(output ?? null);
         if (text.length > 1_000_000)
@@ -155,6 +213,10 @@ export function createBridgeMcpServer(options: BridgeOptions) {
         });
       if (!["POST", "DELETE"].includes(request.method))
         return new Response(null, { status: 405 });
+      const body =
+        request.method === "POST" ? await parseRequest(request) : undefined;
+      if (request.method === "POST" && !body) return parseErrorResponse();
+      const transportOptions = body ? { parsedBody: body.value } : undefined;
       const sessionID = request.headers.get("mcp-session-id");
       if (sessionID) {
         const session = sessions.get(sessionID);
@@ -162,7 +224,7 @@ export function createBridgeMcpServer(options: BridgeOptions) {
         // Refresh insertion order so the oldest session is evicted first.
         sessions.delete(sessionID);
         sessions.set(sessionID, session);
-        return session.transport.handleRequest(request);
+        return session.transport.handleRequest(request, transportOptions);
       }
       if (request.method !== "POST") return new Response(null, { status: 400 });
       while (sessions.size + initializing >= MAX_SESSIONS) {
@@ -178,7 +240,10 @@ export function createBridgeMcpServer(options: BridgeOptions) {
       initializing++;
       try {
         await session.server.connect(session.transport);
-        const response = await session.transport.handleRequest(request);
+        const response = await session.transport.handleRequest(
+          request,
+          transportOptions,
+        );
         const id = session.transport.sessionId;
         if (id && !stopped) sessions.set(id, session);
         else await session.server.close();

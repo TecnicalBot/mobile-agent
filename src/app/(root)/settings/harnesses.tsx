@@ -17,7 +17,6 @@ import {
 import { OpenCodeConnectionForm } from "@/components/settings/opencode-connection-form";
 import { useTheme } from "@/hooks/use-theme";
 import { useHarness } from "@/providers/harness-state";
-import { PhoneBridgeDrawer } from "@/components/settings/phone-bridge-drawer";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
 import { useConfig } from "@/hooks/use-config";
 import { DrawerPager, DrawerPagerPage } from "@/components/ui/drawer-pager";
@@ -34,12 +33,12 @@ export default function SettingsHarnessesScreen() {
   const theme = useTheme();
   const harness = useHarness();
   const bridge = usePhoneBridge();
-  const [bridgeOpen, setBridgeOpen] = useState(false);
   const { selectModel, currentModel } = useConfig();
   const loading = harness.status === "connecting";
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [modelQuery, setModelQuery] = useState("");
+  const [connectingPhoneTools, setConnectingPhoneTools] = useState(false);
   const query = modelQuery.trim().toLowerCase();
   const displayModels = harness.availableModels.filter(
     (model) =>
@@ -103,22 +102,6 @@ export default function SettingsHarnessesScreen() {
           ))
         )}
       </Card>
-      <Card className="overflow-hidden">
-        <Pressable
-          accessibilityRole="button"
-          className="min-h-14 flex-row items-center gap-sp-3 px-sp-4 py-sp-3"
-          onPress={() => setBridgeOpen(true)}
-        >
-          <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
-            Phone tools
-          </Text>
-          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-            {bridge.sharing ? "Sharing" : "Set up"}
-          </Text>
-          <ChevronRight color={theme.textSecondary} size={18} />
-        </Pressable>
-      </Card>
-      <PhoneBridgeDrawer open={bridgeOpen} onOpenChange={setBridgeOpen} />
       <Drawer
         open={open}
         onOpenChange={(value) => {
@@ -203,6 +186,57 @@ export default function SettingsHarnessesScreen() {
                     </Button>
                   )}
                 </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage device sharing"
+                  className="min-h-14 flex-row items-center gap-sp-3 rounded-card border border-border px-sp-4 py-sp-3 dark:border-border-dark"
+                  onPress={() => {
+                    setOpen(false);
+                    router.push({
+                      pathname: "/settings/integrations",
+                      params: { phoneTools: "1" },
+                    });
+                  }}
+                  style={({ pressed }) => (pressed ? { opacity: 0.82 } : null)}
+                >
+                  <Text className="flex-1 font-sans text-base text-foreground dark:text-foreground-dark">
+                    Device sharing
+                  </Text>
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    {harness.phoneToolsEnabled
+                      ? "Connected"
+                      : bridge.sharing
+                        ? "Not connected"
+                        : "Not shared"}
+                  </Text>
+                  <ChevronRight color={theme.textSecondary} size={18} />
+                </Pressable>
+                {harness.connected && bridge.sharing ? (
+                  <Button
+                    variant="outline"
+                    loading={connectingPhoneTools}
+                    onPress={() => {
+                      if (connectingPhoneTools) return;
+                      setConnectingPhoneTools(true);
+                      void harness
+                        .connectPhoneTools()
+                        .catch(() => {})
+                        .finally(() => setConnectingPhoneTools(false));
+                    }}
+                  >
+                    {harness.phoneToolsEnabled
+                      ? "Reconnect device sharing"
+                      : "Connect device sharing"}
+                  </Button>
+                ) : null}
+                {harness.phoneToolsError ? (
+                  <Text
+                    accessibilityRole="alert"
+                    className="font-sans text-sm text-destructive dark:text-destructive-dark"
+                  >
+                    {harness.phoneToolsError}
+                  </Text>
+                ) : null}
                 {harness.connected ? (
                   <View className="gap-sp-3">
                     <View className="flex-row items-center justify-between gap-sp-3">

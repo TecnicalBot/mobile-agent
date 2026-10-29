@@ -68,3 +68,5 @@ module.exports = function withBackgroundAgent(config) {
     return config
   })
 }
+
+module.exports.addPermissionsAndService = addPermissionsAndService

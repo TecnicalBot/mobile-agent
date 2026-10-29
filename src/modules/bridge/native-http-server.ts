@@ -46,7 +46,7 @@ function normalizeSource(address: string | undefined) {
   return (address ?? "").split("%")[0].replace(/^::ffff:/, "");
 }
 
-/** Loopback only. Remote hosts must use an explicitly configured secure tunnel. */
+/** Bind only the selected reach and reject sources outside its address policy. */
 async function bindPhoneBridgeListener(
   handle: (request: Request) => Promise<Response>,
   options: Required<Pick<PhoneBridgeListenerOptions, "reach" | "port">> & {
@@ -105,9 +105,14 @@ async function bindPhoneBridgeListener(
         if (value) head += `${name}: ${value}\r\n`;
       }
       head += `Content-Length: ${body.length}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n`;
-      socket.write(head);
-      socket.write(body);
-      socket.end();
+      const headers = new TextEncoder().encode(head);
+      const packet = new Uint8Array(headers.length + body.length);
+      packet.set(headers);
+      packet.set(body, headers.length);
+      // Native writes run on the client's write executor, while end() destroys
+      // the socket on a different executor. end(packet) waits for its write
+      // callback before closing; write()/write()/end() can truncate responses.
+      socket.end(packet);
     };
     socket.on("data", (data) => {
       if (handling) return;

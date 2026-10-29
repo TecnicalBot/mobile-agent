@@ -51,6 +51,11 @@ import {
   type BridgeUrls,
 } from "@/modules/bridge/reach";
 import type { BridgeApproval } from "@/modules/bridge/types";
+import {
+  loadBridgeSharing,
+  saveBridgeSharing,
+  type SavedBridgeSharing,
+} from "@/modules/bridge/sharing-storage";
 import { useChat as useDirectChat } from "@/providers/app-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,6 +79,8 @@ const ACTIVE_RUN_STATUSES = new Set([
 ]);
 
 export type PhoneBridgeSharing = {
+  /** New for each listener, even when its persistent pairing token is reused. */
+  id: string;
   /** Address the connected harness should use. */
   url: string;
   urls: BridgeUrls;
@@ -90,6 +97,7 @@ function usePhoneBridgeController() {
   const direct = useDirectChat();
   const [sharing, setSharing] = useState<PhoneBridgeSharing | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const sharingRef = useRef(sharing);
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState<ExternalFolderSession | null>(null);
@@ -98,6 +106,11 @@ function usePhoneBridgeController() {
   const [harnessUrl, setHarnessUrl] = useState<string | null>(null);
   const [preference, setPreferenceState] = useState<BridgePreference>("auto");
   const [manualAddress, setManualAddressState] = useState<string | null>(null);
+  const preferenceRef = useRef(preference);
+  preferenceRef.current = preference;
+  const manualAddressRef = useRef(manualAddress);
+  manualAddressRef.current = manualAddress;
+  const desiredSharing = useRef<SavedBridgeSharing | null>(null);
   const runtime = useRef<{ close: () => Promise<void> } | null>(null);
   const resolveApproval = useRef<((accepted: boolean) => void) | null>(null);
   const generation = useRef(0);
@@ -122,17 +135,46 @@ function usePhoneBridgeController() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const epoch = generation.current;
     void refreshInterfaces();
-    void loadBridgePreference().then(setPreferenceState).catch(() => {});
-    void loadManualBridgeAddress().then(setManualAddressState).catch(() => {});
+    void Promise.all([
+      loadBridgePreference(),
+      loadManualBridgeAddress(),
+      loadBridgeSharing(),
+    ])
+      .then(async ([savedPreference, savedAddress, savedSharing]) => {
+        if (cancelled || epoch !== generation.current) return;
+        preferenceRef.current = savedPreference;
+        manualAddressRef.current = savedAddress;
+        setPreferenceState(savedPreference);
+        setManualAddressState(savedAddress);
+        setSettingsLoaded(true);
+        desiredSharing.current = savedSharing;
+        if (savedSharing) {
+          setFolder(savedSharing.grant.folder);
+          await startRef.current(savedSharing.grant);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSettingsLoaded(true);
+          setError(
+            "Could not restore device sharing settings. Start sharing again.",
+          );
+        }
+      });
     void isBackgroundAgentHeld()
       .then((held) => {
         backgroundHeld.current = held;
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [refreshInterfaces]);
 
-  async function stop() {
+  async function stopRuntime() {
     generation.current += 1;
     resolveApproval.current?.(false);
     resolveApproval.current = null;
@@ -146,10 +188,25 @@ function usePhoneBridgeController() {
     revokeCallbacks.current = [];
     await Promise.allSettled(callbacks.map((callback) => callback()));
     // The direct agent shares this foreground service; never stop it mid-run.
-    if (!directBusy.current) {
+    if (!directBusy.current && !desiredSharing.current) {
       await stopBackgroundAgent().catch(() => {});
       backgroundHeld.current = false;
     }
+  }
+
+  async function stop() {
+    desiredSharing.current = null;
+    // Revoke this runtime immediately; serialize persisted writes so a late
+    // Start cannot silently re-enable sharing after the user explicitly stops.
+    const closing = stopRuntime();
+    try {
+      await saveBridgeSharing(null);
+    } catch {
+      setError(
+        "Sharing stopped, but its saved settings could not be cleared. Retry Stop before reloading.",
+      );
+    }
+    await closing;
   }
 
   function approve(request: BridgeApproval) {
@@ -199,16 +256,24 @@ function usePhoneBridgeController() {
     setError(null);
     let epoch = generation.current;
     let endpoint: ReturnType<typeof createBridgeMcpServer> | null = null;
-    let phase: "prepare" | "listen" = "prepare";
+    let phase: "prepare" | "listen" | "save" = "prepare";
     try {
-      await stop();
+      const closing = stopRuntime();
       epoch = generation.current;
+      await closing;
+      if (epoch !== generation.current) return;
       const token = await ensureBridgeToken();
       const available = await refreshInterfaces();
-      const manual = manualAddress?.trim() || null;
+      const manual = manualAddressRef.current?.trim() || null;
+      const effectivePreference =
+        preferenceRef.current === "auto" && !harnessUrl
+          ? (desiredSharing.current?.reach ?? "auto")
+          : preferenceRef.current;
       const selection = manual
         ? {
-            reach: (isTailnetAddress(manual) ? "tailnet" : "lan") as BridgeReach,
+            reach: (isTailnetAddress(manual)
+              ? "tailnet"
+              : "lan") as BridgeReach,
             address: manual,
             url: `http://${manual}:${PHONE_BRIDGE_PORT}/mcp`,
             needsOverride: false,
@@ -217,10 +282,20 @@ function usePhoneBridgeController() {
             harnessUrl,
             interfaces: available,
             port: PHONE_BRIDGE_PORT,
-            preference,
+            preference: effectivePreference,
           });
+      // Do not restore a network grant onto a different reach just because
+      // the old interface or paired harness has not come back yet.
+      if (
+        !harnessUrl &&
+        desiredSharing.current &&
+        effectivePreference !== "auto" &&
+        selection.reach !== effectivePreference
+      )
+        throw new Error("The previously shared network is unavailable.");
       if (selection.reach !== "loopback" && !selection.address)
         throw new Error("No reachable network interface.");
+      if (grant.folder) createExternalFolderService().listEntries(grant.folder);
       const tools = await createPhoneBridgeCapabilities({
         grant,
         repositories: createRepositories(database),
@@ -258,8 +333,18 @@ function usePhoneBridgeController() {
           await server.close();
         },
       };
+      phase = "save";
+      const savedSharing: SavedBridgeSharing = {
+        version: 1,
+        grant,
+        reach: selection.reach,
+      };
+      await saveBridgeSharing(savedSharing);
+      if (epoch !== generation.current) return;
+      desiredSharing.current = savedSharing;
       const urls = bridgeUrls(available, listener.port);
       const shared: PhoneBridgeSharing = {
+        id: Crypto.randomUUID(),
         url: listener.url,
         urls,
         reach: selection.reach,
@@ -273,23 +358,25 @@ function usePhoneBridgeController() {
       setSharing(shared);
       // Restarting an already-held service would clear a pending direct-agent
       // approval notification, so only start it when it is not held.
-      backgroundHeld.current = await isBackgroundAgentHeld().catch(
-        () => false,
-      );
+      backgroundHeld.current = await isBackgroundAgentHeld().catch(() => false);
       if (!backgroundHeld.current) await startBackgroundAgent();
-      backgroundHeld.current = await isBackgroundAgentHeld().catch(
-        () => false,
-      );
+      backgroundHeld.current = await isBackgroundAgentHeld().catch(() => false);
       await setBackgroundAgentNotificationState("running", listener.url).catch(
         () => {},
       );
     } catch {
-      await endpoint?.close();
-      if (epoch === generation.current)
+      const ownsFailure = epoch === generation.current;
+      if (ownsFailure) await stopRuntime();
+      else await endpoint?.close();
+      // stopRuntime advances the generation; this failure still belongs to
+      // this start unless an external Stop/restart already invalidated it.
+      if (ownsFailure && epoch + 1 === generation.current)
         setError(
-          phase === "listen"
-            ? "Could not open the phone tools listener. Restart the app and try again."
-            : "Could not prepare phone tools. Re-select the shared folder or try again.",
+          phase === "save"
+            ? "Could not save device sharing settings. Sharing was stopped."
+            : phase === "listen"
+              ? "Could not open device sharing. Check the network and try again."
+              : "Could not prepare device sharing. Check the shared folder and network.",
         );
     } finally {
       starting.current = false;
@@ -317,10 +404,11 @@ function usePhoneBridgeController() {
       const current = runtime.current;
       runtime.current = null;
       void current?.close();
-      for (const callback of revokeCallbacks.current)
-        void callback().catch(() => {});
+      // Keep the harness registration during reload. Deleting it asynchronously
+      // here can race with restoration. Explicit Stop still removes it.
       revokeCallbacks.current = [];
-      if (!directBusy.current) void stopBackgroundAgent().catch(() => {});
+      if (!directBusy.current && !desiredSharing.current)
+        void stopBackgroundAgent().catch(() => {});
     };
   }, []);
 
@@ -339,7 +427,12 @@ function usePhoneBridgeController() {
       void (async () => {
         const available = await refreshInterfaces();
         const shared = sharingRef.current;
-        if (!shared) return;
+        if (!shared) {
+          const saved = desiredSharing.current;
+          if (settingsLoaded && saved && !starting.current)
+            await startRef.current(saved.grant);
+          return;
+        }
         const manual = manualAddress?.trim() || null;
         if (manual) {
           if (`http://${manual}:${shared.port}/mcp` === shared.url) return;
@@ -363,9 +456,9 @@ function usePhoneBridgeController() {
           preference === "auto"
         ) {
           setError(
-            "Phone tools stopped: no reachable network. Reconnect Wi-Fi or Tailscale.",
+            "Device sharing paused: no reachable network. Reconnect Wi-Fi or Tailscale.",
           );
-          await stop();
+          await stopRuntime();
           return;
         }
         await startRef.current(shared.grant);
@@ -374,7 +467,13 @@ function usePhoneBridgeController() {
     const timer = setInterval(check, NETWORK_POLL_MS);
     check();
     return () => clearInterval(timer);
-  }, [harnessUrl, manualAddress, preference, refreshInterfaces]);
+  }, [
+    harnessUrl,
+    manualAddress,
+    preference,
+    refreshInterfaces,
+    settingsLoaded,
+  ]);
 
   useEffect(() => {
     const listener = AppState.addEventListener("change", (state) => {
@@ -402,7 +501,7 @@ function usePhoneBridgeController() {
 
   return {
     sharing,
-    busy,
+    busy: busy || !settingsLoaded,
     error,
     folder,
     approval,
@@ -423,10 +522,10 @@ function usePhoneBridgeController() {
       await rotateBridgeToken();
       setError("Pairing revoked. Reconnect the harness to use the new token.");
     },
-    onRevoke: (callback: () => Promise<void>, token: string) => {
-      if (sharingRef.current?.token === token)
+    onRevoke: (callback: () => Promise<void>, instanceID: string) => {
+      if (sharingRef.current?.id === instanceID)
         revokeCallbacks.current.push(callback);
-      else void callback().catch(() => {});
+      else if (!sharingRef.current) void callback().catch(() => {});
     },
     clearFolder: async () => {
       await stop();
@@ -451,7 +550,7 @@ export function PhoneBridgeProvider({ children }: { children: ReactNode }) {
           showHandle={false}
         >
           <DrawerHeader>
-            <DrawerTitle>Phone tool approval</DrawerTitle>
+            <DrawerTitle>Device access request</DrawerTitle>
           </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-3">
             <Text className="font-sans text-base text-foreground dark:text-foreground-dark">

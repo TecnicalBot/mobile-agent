@@ -1,10 +1,12 @@
 import type {
+  AgentInfo,
   FormInfo,
   ModelInfo,
   SessionInfo,
   SessionMessageInfo,
 } from "@opencode/client";
 import type {
+  AgentConfig,
   Conversation,
   ModelRef,
   ResolvedModel,
@@ -15,6 +17,27 @@ import type {
 } from "@/core/types/app-state";
 
 export const OPENCODE_PROVIDER_ID = "harness:opencode";
+
+/** UI metadata only; OpenCode still owns prompts, tools, and permissions. */
+export function presentOpenCodeAgent(agent: AgentInfo): AgentConfig {
+  return {
+    id: agent.id,
+    name: agent.name,
+    description: agent.description ?? null,
+    mode: agent.mode,
+    enabled: true,
+    hidden: agent.hidden,
+    modelProviderId: agent.model?.providerID ?? null,
+    modelModelId: agent.model?.id ?? null,
+    prompt: null,
+    temperature: null,
+    sourceMarkdown: null,
+    toolPermissions: {},
+    docs: [],
+    createdAt: "",
+    updatedAt: "",
+  };
+}
 export const openCodeModelRef = (
   model: Pick<ModelInfo, "id" | "providerID">,
 ): ModelRef =>
@@ -65,8 +88,8 @@ export function presentOpenCodeConversation(
     providerId: OPENCODE_PROVIDER_ID,
     modelId: session.model?.id ?? null,
     reasoningEffort: "medium",
-    agentId: null,
-    agentMode: "build",
+    agentId: session.agent ?? null,
+    agentMode: session.agent === "plan" ? "plan" : "build",
     selectedFileIds: [],
     selectedMcpServerIds: [],
     selectedSkillIds: [],

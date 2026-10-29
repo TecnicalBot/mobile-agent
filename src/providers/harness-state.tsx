@@ -11,8 +11,16 @@ import {
 import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
-import { attachOpenCodePhoneTools } from "@/modules/harnesses/opencode-phone-tools";
-import type { ModelInfo, OpenCodeClient, SessionInfo } from "@opencode/client";
+import {
+  attachOpenCodePhoneTools,
+  PhoneToolsConnectionError,
+} from "@/modules/harnesses/opencode-phone-tools";
+import type {
+  AgentInfo,
+  ModelInfo,
+  OpenCodeClient,
+  SessionInfo,
+} from "@opencode/client";
 import type {
   Conversation,
   ModelRef,
@@ -22,6 +30,7 @@ import type {
 } from "@/core/types/app-state";
 import { useOpenCode } from "@/hooks/use-opencode";
 import { makeOpenCodeClient } from "@/modules/harnesses/opencode";
+import { readOpenCodeAgents } from "@/modules/harnesses/opencode-agents";
 import {
   loadOpenCodeConnection,
   saveOpenCodeConnection,
@@ -31,6 +40,7 @@ import {
   openCodeFormAnswer,
   openCodeModelRef,
   presentOpenCodeConversation,
+  presentOpenCodeAgent,
   presentOpenCodeMessages,
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
@@ -39,15 +49,20 @@ import {
 function useHarnessController() {
   const phoneBridge = usePhoneBridge();
   const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
+  const [phoneToolsError, setPhoneToolsError] = useState<string | null>(null);
   const phoneBindings = useRef(
     new WeakMap<OpenCodeClient, Map<string, Promise<void>>>(),
   );
   useEffect(() => {
     setPhoneToolsEnabled(false);
+    setPhoneToolsError(null);
     phoneBindings.current = new WeakMap();
-  }, [phoneBridge.sharing?.token, phoneBridge.sharing?.url]);
+  }, [phoneBridge.sharing?.id]);
   const [client, setClient] = useState<OpenCodeClient | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [defaultAgentID, setDefaultAgentID] = useState<string | null>(null);
+  const [selectedAgentID, setSelectedAgentID] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [active, setActive] = useState(false);
   const [sessionID, setSessionID] = useState<string | null>(null);
@@ -85,7 +100,7 @@ function useHarnessController() {
       const location = saved.directory.trim()
         ? { directory: saved.directory.trim() }
         : undefined;
-      const [info, catalog, list] = await Promise.all([
+      const [info, catalog, list, agentCatalog] = await Promise.all([
         api.server.info({ signal: controller.signal }),
         api.model.list(
           { location, types: ["chat"] },
@@ -95,6 +110,7 @@ function useHarnessController() {
           { directory: location?.directory, limit: 50, archived: false },
           { signal: controller.signal },
         ),
+        readOpenCodeAgents(api, location?.directory, controller.signal),
       ]);
       if (!/^2\./.test(info.version))
         throw new Error("OpenCode V2 is required.");
@@ -112,10 +128,13 @@ function useHarnessController() {
         setSessionID(null);
         setSelectedRef(null);
         setPhoneToolsEnabled(false);
+        setSelectedAgentID(null);
       }
       connection.current = saved;
       setClient(api);
       setModels(catalog.data.filter((model) => model.enabled));
+      setAgents(agentCatalog.agents);
+      setDefaultAgentID(agentCatalog.defaultAgent?.id ?? null);
       setSessions(list.data);
       setStatus("connected");
     } catch {
@@ -198,10 +217,19 @@ function useHarnessController() {
     }
   }, [snapshot, models]);
 
+  useEffect(() => {
+    if (snapshot?.session.id === sessionID) {
+      setSelectedAgentID(snapshot.session.agent ?? null);
+    }
+  }, [snapshot?.session.id, snapshot?.session.agent, sessionID]);
+
   const disconnect = useCallback(() => {
     generation.current++;
     setClient(null);
     setModels([]);
+    setAgents([]);
+    setDefaultAgentID(null);
+    setSelectedAgentID(null);
     setSessions([]);
     setStatus("disconnected");
     setActive(false);
@@ -258,6 +286,7 @@ function useHarnessController() {
     const session = sessions.find((item) => item.id === id);
     setError(null);
     setSessionID(id);
+    setSelectedAgentID(null);
     setActive(true);
     if (session?.model) {
       const model = models.find(
@@ -282,6 +311,53 @@ function useHarnessController() {
   const currentConversation: Conversation | null = currentSession
     ? presentOpenCodeConversation(currentSession)
     : null;
+  const agentDirectory = currentSession?.location.directory;
+  useEffect(() => {
+    if (!client || !agentDirectory) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    void readOpenCodeAgents(client, agentDirectory, controller.signal)
+      .then((catalog) => {
+        if (!controller.signal.aborted) {
+          setAgents(catalog.agents);
+          setDefaultAgentID(catalog.defaultAgent?.id ?? null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [client, agentDirectory]);
+  const currentAgentID =
+    selectedAgentID ?? currentSession?.agent ?? defaultAgentID;
+  const currentAgent = agents.find((agent) => agent.id === currentAgentID);
+  const selectAgent = async (idOrName: string | null) => {
+    const agent = agents.find(
+      (item) =>
+        (item.id === idOrName || item.name === idOrName) &&
+        !item.hidden &&
+        item.mode !== "subagent",
+    );
+    if (!agent) throw new Error("This OpenCode agent is unavailable.");
+    if (sessionID) {
+      await mutate(async (api, signal) => {
+        await api.session.switchAgent(
+          { sessionID, agent: agent.id },
+          { signal },
+        );
+        setSessions((previous) =>
+          previous.map((session) =>
+            session.id === sessionID
+              ? { ...session, agent: agent.id }
+              : session,
+          ),
+        );
+      });
+    }
+    setSelectedAgentID(agent.id);
+  };
   const messages = useMemo(
     () =>
       snapshot?.session.id === sessionID
@@ -306,7 +382,7 @@ function useHarnessController() {
       bindings = new Map();
       phoneBindings.current.set(api, bindings);
     }
-    const key = `${shared.token}:${shared.url}:${directory}`;
+    const key = `${shared.id}:${directory}`;
     let binding = bindings.get(key);
     if (!binding) {
       binding = attachOpenCodePhoneTools({
@@ -314,24 +390,34 @@ function useHarnessController() {
         directory,
         url: shared.url,
         token: shared.token,
+        instanceID: shared.id,
         signal,
       })
         .then((remove) => {
-          phoneBridge.onRevoke(remove, shared.token);
+          phoneBridge.onRevoke(remove, shared.id);
         })
         .catch((cause) => {
           bindings.delete(key);
+          setPhoneToolsEnabled(false);
+          setPhoneToolsError(
+            cause instanceof PhoneToolsConnectionError
+              ? cause.message
+              : "Could not register phone tools with OpenCode. Check the OpenCode connection and retry.",
+          );
           throw cause;
+        })
+        .finally(() => {
+          // Deduplicate only in-flight work. A completed promise is not proof
+          // that the server is still connected after a restart/disconnect.
+          if (bindings.get(key) === binding) bindings.delete(key);
         });
       bindings.set(key, binding);
     }
     await binding;
+    setPhoneToolsError(null);
   };
 
-  const resolveDirectory = async (
-    api: OpenCodeClient,
-    signal: AbortSignal,
-  ) =>
+  const resolveDirectory = async (api: OpenCodeClient, signal: AbortSignal) =>
     sessionID
       ? (await api.session.get({ sessionID }, { signal })).location.directory
       : (
@@ -381,21 +467,25 @@ function useHarnessController() {
     if (!shared || !client || status !== "connected") return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
+    let disposed = false;
     void (async () => {
       const directory = await resolveDirectoryRef.current(
         client,
         controller.signal,
       );
       await ensurePhoneToolsRef.current(client, directory, controller.signal);
-      setPhoneToolsEnabled(true);
+      if (!disposed) setPhoneToolsEnabled(true);
     })()
-      .catch(() => setPhoneToolsEnabled(false))
+      .catch(() => {
+        if (!disposed) setPhoneToolsEnabled(false);
+      })
       .finally(() => clearTimeout(timeout));
     return () => {
+      disposed = true;
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [client, status, sharedPhone?.token, sharedPhone?.url]);
+  }, [client, status, sharedPhone?.id]);
 
   const sendMessage = async (input: SendMessageInput) => {
     if (input.selectedFileIds?.length)
@@ -405,6 +495,7 @@ function useHarnessController() {
       if (!id) {
         const session = await api.session.create(
           {
+            agent: currentAgentID ?? undefined,
             location: connection.current?.directory.trim()
               ? { directory: connection.current.directory.trim() }
               : undefined,
@@ -422,7 +513,7 @@ function useHarnessController() {
           await saveOpenCodeConnection(connection.current);
         }
       }
-      if (phoneToolsEnabled && phoneBridge.sharing) {
+      if (phoneBridge.sharing) {
         const session = await api.session.get({ sessionID: id }, { signal });
         await ensurePhoneTools(api, session.location.directory, signal);
       }
@@ -478,6 +569,10 @@ function useHarnessController() {
     sessions,
     client,
     sessionID,
+    agents: agents.map(presentOpenCodeAgent),
+    currentAgentID,
+    currentAgentName: currentAgent?.name ?? "Select agent",
+    selectAgent,
     currentModel,
     currentConversation,
     messages,
@@ -486,6 +581,7 @@ function useHarnessController() {
     pendingQuestionnaire,
     mutating,
     connectPhoneTools,
+    phoneToolsError,
     phoneToolsEnabled: phoneToolsEnabled && Boolean(phoneBridge.sharing),
     connect,
     disconnect,
@@ -497,10 +593,12 @@ function useHarnessController() {
     deactivate: () => {
       setActive(false);
       setSessionID(null);
+      setSelectedAgentID(null);
       setError(null);
     },
     newChat: async () => {
       setSessionID(null);
+      setSelectedAgentID(null);
       setError(null);
       return null;
     },

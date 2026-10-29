@@ -194,6 +194,12 @@ export default function SettingsScreen() {
         />
         <Separator />
         <SettingsLinkRow
+          label="Integrations"
+          onPress={() => router.push("/settings/integrations")}
+          value="1"
+        />
+        <Separator />
+        <SettingsLinkRow
           label="Built-in tools"
           onPress={() => {
             router.push("/settings/tools");

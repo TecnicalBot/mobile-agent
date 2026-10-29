@@ -6,7 +6,7 @@ type FakeSocket = EventEmitter & {
   written: string;
   remoteAddress: string;
   write: (chunk: string | Uint8Array) => boolean;
-  end: () => void;
+  end: (chunk?: string | Uint8Array) => void;
   destroy: () => void;
 };
 
@@ -27,9 +27,7 @@ vi.mock("react-native-tcp-socket", async () => {
         network.connect = listener;
         const state = { port: 0, closed: false };
         network.servers.push(state);
-        const server = new NodeEmitter() as InstanceType<
-          typeof NodeEmitter
-        > & {
+        const server = new NodeEmitter() as InstanceType<typeof NodeEmitter> & {
           listen: (
             options: { host: string; port: number },
             callback: () => void,
@@ -85,7 +83,8 @@ function fakeSocket(remoteAddress: string): FakeSocket {
       typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
     return true;
   };
-  socket.end = () => {
+  socket.end = (chunk) => {
+    if (chunk !== undefined) socket.write(chunk);
     socket.destroyed = true;
     socket.emit("close");
   };
@@ -199,6 +198,35 @@ describe("phone bridge network exposure", () => {
     socket.emit("data", request("192.168.1.5:43877"));
     expect(await settle(socket)).toContain("HTTP/1.1 200 OK");
     expect(handle).toHaveBeenCalledOnce();
+  });
+
+  it("flushes a complete UTF-8 response before closing the native socket", async () => {
+    const { startPhoneBridgeListener } = await import("./native-http-server");
+    const listener = await startPhoneBridgeListener(
+      async () => new Response("你好: MCP response"),
+      { reach: "lan", address: "192.168.1.5" },
+    );
+    cleanups.push(listener.close);
+    const socket = fakeSocket("192.168.1.20");
+    // Model native scheduling: bare writes are queued elsewhere and destroyed
+    // by end(), but end(packet) closes only after the packet's write callback.
+    const end = socket.end;
+    socket.write = vi.fn(() => true);
+    socket.end = vi.fn((packet) => {
+      if (packet !== undefined) {
+        socket.written = new TextDecoder().decode(packet as Uint8Array);
+      }
+      end();
+    });
+    network.connect!(socket);
+    socket.emit("data", request("192.168.1.5:43877"));
+    const response = await settle(socket);
+    expect(response).toContain("你好: MCP response");
+    expect(response).toContain(
+      `Content-Length: ${new TextEncoder().encode("你好: MCP response").length}\r\n`,
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+    expect(socket.end).toHaveBeenCalledWith(expect.any(Uint8Array));
   });
 
   it("rejects a public source even when the socket is bound to all interfaces", async () => {

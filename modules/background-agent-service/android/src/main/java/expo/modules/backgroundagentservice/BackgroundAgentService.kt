@@ -12,6 +12,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 class BackgroundAgentService : Service() {
@@ -91,14 +92,23 @@ class BackgroundAgentService : Service() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       // connectedDevice is the right type for serving a paired device over the
       // network, and unlike dataSync it has no six-hour daily timeout.
-      startForeground(
-        NOTIFICATION_ID,
-        notification,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-      )
-    } else {
-      startForeground(NOTIFICATION_ID, notification)
+      try {
+        startForeground(
+          NOTIFICATION_ID,
+          notification,
+          ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+        )
+        return
+      } catch (cause: IllegalArgumentException) {
+        // A binary built against an older manifest still declares dataSync.
+        // Serving the bridge is better than crashing the whole app.
+        Log.w(TAG, "connectedDevice type missing from manifest", cause)
+      } catch (cause: SecurityException) {
+        Log.w(TAG, "connectedDevice type not permitted", cause)
+      }
     }
+    // Falls back to the type declared by the manifest (dataSync on old builds).
+    startForeground(NOTIFICATION_ID, notification)
   }
 
   private fun updateNotification() {
@@ -255,6 +265,7 @@ class BackgroundAgentService : Service() {
     private const val CHANNEL_ID = "agent-run"
     private const val APPROVAL_CHANNEL_ID = "agent-approval"
     private const val NOTIFICATION_ID = 31001
+    private const val TAG = "BackgroundAgent"
     private const val WAKE_LOCK_TAG = "background-agent:wakelock"
     private const val WIFI_LOCK_TAG = "background-agent:wifilock"
   }

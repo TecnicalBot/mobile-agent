@@ -5,9 +5,11 @@ import {
   PHONE_TOOLS_SERVER,
 } from "./opencode-phone-tools";
 
-type Entry = { name: string; status: { status: string } };
+type Entry = { name: string; status: { status: string; error?: string } };
 
-function setup(options: { connected?: boolean; initial?: Entry[] } = {}) {
+function setup(
+  options: { connected?: boolean; initial?: Entry[]; failure?: string } = {},
+) {
   const connected = options.connected ?? true;
   const servers = new Map<string, Entry>(
     (options.initial ?? []).map((entry) => [entry.name, entry]),
@@ -21,7 +23,11 @@ function setup(options: { connected?: boolean; initial?: Entry[] } = {}) {
     }),
     connect: vi.fn(async ({ server }: { server: string }) => {
       const entry = servers.get(server);
-      if (entry) entry.status = { status: connected ? "connected" : "failed" };
+      if (entry)
+        entry.status = {
+          status: connected ? "connected" : "failed",
+          error: options.failure,
+        };
     }),
     list: vi.fn(async () => ({ data: [...servers.values()] })),
     remove: vi.fn(async ({ server }: { server: string }) => {
@@ -100,6 +106,54 @@ describe("OpenCode phone tool registration", () => {
     expect(mcp.add.mock.calls.at(-1)?.[0]).toMatchObject({
       config: { url: "http://100.101.102.103:43877/mcp" },
     });
+  });
+
+  it("reconnects after a listener reload even with the same token and address", async () => {
+    const { client, token, mcp } = setup();
+    const input = {
+      client,
+      token,
+      url: "http://192.168.1.5:43877/mcp",
+      signal,
+    };
+    await attachOpenCodePhoneTools({ ...input, instanceID: "before-reload" });
+    await attachOpenCodePhoneTools({ ...input, instanceID: "after-reload" });
+    expect(mcp.add).toHaveBeenCalledTimes(2);
+    expect(mcp.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaces credentials even if the address and connected status are unchanged", async () => {
+    const { client, token, mcp } = setup();
+    const input = {
+      client,
+      token,
+      url: "http://192.168.1.5:43877/mcp",
+      directory: "/project/chat",
+      signal,
+    };
+    await attachOpenCodePhoneTools(input);
+    await attachOpenCodePhoneTools({ ...input, token: "rotated" + token });
+    expect(mcp.add).toHaveBeenCalledTimes(2);
+    expect(mcp.add.mock.calls.at(-1)?.[0]).toMatchObject({
+      config: { headers: { Authorization: `Bearer rotated${token}` } },
+    });
+  });
+
+  it.each([
+    ["HTTP 401", "authentication was rejected"],
+    ["HTTP 400 Parse error", "reached the phone, but the MCP handshake failed"],
+    ["ECONNRESET socket closed", "closed the MCP connection"],
+    ["ECONNREFUSED", "could not reach the phone MCP address"],
+  ])("reports a safe specific cause for %s", async (failure, message) => {
+    const { client, token } = setup({ connected: false, failure });
+    await expect(
+      attachOpenCodePhoneTools({
+        client,
+        token,
+        url: "http://192.168.1.5:43877/mcp",
+        signal,
+      }),
+    ).rejects.toThrow(message);
   });
 
   it("sweeps server names left by the old per-session scheme", async () => {

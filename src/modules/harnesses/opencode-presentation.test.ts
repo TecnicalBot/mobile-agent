@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AgentInfo,
   FormInfo,
   ModelInfo,
   SessionInfo,
@@ -9,12 +10,51 @@ import {
   openCodeFormAnswer,
   openCodeModelRef,
   presentOpenCodeConversation,
+  presentOpenCodeAgent,
   presentOpenCodeMessages,
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
 } from "./opencode-presentation";
 
 describe("OpenCode shared chat presentation", () => {
+  it("presents actual harness agents without importing their execution configuration", () => {
+    const agent: AgentInfo = {
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Reviews code",
+      mode: "primary",
+      hidden: false,
+      system: "Remote-only prompt",
+      permissions: [],
+      request: { settings: {}, headers: {}, body: {} },
+      model: { id: "model", providerID: "provider" },
+    };
+    expect(presentOpenCodeAgent(agent)).toMatchObject({
+      id: "reviewer",
+      name: "Reviewer",
+      mode: "primary",
+      enabled: true,
+      hidden: false,
+      prompt: null,
+      toolPermissions: {},
+      modelModelId: "model",
+    });
+    expect(
+      presentOpenCodeAgent({ ...agent, mode: "subagent", hidden: true }),
+    ).toMatchObject({ mode: "subagent", hidden: true });
+  });
+
+  it("keeps the real session agent separate from its harness name", () => {
+    const session = {
+      id: "ses_plan",
+      agent: "plan",
+      time: { created: 1, updated: 2 },
+    } as SessionInfo;
+    expect(presentOpenCodeConversation(session)).toMatchObject({
+      agentId: "plan",
+      agentMode: "plan",
+    });
+  });
   it("namespaces models so they cannot enter the direct-provider runtime", () => {
     const model = {
       id: "model/name",

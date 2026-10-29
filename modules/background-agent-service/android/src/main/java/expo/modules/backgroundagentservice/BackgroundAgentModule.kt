@@ -17,6 +17,18 @@ class BackgroundAgentModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("BackgroundAgent")
 
+    Events("onPhoneBridgeApproval")
+
+    OnCreate {
+      BackgroundAgentApproval.setListener { accepted ->
+        sendEvent("onPhoneBridgeApproval", mapOf("accepted" to accepted))
+      }
+    }
+
+    OnDestroy {
+      BackgroundAgentApproval.setListener(null)
+    }
+
     AsyncFunction("start") {
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
       try {
@@ -117,8 +129,12 @@ class BackgroundAgentModule : Module() {
       }
     }
 
-    AsyncFunction("setNotificationState") { state: String ->
-      BackgroundAgentService.setWaitingForApproval(state == "waiting_approval")
+    AsyncFunction("setNotificationState") { state: String, detail: String?, phoneBridge: Boolean? ->
+      BackgroundAgentService.setWaitingForApproval(
+        state == "waiting_approval",
+        phoneBridge == true,
+      )
+      BackgroundAgentService.setDetail(detail)
       Unit
     }
   }

@@ -16,7 +16,8 @@
       "html-video-export": ["./modules/html-video-export/index.ts"],
       "quote-selection": ["./modules/quote-selection/index.ts"],
       "local-tts": ["./modules/local-tts/index.ts"],
-      "share-target": ["./modules/share-target/index.ts"]
+      "share-target": ["./modules/share-target/index.ts"],
+      "bridge-network": ["./modules/bridge-network/index.ts"]
     }
   },
   "include": [

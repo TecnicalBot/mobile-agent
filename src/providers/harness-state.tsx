@@ -45,7 +45,7 @@ function useHarnessController() {
   useEffect(() => {
     setPhoneToolsEnabled(false);
     phoneBindings.current = new WeakMap();
-  }, [phoneBridge.sharing?.token]);
+  }, [phoneBridge.sharing?.token, phoneBridge.sharing?.url]);
   const [client, setClient] = useState<OpenCodeClient | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -306,7 +306,7 @@ function useHarnessController() {
       bindings = new Map();
       phoneBindings.current.set(api, bindings);
     }
-    const key = `${shared.token}:${directory}`;
+    const key = `${shared.token}:${shared.url}:${directory}`;
     let binding = bindings.get(key);
     if (!binding) {
       binding = attachOpenCodePhoneTools({
@@ -328,32 +328,74 @@ function useHarnessController() {
     await binding;
   };
 
+  const resolveDirectory = async (
+    api: OpenCodeClient,
+    signal: AbortSignal,
+  ) =>
+    sessionID
+      ? (await api.session.get({ sessionID }, { signal })).location.directory
+      : (
+          await api.location.get(
+            connection.current?.directory
+              ? { location: { directory: connection.current.directory } }
+              : undefined,
+            { signal },
+          )
+        ).directory;
+
   const connectPhoneTools = async () => {
     if (!client) throw new Error("Connect OpenCode first.");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const directory = sessionID
-        ? (
-            await client.session.get(
-              { sessionID },
-              { signal: controller.signal },
-            )
-          ).location.directory
-        : (
-            await client.location.get(
-              connection.current?.directory
-                ? { location: { directory: connection.current.directory } }
-                : undefined,
-              { signal: controller.signal },
-            )
-          ).directory;
+      const directory = await resolveDirectory(client, controller.signal);
       await ensurePhoneTools(client, directory, controller.signal);
       setPhoneToolsEnabled(true);
     } finally {
       clearTimeout(timeout);
     }
   };
+
+  // The effects below must not re-run when a render recreates these closures.
+  const ensurePhoneToolsRef = useRef(ensurePhoneTools);
+  ensurePhoneToolsRef.current = ensurePhoneTools;
+  const resolveDirectoryRef = useRef(resolveDirectory);
+  resolveDirectoryRef.current = resolveDirectory;
+
+  // Tell the bridge which address the harness reached us on. It then advertises
+  // a matching interface instead of assuming the harness is on this phone.
+  const noteHarnessUrl = phoneBridge.noteHarnessUrl;
+  useEffect(() => {
+    noteHarnessUrl(
+      status === "connected" ? (connection.current?.url ?? null) : null,
+    );
+  }, [noteHarnessUrl, status]);
+
+  // Attaching is automatic: a paired harness should not need a manual tap after
+  // every reconnect, network change, or app restart.
+  const sharedPhone = phoneBridge.sharing;
+  const sharedPhoneRef = useRef(sharedPhone);
+  sharedPhoneRef.current = sharedPhone;
+  useEffect(() => {
+    const shared = sharedPhoneRef.current;
+    if (!shared || !client || status !== "connected") return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    void (async () => {
+      const directory = await resolveDirectoryRef.current(
+        client,
+        controller.signal,
+      );
+      await ensurePhoneToolsRef.current(client, directory, controller.signal);
+      setPhoneToolsEnabled(true);
+    })()
+      .catch(() => setPhoneToolsEnabled(false))
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [client, status, sharedPhone?.token, sharedPhone?.url]);
 
   const sendMessage = async (input: SendMessageInput) => {
     if (input.selectedFileIds?.length)

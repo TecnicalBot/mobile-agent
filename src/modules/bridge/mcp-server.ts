@@ -5,9 +5,11 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { isAllowedBridgeHost } from "./reach";
 import type { BridgeOptions } from "./types";
 
-const MAX_SESSIONS = 4;
+const MAX_SESSIONS = 8;
+const MAX_CONCURRENT_CALLS = 4;
 const MAX_BODY = 2_500_000;
 
 function matchesToken(received: string, expected: string) {
@@ -28,8 +30,20 @@ export function createBridgeMcpServer(options: BridgeOptions) {
     { server: Server; transport: WebStandardStreamableHTTPServerTransport }
   >();
   let stopped = false;
-  let executing = false;
+  let activeCalls = 0;
+  // Reads may overlap; writes are serialized so two phone filesystem mutations
+  // never interleave. The old global flag blocked reads behind long renders.
+  let writeQueue: Promise<unknown> = Promise.resolve();
   let initializing = 0;
+
+  function runWrite<T>(work: () => Promise<T>): Promise<T> {
+    const run = writeQueue.then(work, work);
+    writeQueue = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
 
   function createSession() {
     const server = new Server(
@@ -74,8 +88,9 @@ export function createBridgeMcpServer(options: BridgeOptions) {
         return fail(
           "Phone tools are unavailable. Open Mobile Agent and enable sharing.",
         );
-      if (executing) return fail("Another phone tool request is in progress.");
-      executing = true;
+      if (activeCalls >= MAX_CONCURRENT_CALLS)
+        return fail("The phone is busy with other tool calls. Try again.");
+      activeCalls += 1;
       try {
         const input = await tool.parse(request.params.arguments ?? {});
         extra.signal.throwIfAborted();
@@ -91,7 +106,10 @@ export function createBridgeMcpServer(options: BridgeOptions) {
         extra.signal.throwIfAborted();
         if (stopped || !options.isAvailable())
           return fail("Phone tool access was revoked.");
-        const output = await tool.execute(input, extra.signal);
+        const execute = () => tool.execute(input, extra.signal);
+        const output = tool.readOnly
+          ? await execute()
+          : await runWrite(execute);
         extra.signal.throwIfAborted();
         const text =
           typeof output === "string" ? output : JSON.stringify(output ?? null);
@@ -106,7 +124,7 @@ export function createBridgeMcpServer(options: BridgeOptions) {
             : "Phone tool failed. Check the input and Mobile Agent.",
         );
       } finally {
-        executing = false;
+        activeCalls -= 1;
       }
     });
     return { server, transport };
@@ -119,8 +137,8 @@ export function createBridgeMcpServer(options: BridgeOptions) {
       if (request.headers.has("origin"))
         return new Response(null, { status: 403 });
       const host = new URL(request.url).hostname;
-      if (!["localhost", "127.0.0.1", "[::1]"].includes(host))
-        return new Response(null, { status: 403 });
+      const allowed = options.isAllowedHost ?? isAllowedBridgeHost;
+      if (!allowed(host)) return new Response(null, { status: 403 });
       if (
         !matchesToken(
           request.headers.get("authorization") ?? "",
@@ -141,11 +159,20 @@ export function createBridgeMcpServer(options: BridgeOptions) {
       if (sessionID) {
         const session = sessions.get(sessionID);
         if (!session) return new Response(null, { status: 404 });
+        // Refresh insertion order so the oldest session is evicted first.
+        sessions.delete(sessionID);
+        sessions.set(sessionID, session);
         return session.transport.handleRequest(request);
       }
       if (request.method !== "POST") return new Response(null, { status: 400 });
-      if (sessions.size + initializing >= MAX_SESSIONS)
-        return new Response(null, { status: 429 });
+      while (sessions.size + initializing >= MAX_SESSIONS) {
+        const oldest = sessions.entries().next();
+        if (oldest.done) return new Response(null, { status: 429 });
+        const [id, session] = oldest.value;
+        sessions.delete(id);
+        // The client's next request with this id gets 404 and re-initializes.
+        void session.server.close();
+      }
       // Each transport validates initialize before allocating its secure session ID.
       const session = createSession();
       initializing++;

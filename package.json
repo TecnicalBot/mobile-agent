@@ -152,6 +152,7 @@
       "reactNativeDirectoryCheck": {
         "exclude": [
           "background-agent-service",
+          "bridge-network",
           "persistent-model-download",
           "process-text",
           "saf-file-operations",

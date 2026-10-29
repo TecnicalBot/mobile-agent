@@ -8,10 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.net.wifi.WifiManager
 import androidx.core.app.NotificationCompat
 
 class BackgroundAgentService : Service() {
@@ -23,19 +23,22 @@ class BackgroundAgentService : Service() {
   override fun onCreate() {
     super.onCreate()
     instance = this
-    ensureNotificationChannel()
+    ensureNotificationChannels()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_START -> {
         waitingForApproval = false
+        phoneBridgeApproval = false
         acquireWakeLocks()
         startForegroundNotification()
         isActive = true
       }
       ACTION_STOP -> {
         isActive = false
+        waitingForApproval = false
+        phoneBridgeApproval = false
         releaseWakeLocks()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -48,6 +51,7 @@ class BackgroundAgentService : Service() {
     isActive = false
     instance = null
     waitingForApproval = false
+    phoneBridgeApproval = false
     releaseWakeLocks()
     super.onDestroy()
   }
@@ -85,7 +89,13 @@ class BackgroundAgentService : Service() {
   private fun startForegroundNotification() {
     val notification = createNotification()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      // connectedDevice is the right type for serving a paired device over the
+      // network, and unlike dataSync it has no six-hour daily timeout.
+      startForeground(
+        NOTIFICATION_ID,
+        notification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+      )
     } else {
       startForeground(NOTIFICATION_ID, notification)
     }
@@ -121,46 +131,88 @@ class BackgroundAgentService : Service() {
       )
     }
 
-    val contentTitle =
-      if (waitingForApproval) "Approval required" else "Agent is running"
-    val contentText =
-      if (waitingForApproval) {
-        "The agent is waiting for permission"
-      } else {
-        "Running in background"
-      }
+    val approvalIntent = Intent(this, BackgroundAgentActionReceiver::class.java)
+    fun approvalAction(action: String, requestCode: Int) = PendingIntent.getBroadcast(
+      this,
+      requestCode,
+      Intent(approvalIntent).setAction(action),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
 
-    return NotificationCompat.Builder(this, CHANNEL_ID)
+    val contentTitle = when {
+      phoneBridgeApproval -> "Phone tool approval"
+      waitingForApproval -> "Approval needed"
+      else -> "Agent is running"
+    }
+    val contentText = when {
+      phoneBridgeApproval -> "A harness is waiting for permission"
+      waitingForApproval -> detail ?: "Open Mobile Agent to respond"
+      else -> detail ?: "Running in background"
+    }
+
+    val builder = NotificationCompat.Builder(
+      this,
+      if (waitingForApproval) APPROVAL_CHANNEL_ID else CHANNEL_ID,
+    )
       .setSmallIcon(applicationInfo.icon)
       .setContentTitle(contentTitle)
       .setContentText(contentText)
       .setContentIntent(contentIntent)
       .setCategory(NotificationCompat.CATEGORY_SERVICE)
-      .setPriority(NotificationCompat.PRIORITY_LOW)
-      .setOngoing(true)
-      .setSilent(true)
-      .addAction(
-        android.R.drawable.ic_media_pause,
-        "Stop",
-        stopPendingIntent,
+      .setPriority(
+        if (waitingForApproval) NotificationCompat.PRIORITY_HIGH
+        else NotificationCompat.PRIORITY_LOW,
       )
-      .build()
+      .setOngoing(true)
+      .addAction(android.R.drawable.ic_media_pause, "Stop", stopPendingIntent)
+
+    // A silent notification cannot surface as a heads-up on Android 13+, so the
+    // approval notification stays audible-capable (its channel has no sound).
+    if (!phoneBridgeApproval) builder.setSilent(true)
+
+    if (phoneBridgeApproval) {
+      builder
+        .addAction(
+          android.R.drawable.ic_delete,
+          "Deny",
+          approvalAction(ACTION_DENY, 2),
+        )
+        .addAction(
+          android.R.drawable.ic_menu_save,
+          "Allow",
+          approvalAction(ACTION_ALLOW, 3),
+        )
+    }
+
+    return builder.build()
   }
 
-  private fun ensureNotificationChannel() {
+  private fun ensureNotificationChannels() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val channel = NotificationChannel(
-      CHANNEL_ID,
-      "Background agent",
-      NotificationManager.IMPORTANCE_LOW,
-    ).apply {
-      description = "Keeps the agent alive when running in background"
-      setSound(null, null)
-      enableVibration(false)
-    }
-    manager.createNotificationChannel(channel)
+    manager.createNotificationChannel(
+      NotificationChannel(
+        CHANNEL_ID,
+        "Background agent",
+        NotificationManager.IMPORTANCE_LOW,
+      ).apply {
+        description = "Keeps the agent alive when running in background"
+        setSound(null, null)
+        enableVibration(false)
+      },
+    )
+    manager.createNotificationChannel(
+      NotificationChannel(
+        APPROVAL_CHANNEL_ID,
+        "Phone tool approvals",
+        NotificationManager.IMPORTANCE_HIGH,
+      ).apply {
+        description = "Asks for permission before a paired harness uses phone tools"
+        setSound(null, null)
+        enableVibration(false)
+      },
+    )
   }
 
   companion object {
@@ -171,18 +223,37 @@ class BackgroundAgentService : Service() {
     var waitingForApproval = false
       private set
 
+    /** Only the phone bridge shows Allow/Deny on the notification. */
+    @Volatile
+    var phoneBridgeApproval = false
+      private set
+
+    @Volatile
+    private var detail: String? = null
+
     @Volatile
     private var instance: BackgroundAgentService? = null
 
-    fun setWaitingForApproval(waiting: Boolean) {
-      if (waitingForApproval == waiting) return
+    fun setWaitingForApproval(waiting: Boolean, bridge: Boolean = false) {
+      val nextBridge = waiting && bridge
+      if (waitingForApproval == waiting && phoneBridgeApproval == nextBridge) return
       waitingForApproval = waiting
+      phoneBridgeApproval = nextBridge
+      instance?.updateNotification()
+    }
+
+    fun setDetail(value: String?) {
+      if (detail == value) return
+      detail = value
       instance?.updateNotification()
     }
 
     const val ACTION_START = "expo.modules.backgroundagentservice.START"
     const val ACTION_STOP = "expo.modules.backgroundagentservice.STOP"
+    const val ACTION_ALLOW = "expo.modules.backgroundagentservice.ALLOW"
+    const val ACTION_DENY = "expo.modules.backgroundagentservice.DENY"
     private const val CHANNEL_ID = "agent-run"
+    private const val APPROVAL_CHANNEL_ID = "agent-approval"
     private const val NOTIFICATION_ID = 31001
     private const val WAKE_LOCK_TAG = "background-agent:wakelock"
     private const val WIFI_LOCK_TAG = "background-agent:wifilock"

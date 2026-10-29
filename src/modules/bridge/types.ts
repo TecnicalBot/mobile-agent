@@ -19,4 +19,6 @@ export type BridgeOptions = {
   randomId: () => string;
   approve: (request: BridgeApproval) => Promise<boolean>;
   isAvailable: () => boolean;
+  /** Hosts the endpoint answers to. Defaults to IP literals and localhost. */
+  isAllowedHost?: (hostname: string) => boolean;
 };

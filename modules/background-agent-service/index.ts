@@ -10,7 +10,15 @@ type BackgroundAgentModule = {
   openBatteryOptimizationSettings(): Promise<void>
   requestNotificationPermission(): Promise<void>
   hasNotificationPermission(): Promise<boolean>
-  setNotificationState(state: 'running' | 'waiting_approval'): Promise<void>
+  setNotificationState(
+    state: 'running' | 'waiting_approval',
+    detail?: string | null,
+    phoneBridge?: boolean,
+  ): Promise<void>
+  addListener(
+    event: 'onPhoneBridgeApproval',
+    listener: (event: { accepted: boolean }) => void,
+  ): { remove(): void }
 }
 
 const BackgroundAgent = Platform.OS === 'android'
@@ -88,8 +96,26 @@ export async function hasNotificationPermission(): Promise<boolean> {
 
 export async function setBackgroundAgentNotificationState(
   state: 'running' | 'waiting_approval',
+  detail?: string | null,
+  phoneBridge?: boolean,
 ): Promise<void> {
   if (Platform.OS === 'android' && BackgroundAgent) {
-    await BackgroundAgent.setNotificationState(state)
+    await BackgroundAgent.setNotificationState(
+      state,
+      detail ?? null,
+      phoneBridge === true,
+    )
   }
+}
+
+/** Allow/Deny tapped on the approval notification while the app is in background. */
+export function subscribeToPhoneBridgeApproval(
+  listener: (accepted: boolean) => void,
+): () => void {
+  if (Platform.OS !== 'android' || !BackgroundAgent) return () => {}
+  const subscription = BackgroundAgent.addListener(
+    'onPhoneBridgeApproval',
+    (event) => listener(event.accepted === true),
+  )
+  return () => subscription.remove()
 }

@@ -198,8 +198,12 @@ export function OpenCodeConnectionForm({
                       setRedeemed(false);
                       setPairingServerUrl(parsed.url);
                       setError(null);
-                    } catch {
-                      setError("Not a supported OpenCode pairing code.");
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Not a supported OpenCode pairing code.",
+                      );
                       scanned.current = false;
                     }
                   }}

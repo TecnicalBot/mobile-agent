@@ -12,7 +12,71 @@ export type OpenCodeConnection = {
   allowInsecureLan?: boolean;
 };
 
-/** A scanned link is untrusted input: only accept OpenCode's exact pairing path. */
+const PAIRING_CODE = /^[A-Za-z0-9_-]{1,128}$/;
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+type PairingCandidate = { url: string; rank: number };
+
+/**
+ * OpenCode advertises one or more server roots. Prefer a reachable private
+ * address over loopback so a QR generated with `opencode pair --url` works
+ * without editing, while keeping the original order for equally good options.
+ */
+function pairingCandidate(value: unknown): PairingCandidate | null {
+  if (typeof value !== "string") return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) return null;
+  if (parsed.username || parsed.password || parsed.search || parsed.hash)
+    return null;
+  if (parsed.hostname === "0.0.0.0" || parsed.hostname === "[::]") return null;
+  const rank = LOOPBACK_HOSTS.has(parsed.hostname)
+    ? 3
+    : isPrivateAddress(parsed.hostname)
+      ? 0
+      : parsed.protocol === "https:"
+        ? 1
+        : 2;
+  return {
+    url: parsed.toString().replace(/\/$/, ""),
+    rank,
+  };
+}
+
+/**
+ * The CLI renders its QR code as JSON (`{ code, urls }`), while the TUI prints
+ * a ready-to-use /auth/connect link. Both are OpenCode pairing payloads.
+ */
+function parsePairingJson(value: string): { url: string; code: string } | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return null;
+  const record = payload as Record<string, unknown>;
+  if (typeof record.code !== "string" || !PAIRING_CODE.test(record.code))
+    return null;
+  const advertised = Array.isArray(record.urls)
+    ? record.urls
+    : typeof record.url === "string"
+      ? [record.url]
+      : [];
+  const candidates = advertised
+    .map(pairingCandidate)
+    .filter((candidate): candidate is PairingCandidate => candidate !== null)
+    .sort((left, right) => left.rank - right.rank);
+  if (candidates.length === 0) return null;
+  return { url: candidates[0].url, code: record.code };
+}
+
+/** A scanned QR is untrusted input: only accept OpenCode's pairing payloads. */
 export function parseOpenCodePairingLink(
   value: string,
   options?: { allowAddressOverride?: boolean },
@@ -20,7 +84,21 @@ export function parseOpenCodePairingLink(
   url: string;
   code: string;
 } {
-  const link = new URL(value.trim());
+  const input = value.trim();
+  if (input.startsWith("{")) {
+    const payload = parsePairingJson(input);
+    if (!payload)
+      throw new Error(
+        "Scan an OpenCode pairing QR code or paste its pairing link.",
+      );
+    return {
+      url: options?.allowAddressOverride
+        ? payload.url
+        : normalizeOpenCodeUrl(payload.url),
+      code: payload.code,
+    };
+  }
+  const link = new URL(input);
   if (link.username || link.password || link.search || link.hash)
     throw new Error("Invalid pairing link.");
   const match = /^(.*)\/auth\/connect\/([A-Za-z0-9_-]+)\/?$/.exec(

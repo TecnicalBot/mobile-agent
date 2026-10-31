@@ -29,6 +29,62 @@ describe("OpenCode pairing", () => {
     expect(() => parseOpenCodePairingLink(link)).toThrow();
   });
 
+  it("accepts the JSON payload printed by `opencode pair`", () => {
+    expect(
+      parseOpenCodePairingLink(
+        JSON.stringify({
+          code: "abc_123-X",
+          urls: ["http://192.168.1.63:4096"],
+        }),
+        { allowAddressOverride: true },
+      ),
+    ).toEqual({ url: "http://192.168.1.63:4096", code: "abc_123-X" });
+  });
+
+  it("prefers a reachable address over loopback in JSON payloads", () => {
+    expect(
+      parseOpenCodePairingLink(
+        JSON.stringify({
+          code: "abc",
+          urls: [
+            "http://127.0.0.1:4096",
+            "http://192.168.1.63:4096",
+            "http://100.64.0.2:4096",
+          ],
+        }),
+        { allowAddressOverride: true },
+      ),
+    ).toEqual({ url: "http://192.168.1.63:4096", code: "abc" });
+  });
+
+  it("keeps a reverse proxy prefix from JSON payloads", () => {
+    expect(
+      parseOpenCodePairingLink(
+        JSON.stringify({
+          code: "abc",
+          urls: ["https://agent.example/prefix/"],
+        }),
+        { allowAddressOverride: true },
+      ),
+    ).toEqual({ url: "https://agent.example/prefix", code: "abc" });
+  });
+
+  it.each([
+    "{}",
+    '{"code":"abc"}',
+    '{"code":"abc","urls":[]}',
+    '{"code":"abc","urls":"http://192.168.1.63:4096"}',
+    '{"code":"abc","urls":["ftp://192.168.1.63"]}',
+    '{"code":"abc","urls":["http://user:secret@192.168.1.63:4096"]}',
+    '{"code":"abc","urls":["http://0.0.0.0:4096"]}',
+    '{"code":"bad code","urls":["http://192.168.1.63:4096"]}',
+    '{"code":"abc","urls":["not a url"]}',
+  ])("rejects invalid JSON pairing payloads: %s", (payload) => {
+    expect(() =>
+      parseOpenCodePairingLink(payload, { allowAddressOverride: true }),
+    ).toThrow();
+  });
+
   it("redeems a code without existing server credentials", async () => {
     const transport = vi.fn<typeof fetch>(async () =>
       Response.json({ token: "paired-session" }),

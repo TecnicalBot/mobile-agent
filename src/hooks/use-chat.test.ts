@@ -20,7 +20,10 @@ const state = vi.hoisted(() => ({
   },
   bridge: {
     folder: null,
-    sharing: null as { id: string } | null,
+    sharing: null as {
+      id: string;
+      grant: { folder: { uri: string } | null };
+    } | null,
     approvalMode: "ask" as "ask" | "auto",
     setApprovalMode: vi.fn(),
     pickFolder: vi.fn(),
@@ -68,7 +71,10 @@ describe("unified chat and device approval controls", () => {
   });
 
   it("shows the live device policy rather than assuming a saved chat mode authorizes it", () => {
-    state.bridge.sharing = { id: "sharing-session" };
+    state.bridge.sharing = {
+      id: "sharing-session",
+      grant: { folder: null },
+    };
     expect(useChat().deviceSharingApprovalMode).toBe("ask");
     state.bridge.approvalMode = "auto";
     expect(useChat().deviceSharingApprovalMode).toBe("auto");

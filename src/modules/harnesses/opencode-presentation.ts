@@ -12,6 +12,7 @@ import type {
   ResolvedModel,
   StoredMessage,
   ToolExecutionRecord,
+  GeneratedVideoAttachment,
   PendingQuestionnaire,
   PendingQuestionnaireAnswer,
 } from "@/core/types/app-state";
@@ -125,6 +126,8 @@ export function presentOpenCodeMessages(
     const createdAt = new Date(message.time.created).toISOString();
     let content = "";
     const tools: ToolExecutionRecord[] = [];
+    const generatedVideos: GeneratedVideoAttachment[] = [];
+    const toolRunAnchors: { executionId: string; textOffset: number }[] = [];
     const reasoning: NonNullable<
       NonNullable<StoredMessage["metadata"]>["reasoning"]
     > = [];
@@ -145,6 +148,51 @@ export function presentOpenCodeMessages(
           });
         else {
           const state = part.state;
+          toolRunAnchors.push({
+            executionId: part.id,
+            textOffset: content.length,
+          });
+          // Only phone render results refer to this device's workspace. Host
+          // paths and arbitrary remote attachments must not become local files.
+          if (
+            state.status === "completed" &&
+            /^mobile_agent_phone_+renderVideo$/.test(part.name) &&
+            "content" in state
+          ) {
+            for (const item of state.content ?? []) {
+              if (item.type !== "text") continue;
+              try {
+                const output: unknown = JSON.parse(item.text);
+                if (!output || typeof output !== "object") continue;
+                const video = output as Record<string, unknown>;
+                if (
+                  typeof video.fileId !== "string" ||
+                  !video.fileId ||
+                  video.link !== `workspace://${video.fileId}` ||
+                  video.mimeType !== "video/mp4" ||
+                  typeof video.displayName !== "string" ||
+                  typeof video.size !== "number" ||
+                  !Number.isFinite(video.size) ||
+                  video.size < 0
+                )
+                  continue;
+                if (
+                  !generatedVideos.some(
+                    (entry) => entry.fileId === video.fileId,
+                  )
+                )
+                  generatedVideos.push({
+                    fileId: video.fileId,
+                    displayName: video.displayName,
+                    mimeType: video.mimeType,
+                    size: video.size,
+                    uri: `workspace://${video.fileId}`,
+                  });
+              } catch {
+                // Ordinary text/error results are not attachments.
+              }
+            }
+          }
           tools.push({
             id: part.id,
             toolName: part.name,
@@ -175,7 +223,13 @@ export function presentOpenCodeMessages(
         conversationId: sessionID,
         role: message.type === "user" ? "user" : "assistant",
         content,
-        metadata: { agentName: "OpenCode", toolExecutions: tools, reasoning },
+        metadata: {
+          agentName: "OpenCode",
+          toolExecutions: tools,
+          reasoning,
+          toolRunAnchors,
+          generatedVideos,
+        },
         status:
           message.type === "assistant" && message.error
             ? "failed"

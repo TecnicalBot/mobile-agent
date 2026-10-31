@@ -330,8 +330,8 @@ function usePhoneBridgeController() {
         onRecord: (record) => {
           if (epoch !== generation.current) return;
           setRecords((previous) => [...previous.slice(-49), record]);
-          void refreshFiles.current().catch(() => {});
         },
+        onWorkspaceChanged: () => refreshFiles.current(),
       });
       if (!tools.length) throw new Error("Choose a capability to share.");
       if (epoch !== generation.current) return;

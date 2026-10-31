@@ -1,14 +1,14 @@
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { FlashList } from "@shopify/flash-list";
 import * as IntentLauncher from "expo-intent-launcher";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   ChevronLeft,
   File as FileIcon,
   Download,
   Trash2,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -84,9 +84,9 @@ export default function LibraryScreen() {
       : false;
   };
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     refreshWorkspaceFiles().catch(console.error);
-  }, [refreshWorkspaceFiles]);
+  }, [refreshWorkspaceFiles]));
 
   const filteredFiles = useMemo(() => {
     if (category === "images") {

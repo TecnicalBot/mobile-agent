@@ -12,6 +12,7 @@ import {
   forwardRef,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -55,6 +56,8 @@ type MessageScrollerContextValue = {
   listRef: RefObject<FlashListRef<unknown> | null>;
   onListContentSizeChange: (contentHeight: number) => void;
   onListLayout: (viewportHeight: number) => void;
+  onListDragStart: () => void;
+  onListDragEnd: () => void;
   onListScroll: (
     offsetY: number,
     viewportHeight: number,
@@ -72,12 +75,16 @@ const MessageScrollerActionsContext = createContext<{
   listRef: MessageScrollerContextValue["listRef"];
   onListContentSizeChange: MessageScrollerContextValue["onListContentSizeChange"];
   onListLayout: MessageScrollerContextValue["onListLayout"];
+  onListDragStart: MessageScrollerContextValue["onListDragStart"];
+  onListDragEnd: MessageScrollerContextValue["onListDragEnd"];
   onListScroll: MessageScrollerContextValue["onListScroll"];
   scrollToEnd: MessageScrollerContextValue["scrollToEnd"];
   scrollToStart: MessageScrollerContextValue["scrollToStart"];
 } | null>(null);
 
-const MessageScrollerScrollableContext = createContext<ScrollState | null>(null);
+const MessageScrollerScrollableContext = createContext<ScrollState | null>(
+  null,
+);
 
 function useMessageScrollerContext() {
   const context = useContext(MessageScrollerContext);
@@ -115,6 +122,16 @@ export function MessageScrollerProvider({
   const didInitialScrollRef = useRef(false);
   const lastScrollableRef = useRef<ScrollState>({ end: false, start: false });
   const lastContentHeightRef = useRef(0);
+  const draggingRef = useRef(false);
+  const followingEndRef = useRef(initialScrollToEnd);
+  const pendingScrollRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingScrollRef.current !== null)
+        cancelAnimationFrame(pendingScrollRef.current);
+    },
+    [],
+  );
   const metricsRef = useRef({
     contentHeight: 0,
     offsetY: 0,
@@ -153,10 +170,35 @@ export function MessageScrollerProvider({
 
   const onListScroll = useCallback(
     (offsetY: number, viewportHeight: number, contentHeight: number) => {
+      // Only actual user movement may re-enable following. Measurement changes
+      // while recycling tall rows must not pull a reader back to the bottom.
+      if (draggingRef.current)
+        followingEndRef.current = contentHeight - viewportHeight - offsetY <= 8;
       recomputeScrollable(offsetY, viewportHeight, contentHeight);
     },
     [recomputeScrollable],
   );
+
+  const onListDragStart = useCallback(() => {
+    draggingRef.current = true;
+    followingEndRef.current = false;
+    didInitialScrollRef.current = true;
+    if (pendingScrollRef.current !== null) {
+      cancelAnimationFrame(pendingScrollRef.current);
+      pendingScrollRef.current = null;
+    }
+  }, []);
+  const onListDragEnd = useCallback(() => {
+    draggingRef.current = false;
+  }, []);
+  const scheduleFollowEnd = useCallback(() => {
+    if (pendingScrollRef.current !== null) return;
+    pendingScrollRef.current = requestAnimationFrame(() => {
+      pendingScrollRef.current = null;
+      if (followingEndRef.current && !draggingRef.current)
+        listRef.current?.scrollToEnd({ animated: false });
+    });
+  }, []);
 
   const onListLayout = useCallback(
     (viewportHeight: number) => {
@@ -170,20 +212,21 @@ export function MessageScrollerProvider({
       ) {
         didInitialScrollRef.current = true;
         if (contentHeight > viewportHeight) {
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToEnd({ animated: false });
-          });
+          scheduleFollowEnd();
         }
       }
     },
-    [initialScrollToEnd, recomputeScrollable],
+    [initialScrollToEnd, recomputeScrollable, scheduleFollowEnd],
   );
 
   const scrollToEnd = useCallback(() => {
+    followingEndRef.current = true;
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
   const scrollToStart = useCallback(() => {
+    followingEndRef.current = false;
+    didInitialScrollRef.current = true;
     listRef.current?.scrollToOffset({ animated: true, offset: 0 });
   }, []);
 
@@ -201,14 +244,8 @@ export function MessageScrollerProvider({
       // confirmed that gap on flash-list#1666. Until the user scrolls away,
       // keep the viewport glued to the newest content ourselves.
       const grew = previousHeight > 0 && contentHeight > previousHeight + 1;
-      const wasPinned =
-        previousHeight > 0 &&
-        viewportHeight > 0 &&
-        previousHeight - offsetY - viewportHeight <= 8;
-
-      if (grew && wasPinned) {
-        listRef.current?.scrollToEnd({ animated: false });
-      }
+      if (grew && followingEndRef.current && !draggingRef.current)
+        scheduleFollowEnd();
 
       if (
         initialScrollToEnd &&
@@ -218,13 +255,11 @@ export function MessageScrollerProvider({
       ) {
         didInitialScrollRef.current = true;
         if (contentHeight > viewportHeight) {
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToEnd({ animated: false });
-          });
+          scheduleFollowEnd();
         }
       }
     },
-    [initialScrollToEnd, recomputeScrollable],
+    [initialScrollToEnd, recomputeScrollable, scheduleFollowEnd],
   );
 
   const value = useMemo<MessageScrollerContextValue>(
@@ -232,6 +267,8 @@ export function MessageScrollerProvider({
       listRef,
       onListContentSizeChange,
       onListLayout,
+      onListDragStart,
+      onListDragEnd,
       onListScroll,
       scrollToEnd,
       scrollToStart,
@@ -240,6 +277,8 @@ export function MessageScrollerProvider({
     [
       onListContentSizeChange,
       onListLayout,
+      onListDragStart,
+      onListDragEnd,
       onListScroll,
       scrollToEnd,
       scrollToStart,
@@ -252,11 +291,21 @@ export function MessageScrollerProvider({
       listRef,
       onListContentSizeChange,
       onListLayout,
+      onListDragStart,
+      onListDragEnd,
       onListScroll,
       scrollToEnd,
       scrollToStart,
     }),
-    [onListContentSizeChange, onListLayout, onListScroll, scrollToEnd, scrollToStart],
+    [
+      onListContentSizeChange,
+      onListLayout,
+      onListDragStart,
+      onListDragEnd,
+      onListScroll,
+      scrollToEnd,
+      scrollToStart,
+    ],
   );
 
   return (
@@ -314,13 +363,23 @@ function MessageScrollerListInner<ItemT>(
     onContentSizeChange,
     onLayout,
     onScroll,
+    onScrollBeginDrag,
+    onScrollEndDrag,
+    onMomentumScrollBegin,
+    onMomentumScrollEnd,
     scrollEventThrottle = 16,
     ...props
   }: MessageScrollerListProps<ItemT>,
   ref: ForwardedRef<FlashListRef<ItemT>>,
 ) {
-  const { listRef, onListContentSizeChange, onListLayout, onListScroll } =
-    useMessageScrollerContext();
+  const {
+    listRef,
+    onListContentSizeChange,
+    onListLayout,
+    onListScroll,
+    onListDragStart,
+    onListDragEnd,
+  } = useMessageScrollerActionsContext();
 
   const handleContentSizeChange = useCallback(
     (width: number, height: number) => {
@@ -379,6 +438,36 @@ function MessageScrollerListInner<ItemT>(
       onContentSizeChange={handleContentSizeChange}
       onLayout={handleLayout}
       onScroll={handleScroll}
+      onScrollBeginDrag={(event) => {
+        onListDragStart();
+        onScrollBeginDrag?.(event);
+      }}
+      onScrollEndDrag={(event) => {
+        const { contentOffset, layoutMeasurement, contentSize } =
+          event.nativeEvent;
+        onListScroll(
+          contentOffset.y,
+          layoutMeasurement.height,
+          contentSize.height,
+        );
+        onListDragEnd();
+        onScrollEndDrag?.(event);
+      }}
+      onMomentumScrollBegin={(event) => {
+        onListDragStart();
+        onMomentumScrollBegin?.(event);
+      }}
+      onMomentumScrollEnd={(event) => {
+        const { contentOffset, layoutMeasurement, contentSize } =
+          event.nativeEvent;
+        onListScroll(
+          contentOffset.y,
+          layoutMeasurement.height,
+          contentSize.height,
+        );
+        onListDragEnd();
+        onMomentumScrollEnd?.(event);
+      }}
       scrollEventThrottle={scrollEventThrottle}
       {...props}
     />
@@ -434,7 +523,8 @@ export const MessageScrollerButton = forwardRef<
 MessageScrollerButton.displayName = "MessageScrollerButton";
 
 export function useMessageScroller() {
-  const { scrollToEnd, scrollToStart, scrollable } = useMessageScrollerContext();
+  const { scrollToEnd, scrollToStart, scrollable } =
+    useMessageScrollerContext();
 
   return {
     scrollToEnd,

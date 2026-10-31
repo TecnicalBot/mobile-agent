@@ -19,6 +19,7 @@ export async function createPhoneBridgeCapabilities(input: {
   grant: PhoneBridgeGrant;
   repositories: Repositories;
   onRecord: (record: ToolExecutionRecord) => void;
+  onWorkspaceChanged?: () => Promise<void>;
 }) {
   const { grant, repositories, onRecord } = input;
   const tools: BridgeTool[] = [];
@@ -130,6 +131,22 @@ export async function createPhoneBridgeCapabilities(input: {
       adaptAiBridgeTool("skill", skills.skill, true),
       adaptAiBridgeTool("skillReadFile", skills.skillReadFile, true),
     );
+  }
+  // Publish committed phone files before the harness receives their workspace
+  // links. A fire-and-forget record callback could leave the first embed
+  // unresolved, and tools without records never refreshed the Library at all.
+  for (const shared of tools) {
+    if (shared.readOnly || !input.onWorkspaceChanged) continue;
+    const execute = shared.execute;
+    shared.execute = async (args, signal) => {
+      try {
+        return await execute(args, signal);
+      } finally {
+        // Refresh failures must not turn a successful write into a failed tool
+        // result and encourage the harness to repeat the side effect.
+        await input.onWorkspaceChanged?.().catch(() => {});
+      }
+    };
   }
   return tools;
 }

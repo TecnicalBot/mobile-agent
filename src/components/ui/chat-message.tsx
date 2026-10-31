@@ -154,6 +154,7 @@ import { downloadText } from "@/core/services/download-service";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
+import { parseStableMarkdown } from "@/modules/chat/stable-markdown";
 import { openExternalLink } from "@/modules/chat/open-link";
 import {
   DEFAULT_REGENERATE_PRESETS,
@@ -239,6 +240,11 @@ function SelectableTextGroup({
 }
 
 const MARKDOWN_RULES = {
+  // AstRenderer also invents a new root key on every render. A stable AST
+  // alone is insufficient: that root would still remount every media card.
+  body: (_node, children, _parent, styles) => (
+    <View key="markdown-body" style={styles._VIEW_SAFE_body}>{children}</View>
+  ),
   code_block: (node) => (
     <CopyableCodeBlock code={trimCodeBlock(node.content)} key={node.key} />
   ),
@@ -429,6 +435,10 @@ function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
     () => MEDIA_ASPECT_CACHE.get(resolvedUri) ?? 16 / 9,
   );
   const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    setAspectRatio(MEDIA_ASPECT_CACHE.get(resolvedUri) ?? 16 / 9);
+  }, [resolvedUri]);
   const videoAttachment = useMemo(() => {
     if (!uri.startsWith("workspace://")) return null;
     const file = workspaceFileFromUrl(uri, workspaceFiles);
@@ -1182,6 +1192,12 @@ const MarkdownContent = memo(function MarkdownContent({
   selectable?: boolean;
   styles: ReturnType<typeof createMarkdownStyles>;
 }) {
+  const ast = useMemo(
+    () => content.length > MARKDOWN_MAX_RENDER_LENGTH
+      ? null
+      : parseStableMarkdown(content, MARKDOWN_PARSER),
+    [content],
+  );
   if (content.length > MARKDOWN_MAX_RENDER_LENGTH) {
     return (
       <Text selectable={selectable} style={styles.body}>
@@ -1198,7 +1214,8 @@ const MarkdownContent = memo(function MarkdownContent({
       rules={selectable ? MARKDOWN_RULES_SELECTABLE : MARKDOWN_RULES}
       style={styles}
     >
-      {content}
+      {/* AST arrays are supported by the runtime but omitted from its React types. */}
+      {ast as unknown as ReactNode}
     </Markdown>
   );
 });
@@ -1444,7 +1461,8 @@ export const ChatMessage = memo(function ChatMessage({
   // the real content with zero behavior change.
   const deferredContent = useDeferredValue(message.content);
   const bodyContent =
-    message.status === "streaming" ? deferredContent : message.content;  const align = isUser ? "end" : "start";
+    message.status === "streaming" ? deferredContent : message.content;
+  const align = isUser ? "end" : "start";
   const variant = isUser ? "default" : "ghost";
 
   const markdownStyles = useMemo(

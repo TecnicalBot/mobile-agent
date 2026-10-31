@@ -194,6 +194,24 @@ describe("transcribeLongAudio", () => {
     expect(transcript.language).toBe("en");
     // Duration reports the decoded window, not the whole fixture.
     expect(transcript.duration).toBe(90);
+    // The decode covered the whole track, so nothing is flagged as clipped.
+    expect(transcript.sourceDuration).toBe(90);
+    expect(transcript.truncated).toBe(false);
+  });
+
+  it("flags a maxSeconds-clipped track with its full source duration", async () => {
+    fake.pcm = encodePcm16(new Array(90 * 8000).fill(0));
+    const transcript = await transcribeLongAudio({
+      filePath: "file:///solo.pcm",
+      pcmPath: "file:///cache/solo.pcm",
+      maxSeconds: 30,
+    });
+
+    // The decoder reports the track length even though only the first
+    // `maxSeconds` were decoded, so callers can tell the transcript is partial.
+    expect(transcript.duration).toBe(30);
+    expect(transcript.sourceDuration).toBe(90);
+    expect(transcript.truncated).toBe(true);
   });
 
   it("chains the previous window's tail as the prompt", async () => {

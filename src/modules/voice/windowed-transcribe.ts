@@ -75,7 +75,7 @@ export function hasNativeAudioDecoder(): boolean {
  */
 export async function transcribeLongAudio(
   options: LongTranscribeOptions,
-): Promise<Transcript> {
+): Promise<Transcript & { sourceDuration: number; truncated: boolean }> {
   const module = getHtmlVideoExportModule();
   if (!module?.decodeAudioPcm || !module.readPcmSegment) {
     throw new Error("The native audio decoder is not available in this build.");
@@ -225,10 +225,17 @@ export async function transcribeLongAudio(
     await context.release();
   }
 
+  // The decoder reports the whole track's duration even though it only
+  // decoded `maxSeconds` of it, so callers can tell a complete transcript
+  // from a truncated one. This is the one place long audio gets clipped, and
+  // staying silent about it made the tool look broken for long recordings.
+  const sourceDuration = round2(decoded.durationSeconds);
   return {
     text: texts.join(" ").trim(),
     language: lockedLanguage ?? options.language ?? "auto",
     duration: round2(Math.min(options.maxSeconds, decoded.durationSeconds)),
     segments,
+    sourceDuration,
+    truncated: sourceDuration - options.maxSeconds > 0.5,
   };
 }

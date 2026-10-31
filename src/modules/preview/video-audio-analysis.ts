@@ -211,6 +211,12 @@ export type AudioNote = {
 export type AudioAnalysisSummary = {
   ready: boolean;
   duration: number;
+  /**
+   * Full duration of the decoded source before `maxSeconds` clipped it, when
+   * the host knows it. Lets callers tell a complete analysis from a truncated
+   * one; equal to `duration` when nothing was clipped.
+   */
+  sourceDuration?: number;
   frameRate: number;
   bpm: number | null;
   /** Total number of detected onsets (may exceed `beats.length`). */
@@ -1294,7 +1300,9 @@ export function buildAudioAnalysisDocument(
     "            { channels: channels, sampleRate: audioBuffer.sampleRate || rate, start: 0, offset: 0, duration: duration, loop: false, volume: 1, fadeIn: 0, fadeOut: 0 }",
     "          ], duration, rate, 1);",
     "          var features = aa.analyzeAudio(samples, rate, duration);",
-    "          var payload = { type: 'mobileAgentAudioAnalysis', summary: aa.summarizeFeatures(features, { maxBeats: cfg.maxBeats, curvePoints: cfg.curvePoints }) };",
+    "          var summary = aa.summarizeFeatures(features, { maxBeats: cfg.maxBeats, curvePoints: cfg.curvePoints });",
+    "          summary.sourceDuration = full;",
+    "          var payload = { type: 'mobileAgentAudioAnalysis', summary: summary };",
     "          if (cfg.pcmSampleRate > 0) {",
     "            var pcmRate = cfg.pcmSampleRate;",
     "            var pcmSamples = pcmRate === rate ? samples : aa.mixClipsToMono([",

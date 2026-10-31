@@ -5,6 +5,7 @@ import type { AudioAnalysisSummary } from "@/modules/preview/video-audio-analysi
 
 const mocks = vi.hoisted(() => ({
   exists: true,
+  fileSize: undefined as number | undefined,
   bytes: new Uint8Array([0x49, 0x44, 0x33, 0x03, 0x00]),
   getById: vi.fn(),
   transcribePcm16: vi.fn(),
@@ -20,6 +21,9 @@ vi.mock("@/core/services/workspace-file-service", () => ({
   resolveWorkspaceFile: () => ({
     get exists() {
       return mocks.exists;
+    },
+    get size() {
+      return mocks.fileSize;
     },
     uri: "file:///documents/audio/speech.mp3",
     bytes: async () => mocks.bytes,
@@ -122,6 +126,7 @@ describe("transcribeAudio tool", () => {
     unsubscribe?.();
     unsubscribe = null;
     mocks.exists = true;
+    mocks.fileSize = undefined;
     mocks.hasNative = false;
     mocks.getById.mockReset();
     mocks.transcribePcm16.mockReset();
@@ -441,5 +446,114 @@ describe("transcribeAudio tool", () => {
     expect(mocks.transcribePcm16WithSystem).toHaveBeenCalled();
     expect(out).toMatchObject({ engine: "system" });
     expect(mocks.deletedUris).toEqual([]);
+  });
+
+  it("names the missing native decoder when an oversized file falls back to inline", async () => {
+    // The 15 MB cap is a decode-buffer limit, not a model limit: a 123 MB
+    // video on a build without the native decoder can never be transcribed,
+    // however many Whisper models are installed.
+    mocks.fileSize = 123 * 1024 * 1024;
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+
+    const error = await Promise.resolve(
+      tool.execute!({ fileId: "file-1" }, {} as never),
+    ).then(
+      () => null,
+      (caught: unknown) => caught as Error,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/does not include the native audio decoder/);
+    expect((error as Error).message).toMatch(/installing a Whisper model does not raise this cap/);
+    // The whole file is never read into the heap.
+    expect(mocks.transcribePcm16).not.toHaveBeenCalled();
+  });
+
+  it("points the system engine at whisper for oversized files", async () => {
+    // The system engine always decodes inline, even on builds with the
+    // native decoder, so its 15 MB cap needs a different way out.
+    mocks.hasNative = true;
+    mocks.fileSize = 123 * 1024 * 1024;
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+
+    await expect(
+      tool.execute!({ fileId: "file-1", engine: "system" }, {} as never),
+    ).rejects.toThrow(/system recognizer.*engine "whisper"/);
+    expect(mocks.transcribePcm16WithSystem).not.toHaveBeenCalled();
+  });
+
+  it("reports a truncated native transcript so the agent can raise maxSeconds", async () => {
+    mocks.hasNative = true;
+    mocks.transcribeLongAudio.mockResolvedValue({
+      ...TRANSCRIPT,
+      duration: 90,
+      sourceDuration: 600,
+      truncated: true,
+    });
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+    const out = (await tool.execute!(
+      { fileId: "file-1", maxSeconds: 90 },
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(out).toMatchObject({
+      duration: 90,
+      sourceDuration: 600,
+      truncated: true,
+    });
+    expect(String(out.warning)).toMatch(/Only the first 90 s of a 600 s recording/);
+    expect(String(out.warning)).toMatch(/larger maxSeconds/);
+  });
+
+  it("reports truncation from the inline host summary", async () => {
+    unsubscribe = subscribeAudioAnalysis((job) => {
+      job.resolve({
+        summary: { ...SUMMARY, duration: 90, sourceDuration: 600 },
+        pcm: { base64: "AAAA", sampleRate: 16000 },
+      });
+    });
+    mocks.transcribePcm16.mockResolvedValue({ ...TRANSCRIPT, duration: 90 });
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+    const out = (await tool.execute!(
+      { fileId: "file-1", maxSeconds: 90 },
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ sourceDuration: 600, truncated: true });
+    expect(String(out.warning)).toMatch(/larger maxSeconds/);
+  });
+
+  it("omits truncation fields when the whole recording was transcribed", async () => {
+    unsubscribe = subscribeAudioAnalysis((job) => {
+      job.resolve({ summary: SUMMARY, pcm: { base64: "AAAA", sampleRate: 16000 } });
+    });
+    mocks.transcribePcm16.mockResolvedValue(TRANSCRIPT);
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+    const out = (await tool.execute!({ fileId: "file-1" }, {} as never)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(out).not.toHaveProperty("truncated");
+    expect(out).not.toHaveProperty("warning");
   });
 });

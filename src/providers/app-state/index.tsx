@@ -5933,6 +5933,7 @@ export function useChat() {
         approvePendingToolApproval: chat.approvePendingToolApproval,
         approvePendingToolApprovalForChat: chat.approvePendingToolApprovalForChat,
         approveToolForChat: chat.approveToolForChat,
+        setConversationApprovalMode: config.setConversationApprovalMode,
         denyPendingToolApproval: chat.denyPendingToolApproval,
         pendingQuestionnaire: chat.pendingQuestionnaire,
         submitPendingQuestionnaire: chat.submitPendingQuestionnaire,

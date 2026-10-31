@@ -106,6 +106,10 @@ function usePhoneBridgeController() {
   // persisted: stopping or changing the grant resets every remembered approval.
   const approvedToolsRef = useRef<Set<string>>(new Set());
   const [approvedTools, setApprovedTools] = useState<string[]>([]);
+  // Explicit user choice for this sharing session, never restored from a
+  // chat's saved settings or persisted across reload/revocation.
+  const [approvalMode, setApprovalModeState] = useState<"ask" | "auto">("ask");
+  const approvalModeRef = useRef<"ask" | "auto">("ask");
   const grantKeyRef = useRef<string | null>(null);
   const [interfaces, setInterfaces] = useState<BridgeInterface[]>([]);
   const [harnessUrl, setHarnessUrl] = useState<string | null>(null);
@@ -180,9 +184,24 @@ function usePhoneBridgeController() {
   }, [refreshInterfaces]);
 
   function clearApprovals() {
-    if (approvedToolsRef.current.size === 0) return;
+    approvalModeRef.current = "ask";
+    setApprovalModeState("ask");
     approvedToolsRef.current.clear();
     setApprovedTools([]);
+  }
+
+  function setApprovalMode(mode: "ask" | "auto") {
+    if (mode === "ask") {
+      clearApprovals();
+      return;
+    }
+    // This only skips prompts for the existing grant. It cannot start sharing,
+    // expand its tools/folder, or authorize a future sharing session.
+    if (!sharingRef.current) return;
+    approvalModeRef.current = "auto";
+    setApprovalModeState("auto");
+    if (AppState.currentState === "active" || backgroundHeld.current)
+      resolveApproval.current?.(true);
   }
 
   async function stopRuntime() {
@@ -222,9 +241,13 @@ function usePhoneBridgeController() {
   }
 
   function approve(request: BridgeApproval) {
-    if (approvedToolsRef.current.has(request.toolName)) {
+    if (
+      approvalModeRef.current === "auto" ||
+      approvedToolsRef.current.has(request.toolName)
+    ) {
       return Promise.resolve(
-        !request.signal.aborted &&
+        sharingRef.current !== null &&
+          !request.signal.aborted &&
           (AppState.currentState === "active" || backgroundHeld.current),
       );
     }
@@ -534,6 +557,8 @@ function usePhoneBridgeController() {
     folder,
     approval,
     approvedTools,
+    approvalMode,
+    setApprovalMode,
     clearApprovals,
     records,
     interfaces,

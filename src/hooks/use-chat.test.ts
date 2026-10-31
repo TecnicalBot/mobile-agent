@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
     agents: [{ id: "local-only", name: "Local agent" }],
     setConversationAgent: vi.fn(),
     selectConversation: vi.fn(),
+    setConversationApprovalMode: vi.fn(),
   },
   harness: {
     active: true,
@@ -17,6 +18,15 @@ const state = vi.hoisted(() => ({
     selectAgent: vi.fn().mockResolvedValue(undefined),
     deactivate: vi.fn(),
   },
+  bridge: {
+    folder: null,
+    sharing: null as { id: string } | null,
+    approvalMode: "ask" as "ask" | "auto",
+    setApprovalMode: vi.fn(),
+    pickFolder: vi.fn(),
+    start: vi.fn(),
+    clearFolder: vi.fn(),
+  },
 }));
 
 vi.mock("@/providers/app-state", () => ({ useChat: () => state.direct }));
@@ -24,18 +34,48 @@ vi.mock("@/providers/harness-state", () => ({
   useHarness: () => state.harness,
 }));
 vi.mock("@/providers/phone-bridge-state", () => ({
-  usePhoneBridge: () => ({
-    folder: null,
-    sharing: null,
-    pickFolder: vi.fn(),
-    start: vi.fn(),
-    clearFolder: vi.fn(),
-  }),
+  usePhoneBridge: () => state.bridge,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   state.harness.active = true;
+  state.bridge.sharing = null;
+  state.bridge.approvalMode = "ask";
+});
+
+describe("unified chat and device approval controls", () => {
+  it.each([true, false])(
+    "updates both approval gates (harness: %s)",
+    (active) => {
+      state.harness.active = active;
+      useChat().setConversationApprovalMode("chat", "auto");
+      expect(state.direct.setConversationApprovalMode).toHaveBeenCalledWith(
+        "chat",
+        "auto",
+      );
+      expect(state.bridge.setApprovalMode).toHaveBeenCalledWith("auto");
+    },
+  );
+
+  it("switches both gates back to asking", () => {
+    useChat().setConversationApprovalMode("chat", "ask");
+    expect(state.direct.setConversationApprovalMode).toHaveBeenCalledWith(
+      "chat",
+      "ask",
+    );
+    expect(state.bridge.setApprovalMode).toHaveBeenCalledWith("ask");
+  });
+
+  it("shows the live device policy rather than assuming a saved chat mode authorizes it", () => {
+    state.bridge.sharing = { id: "sharing-session" };
+    expect(useChat().deviceSharingApprovalMode).toBe("ask");
+    state.bridge.approvalMode = "auto";
+    expect(useChat().deviceSharingApprovalMode).toBe("auto");
+    state.bridge.sharing = null;
+    expect(useChat().deviceSharingApprovalMode).toBeNull();
+    expect(state.bridge.setApprovalMode).not.toHaveBeenCalled();
+  });
 });
 
 describe("shared chat agent selection", () => {

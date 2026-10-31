@@ -134,23 +134,28 @@ export function PhoneBridgeDrawer({
                       label="Shared tools"
                       value={String(bridge.sharing.toolCount)}
                     />
-                    {bridge.approvedTools.length ? (
+                    {bridge.approvalMode === "auto" ||
+                    bridge.approvedTools.length ? (
                       <>
                         <Separator />
                         <StatusRow
                           label="Auto-approved"
-                          value={`${bridge.approvedTools.length} tool${
-                            bridge.approvedTools.length === 1 ? "" : "s"
-                          }`}
+                          value={
+                            bridge.approvalMode === "auto"
+                              ? "All shared tools"
+                              : `${bridge.approvedTools.length} tool${
+                                  bridge.approvedTools.length === 1 ? "" : "s"
+                                }`
+                          }
                         />
                       </>
                     ) : null}
                   </>
                 ) : null}
               </View>
-              {bridge.approvedTools.length ? (
+              {bridge.approvalMode === "auto" || bridge.approvedTools.length ? (
                 <Button variant="outline" onPress={bridge.clearApprovals}>
-                  Reset auto-approved tools
+                  Reset device approvals
                 </Button>
               ) : null}
 

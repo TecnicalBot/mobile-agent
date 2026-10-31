@@ -280,13 +280,14 @@ export default function Screen() {
     selectModel,
     setCurrentSelectedMcpServerIds,
     conversationApprovalModes,
-    setConversationApprovalMode,
   } = useConfig();
   const chatInfo = useChatInfo();
   const starterPrompts = useStarterPrompts();
   const {
     approvePendingToolApproval,
     approvePendingToolApprovalForChat,
+    setConversationApprovalMode,
+    deviceSharingApprovalMode,
     denyPendingToolApproval,
     clearConversationFolder,
     clearWorkspaceFiles,
@@ -715,6 +716,7 @@ export default function Screen() {
                     ? conversationApprovalModes?.[currentConversation.id]
                     : undefined) ?? "ask"
                 }
+                deviceSharingApprovalMode={deviceSharingApprovalMode}
                 updateToolApprovalMode={(mode) => {
                   if (currentConversation?.id) {
                     setConversationApprovalMode(currentConversation.id, mode);
@@ -1283,6 +1285,7 @@ const ChatInput = memo(function ChatInput({
   savedPrompts,
   setReasoningEffort,
   toolApprovalMode,
+  deviceSharingApprovalMode,
   updateToolApprovalMode,
   workspaceFiles,
   agents,
@@ -1352,6 +1355,7 @@ const ChatInput = memo(function ChatInput({
   savedPrompts: SavedPrompt[];
   setReasoningEffort: (effort: ReasoningEffort) => Promise<void>;
   toolApprovalMode: "ask" | "auto";
+  deviceSharingApprovalMode: "ask" | "auto" | null;
   updateToolApprovalMode: (mode: "ask" | "auto") => Promise<void>;
   workspaceFiles: WorkspaceFile[];
   agents: AgentConfig[];
@@ -3197,10 +3201,19 @@ const ChatInput = memo(function ChatInput({
           <DrawerHeader>
             <DrawerTitle>Tool approval</DrawerTitle>
             <DrawerDescription>
-              Choose how built-in tools run during chat.
+              Applies to chat tools and currently shared device tools. Device
+              approval applies to all connected harnesses until sharing stops,
+              access changes, or the app reloads.
             </DrawerDescription>
           </DrawerHeader>
           <DrawerBody contentContainerClassName="gap-sp-2 pb-sp-4">
+            {deviceSharingApprovalMode !== null ? (
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                Device access: {deviceSharingApprovalMode === "auto"
+                  ? "Always allow"
+                  : "Always ask"}
+              </Text>
+            ) : null}
             <DrawerSelectRow
               onPress={() => {
                 updateToolApprovalMode("ask")
@@ -3209,7 +3222,9 @@ const ChatInput = memo(function ChatInput({
                   })
                   .catch(console.error);
               }}
-              selected={toolApprovalMode === "ask"}
+              selected={
+                toolApprovalMode === "ask" && deviceSharingApprovalMode !== "auto"
+              }
               subtitle="Ask before every tool action"
               title="Always ask"
             />
@@ -3221,8 +3236,10 @@ const ChatInput = memo(function ChatInput({
                   })
                   .catch(console.error);
               }}
-              selected={toolApprovalMode === "auto"}
-              subtitle="Run tools without asking each time"
+              selected={
+                toolApprovalMode === "auto" && deviceSharingApprovalMode !== "ask"
+              }
+              subtitle="Run chat and shared device tools without asking"
               title="Always allow"
             />
           </DrawerBody>

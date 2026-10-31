@@ -1848,8 +1848,8 @@ const ChatInput = memo(function ChatInput({
     composerRef.current?.blur();
 
     try {
-      await setSelectedFileIds([]);
       scrollToEnd();
+      await setSelectedFileIds([]);
 
       await onSend({
         content: cleanPrompt,
@@ -1862,11 +1862,8 @@ const ChatInput = memo(function ChatInput({
         fileContextSource: nextFileContextSource,
         selectedFileIds: previousSelectedFileIds,
       });
-      // The mode stays sticky for the rest of the run: several back-to-back
-      // steers in a row must not silently fall back to queue.
-      requestAnimationFrame(() => {
-        scrollToEnd();
-      });
+      // Do not jump again after sending finishes: the user may have scrolled
+      // up to read while the request or agent run was in progress.
     } catch (sendError) {
       const errorMessage =
         sendError instanceof Error ? sendError.message : String(sendError);
@@ -1899,15 +1896,12 @@ const ChatInput = memo(function ChatInput({
       setPendingQuote(null);
       KeyboardController.dismiss();
       composerRef.current?.blur();
-      await setSelectedFileIds([]);
       scrollToEnd();
+      await setSelectedFileIds([]);
       await onSend({
         content: pendingFolderSend.content,
         fileContextSource: "external-folder",
         selectedFileIds: pendingFolderSend.selectedFileIds,
-      });
-      requestAnimationFrame(() => {
-        scrollToEnd();
       });
     } catch (error) {
       if (!isFolderPickerCancellation(error)) {

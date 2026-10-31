@@ -123,6 +123,7 @@ export function MessageScrollerProvider({
   const lastScrollableRef = useRef<ScrollState>({ end: false, start: false });
   const lastContentHeightRef = useRef(0);
   const draggingRef = useRef(false);
+  const dragStartOffsetRef = useRef(0);
   const followingEndRef = useRef(initialScrollToEnd);
   const pendingScrollRef = useRef<number | null>(null);
   useEffect(
@@ -170,10 +171,8 @@ export function MessageScrollerProvider({
 
   const onListScroll = useCallback(
     (offsetY: number, viewportHeight: number, contentHeight: number) => {
-      // Only actual user movement may re-enable following. Measurement changes
-      // while recycling tall rows must not pull a reader back to the bottom.
-      if (draggingRef.current)
-        followingEndRef.current = contentHeight - viewportHeight - offsetY <= 8;
+      // Never re-enable following from scroll/measurement events. Recycling
+      // tall rows can temporarily report an offset beyond the measured end.
       recomputeScrollable(offsetY, viewportHeight, contentHeight);
     },
     [recomputeScrollable],
@@ -181,6 +180,7 @@ export function MessageScrollerProvider({
 
   const onListDragStart = useCallback(() => {
     draggingRef.current = true;
+    dragStartOffsetRef.current = metricsRef.current.offsetY;
     followingEndRef.current = false;
     didInitialScrollRef.current = true;
     if (pendingScrollRef.current !== null) {
@@ -190,13 +190,20 @@ export function MessageScrollerProvider({
   }, []);
   const onListDragEnd = useCallback(() => {
     draggingRef.current = false;
+    const { contentHeight, offsetY, viewportHeight } = metricsRef.current;
+    const distanceFromEnd = contentHeight - viewportHeight - offsetY;
+    // Only an intentional downward drag back to the end can resume following.
+    // Upward drags must stay detached even when recycled height estimates shrink.
+    followingEndRef.current =
+      offsetY > dragStartOffsetRef.current + 8 &&
+      Math.abs(distanceFromEnd) <= 8;
   }, []);
   const scheduleFollowEnd = useCallback(() => {
     if (pendingScrollRef.current !== null) return;
     pendingScrollRef.current = requestAnimationFrame(() => {
       pendingScrollRef.current = null;
       if (followingEndRef.current && !draggingRef.current)
-        listRef.current?.scrollToEnd({ animated: false });
+        listRef.current?.getNativeScrollRef()?.scrollToEnd({ animated: false });
     });
   }, []);
 
@@ -221,7 +228,11 @@ export function MessageScrollerProvider({
 
   const scrollToEnd = useCallback(() => {
     followingEndRef.current = true;
-    listRef.current?.scrollToEnd({ animated: true });
+    // FlashList 2.0.2's scrollToEnd may await a multi-step scrollToIndex and
+    // then issue a late native scroll after the user has already dragged away.
+    // Use the native scroller; subsequent measured growth is followed above,
+    // with every scheduled frame still cancellable by a user drag.
+    listRef.current?.getNativeScrollRef()?.scrollToEnd({ animated: true });
   }, []);
 
   const scrollToStart = useCallback(() => {
@@ -365,8 +376,6 @@ function MessageScrollerListInner<ItemT>(
     onScroll,
     onScrollBeginDrag,
     onScrollEndDrag,
-    onMomentumScrollBegin,
-    onMomentumScrollEnd,
     scrollEventThrottle = 16,
     ...props
   }: MessageScrollerListProps<ItemT>,
@@ -452,21 +461,6 @@ function MessageScrollerListInner<ItemT>(
         );
         onListDragEnd();
         onScrollEndDrag?.(event);
-      }}
-      onMomentumScrollBegin={(event) => {
-        onListDragStart();
-        onMomentumScrollBegin?.(event);
-      }}
-      onMomentumScrollEnd={(event) => {
-        const { contentOffset, layoutMeasurement, contentSize } =
-          event.nativeEvent;
-        onListScroll(
-          contentOffset.y,
-          layoutMeasurement.height,
-          contentSize.height,
-        );
-        onListDragEnd();
-        onMomentumScrollEnd?.(event);
       }}
       scrollEventThrottle={scrollEventThrottle}
       {...props}

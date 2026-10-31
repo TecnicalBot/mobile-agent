@@ -39,40 +39,59 @@ export async function createPhoneBridgeCapabilities(input: {
       onRecord,
       supportsImageInput: false,
     }).tools;
-    tools.push(
-      adaptAiBridgeTool("phoneFolderList", folder.listDirectory, true),
-      adaptAiBridgeTool("phoneFolderRead", folder.read, true),
-      adaptAiBridgeTool("phoneFolderWrite", folder.write, false),
-      adaptAiBridgeTool(
-        "phoneFolderCreateDirectory",
-        folder.createDirectory,
-        false,
-      ),
-    );
+    // The folder grant is already the user's consent to read and edit this
+    // tree. Expose the same file operations the direct agent has instead of a
+    // read-only subset that forces the harness to fall back to host paths.
+    const folderTools: [keyof typeof folder, string, boolean][] = [
+      ["listDirectory", "phoneFolderList", true],
+      ["read", "phoneFolderRead", true],
+      ["glob", "phoneFolderGlob", true],
+      ["grep", "phoneFolderGrep", true],
+      ["viewFile", "phoneFolderViewFile", true],
+      ["write", "phoneFolderWrite", false],
+      ["edit", "phoneFolderEdit", false],
+      ["createFile", "phoneFolderCreateFile", false],
+      ["createDirectory", "phoneFolderCreateDirectory", false],
+      ["deleteEntry", "phoneFolderDelete", false],
+      ["moveEntry", "phoneFolderMove", false],
+      ["renameEntry", "phoneFolderRename", false],
+    ];
+    for (const [key, name, readOnly] of folderTools)
+      tools.push(adaptAiBridgeTool(name, folder[key], readOnly));
   }
   if (grant.workspace) {
-    const [
-      { createCreateFileTool },
-      { createReadTool },
-      { createListFilesTool },
-      { createRenderVideoTool },
-    ] = await Promise.all([
-      import("@/modules/tools/built-in/create-file"),
-      import("@/modules/tools/built-in/read"),
-      import("@/modules/tools/built-in/list-files"),
-      import("@/modules/tools/built-in/render-video"),
-    ]);
-    const params = {
+    const { createWorkspaceTools } =
+      await import("@/modules/tools/workspace-tools");
+    const workspace = createWorkspaceTools({
       repository: repositories.workspaceRepository,
       onRecord,
       supportsImageInput: false,
-    };
-    tools.push(
-      adaptAiBridgeTool("createFile", createCreateFileTool(params), false),
-      adaptAiBridgeTool("read", createReadTool(params), true),
-      adaptAiBridgeTool("listFiles", createListFilesTool(params), true),
-      adaptAiBridgeTool("renderVideo", createRenderVideoTool(params), false),
-    );
+    }).tools;
+    // Keep the network-facing tools out of the bridge. The workspace grant is
+    // about files and media the user already has on the phone.
+    const workspaceTools: [keyof typeof workspace, boolean][] = [
+      ["createFile", false],
+      ["read", true],
+      ["write", false],
+      ["edit", false],
+      ["listFiles", true],
+      ["glob", true],
+      ["grep", true],
+      ["viewFile", true],
+      ["downloadFile", false],
+      ["updateDocument", false],
+      ["mergeDocuments", false],
+      ["splitDocument", false],
+      ["mergePdfs", false],
+      ["splitPdf", false],
+      ["ocr", false],
+      ["getVideoFrame", false],
+      ["renderVideo", false],
+      ["previewScene", false],
+      ["previewMix", false],
+    ];
+    for (const [name, readOnly] of workspaceTools)
+      tools.push(adaptAiBridgeTool(name, workspace[name], readOnly));
   }
   if (grant.skills) {
     const { createSkillTools } =

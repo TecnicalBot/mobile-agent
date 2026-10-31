@@ -45,6 +45,21 @@ export const openCodeModelRef = (
 
 /** Presentation only. Harness refs are intercepted before the direct model runtime. */
 export function presentOpenCodeModel(model: ModelInfo): ResolvedModel {
+  // Older harnesses did not report capabilities. Treat the model as text-only
+  // instead of enabling attachment UI the harness cannot consume.
+  const capabilities = model.capabilities ?? {
+    tools: false,
+    input: [] as string[],
+    output: [] as string[],
+  };
+  const inputs = new Set(capabilities.input);
+  const supportsInput = (kind: string) =>
+    inputs.has(kind) ||
+    [...inputs].some((value) => value.startsWith(`${kind}/`));
+  const supportsTools = capabilities.tools;
+  const supportsImageInput = supportsInput("image");
+  const supportsAudioInput = supportsInput("audio");
+  const supportsVideoInput = supportsInput("video");
   return {
     ref: openCodeModelRef(model),
     providerId: OPENCODE_PROVIDER_ID,
@@ -58,19 +73,18 @@ export function presentOpenCodeModel(model: ModelInfo): ResolvedModel {
     isFree: model.cost.every((cost) => cost.input === 0 && cost.output === 0),
     source: "suggested",
     active: model.enabled,
-    // Phone attachments/tools are not exposed to the remote harness.
     capabilities: {
-      tools: false,
+      tools: supportsTools,
       reasoning: false,
-      imageInput: false,
-      audioInput: false,
-      videoInput: false,
+      imageInput: supportsImageInput,
+      audioInput: supportsAudioInput,
+      videoInput: supportsVideoInput,
       imageGeneration: false,
     },
-    supportsTools: false,
-    supportsImageInput: false,
-    supportsAudioInput: false,
-    supportsVideoInput: false,
+    supportsTools,
+    supportsImageInput,
+    supportsAudioInput,
+    supportsVideoInput,
     supportsImageGeneration: false,
     supportsReasoning: false,
     transport: "openaiCompatible",

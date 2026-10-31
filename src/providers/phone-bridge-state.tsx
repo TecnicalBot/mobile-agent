@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import { useSQLiteContext } from "expo-sqlite";
-import { AppState, Text } from "react-native";
+import { AppState, Text, View } from "react-native";
 import {
   createContext,
   useCallback,
@@ -102,6 +102,11 @@ function usePhoneBridgeController() {
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState<ExternalFolderSession | null>(null);
   const [approval, setApproval] = useState<BridgeApproval | null>(null);
+  // "Always allow" is scoped to this sharing session and tool. It is never
+  // persisted: stopping or changing the grant resets every remembered approval.
+  const approvedToolsRef = useRef<Set<string>>(new Set());
+  const [approvedTools, setApprovedTools] = useState<string[]>([]);
+  const grantKeyRef = useRef<string | null>(null);
   const [interfaces, setInterfaces] = useState<BridgeInterface[]>([]);
   const [harnessUrl, setHarnessUrl] = useState<string | null>(null);
   const [preference, setPreferenceState] = useState<BridgePreference>("auto");
@@ -174,6 +179,12 @@ function usePhoneBridgeController() {
     };
   }, [refreshInterfaces]);
 
+  function clearApprovals() {
+    if (approvedToolsRef.current.size === 0) return;
+    approvedToolsRef.current.clear();
+    setApprovedTools([]);
+  }
+
   async function stopRuntime() {
     generation.current += 1;
     resolveApproval.current?.(false);
@@ -196,6 +207,7 @@ function usePhoneBridgeController() {
 
   async function stop() {
     desiredSharing.current = null;
+    clearApprovals();
     // Revoke this runtime immediately; serialize persisted writes so a late
     // Start cannot silently re-enable sharing after the user explicitly stops.
     const closing = stopRuntime();
@@ -210,6 +222,12 @@ function usePhoneBridgeController() {
   }
 
   function approve(request: BridgeApproval) {
+    if (approvedToolsRef.current.has(request.toolName)) {
+      return Promise.resolve(
+        !request.signal.aborted &&
+          (AppState.currentState === "active" || backgroundHeld.current),
+      );
+    }
     return new Promise<boolean>((resolve) => {
       const active = AppState.currentState === "active";
       if (request.signal.aborted || (!active && !backgroundHeld.current)) {
@@ -254,6 +272,16 @@ function usePhoneBridgeController() {
     starting.current = true;
     setBusy(true);
     setError(null);
+    // A re-bind on the same grant keeps remembered approvals; a different
+    // folder or capability set is a new sharing session.
+    const nextGrantKey = JSON.stringify([
+      grant.folder?.uri ?? null,
+      grant.workspace,
+      grant.skills,
+    ]);
+    if (grantKeyRef.current !== null && grantKeyRef.current !== nextGrantKey)
+      clearApprovals();
+    grantKeyRef.current = nextGrantKey;
     let epoch = generation.current;
     let endpoint: ReturnType<typeof createBridgeMcpServer> | null = null;
     let phase: "prepare" | "listen" | "save" = "prepare";
@@ -505,6 +533,8 @@ function usePhoneBridgeController() {
     error,
     folder,
     approval,
+    approvedTools,
+    clearApprovals,
     records,
     interfaces,
     urls: bridgeUrls(interfaces, sharing?.port ?? PHONE_BRIDGE_PORT),
@@ -531,7 +561,13 @@ function usePhoneBridgeController() {
       await stop();
       setFolder(null);
     },
-    answer: (accepted: boolean) => resolveApproval.current?.(accepted),
+    answer: (accepted: boolean, always = false) => {
+      if (always && approval) {
+        approvedToolsRef.current.add(approval.toolName);
+        setApprovedTools([...approvedToolsRef.current]);
+      }
+      resolveApproval.current?.(accepted);
+    },
   };
 }
 
@@ -566,17 +602,29 @@ export function PhoneBridgeProvider({ children }: { children: ReactNode }) {
               )}
             </Text>
           </DrawerBody>
-          <DrawerFooter className="flex-row gap-sp-2">
+          <DrawerFooter className="gap-sp-2">
             <Button
-              className="flex-1"
-              variant="outline"
-              onPress={() => value.answer(false)}
+              variant="secondary"
+              onPress={() => value.answer(true, true)}
             >
-              Deny
+              Always allow this tool
             </Button>
-            <Button className="flex-1" onPress={() => value.answer(true)}>
-              Allow once
-            </Button>
+            <Text className="text-center font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+              Stops asking for this tool until sharing stops or its access
+              changes.
+            </Text>
+            <View className="flex-row gap-sp-2">
+              <Button
+                className="flex-1"
+                variant="outline"
+                onPress={() => value.answer(false)}
+              >
+                Deny
+              </Button>
+              <Button className="flex-1" onPress={() => value.answer(true)}>
+                Allow once
+              </Button>
+            </View>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>

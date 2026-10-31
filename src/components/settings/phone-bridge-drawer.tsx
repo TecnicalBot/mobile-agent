@@ -134,9 +134,25 @@ export function PhoneBridgeDrawer({
                       label="Shared tools"
                       value={String(bridge.sharing.toolCount)}
                     />
+                    {bridge.approvedTools.length ? (
+                      <>
+                        <Separator />
+                        <StatusRow
+                          label="Auto-approved"
+                          value={`${bridge.approvedTools.length} tool${
+                            bridge.approvedTools.length === 1 ? "" : "s"
+                          }`}
+                        />
+                      </>
+                    ) : null}
                   </>
                 ) : null}
               </View>
+              {bridge.approvedTools.length ? (
+                <Button variant="outline" onPress={bridge.clearApprovals}>
+                  Reset auto-approved tools
+                </Button>
+              ) : null}
 
               <View className="gap-sp-2">
                 <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">

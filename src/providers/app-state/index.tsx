@@ -489,6 +489,8 @@ type AppStateContextValue = {
         conversationId: string,
         mode: ToolApprovalMode,
     ) => void;
+    /** Remember one tool for a chat without changing its approval mode. */
+    approveToolForChat: (conversationId: string, toolName: string) => void;
     updateThemeMode: (mode: AppSettings["themeMode"]) => Promise<void>;
     updateProvider: (
         providerId: string,
@@ -576,6 +578,7 @@ const CHAT_KEYS = [
     "resolveNotificationApproval",
     "approvePendingToolApproval",
     "approvePendingToolApprovalForChat",
+    "approveToolForChat",
     "agentRuns",
     "cancelRun",
     "clearConversationFolder",
@@ -3659,6 +3662,38 @@ Your output must be:
         [],
     );
 
+    const approveToolForChat = useCallback(
+        (conversationId: string, toolName: string) => {
+            const existing =
+                snapshotRef.current.conversationApprovedTools?.[
+                    conversationId
+                ] ?? [];
+
+            if (existing.includes(toolName)) return;
+
+            const conversationApprovedTools = {
+                ...snapshotRef.current.conversationApprovedTools,
+                [conversationId]: [...existing, toolName],
+            };
+
+            setSnapshot((current) => ({ ...current, conversationApprovedTools }));
+            snapshotRef.current = {
+                ...snapshotRef.current,
+                conversationApprovedTools,
+            };
+
+            repositoriesRef.current.configRepository
+                .setApprovedToolsByConversation(conversationApprovedTools)
+                .catch((error) => {
+                    console.error(
+                        "Failed to persist approved tools",
+                        error,
+                    );
+                });
+        },
+        [],
+    );
+
     const updateThemeMode = useCallback(
         async (mode: AppSettings["themeMode"]) => {
         await repositoriesRef.current.configRepository.setThemeMode(mode);
@@ -5574,6 +5609,7 @@ Your output must be:
                     resolvePendingToolApproval(pendingToolApproval, "approve");
                 }
             },
+            approveToolForChat,
             agentRuns: snapshot.agentRuns,
             cancelRun,
             clearConversationFolder,
@@ -5636,7 +5672,7 @@ Your output must be:
             setCurrentSelectedSkillIds,
             conversations: snapshot.conversations,
         }),
-        [cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
+        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
     );
     const configValue = useMemo(
         (): ConfigContextValue => ({
@@ -5896,6 +5932,7 @@ export function useChat() {
         pendingToolApproval: chat.pendingToolApproval,
         approvePendingToolApproval: chat.approvePendingToolApproval,
         approvePendingToolApprovalForChat: chat.approvePendingToolApprovalForChat,
+        approveToolForChat: chat.approveToolForChat,
         denyPendingToolApproval: chat.denyPendingToolApproval,
         pendingQuestionnaire: chat.pendingQuestionnaire,
         submitPendingQuestionnaire: chat.submitPendingQuestionnaire,

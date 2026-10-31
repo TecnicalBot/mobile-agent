@@ -1,10 +1,12 @@
 import { useChat as useDirectChat } from "@/providers/app-state";
 import { useHarness } from "@/providers/harness-state";
+import { usePhoneBridge } from "@/providers/phone-bridge-state";
 import type { AgentRun } from "@/core/types/app-state";
 
 export function useChat() {
   const direct = useDirectChat();
   const harness = useHarness();
+  const phoneBridge = usePhoneBridge();
   const selectConversation = async (id: string) => {
     harness.deactivate();
     await direct.selectConversation(id);
@@ -32,10 +34,15 @@ export function useChat() {
     createConversation: async () => {
       await harness.newChat();
     },
-    currentExternalFolderSession: null,
-    currentSelectedFileIds: [],
+    currentExternalFolderSession:
+      phoneBridge.sharing?.grant.folder ?? phoneBridge.folder,
+    currentSelectedFileIds: harness.selectedFileIds,
+    setCurrentSelectedFileIds: harness.setSelectedFileIds,
+    // Skills and MCP servers are configured inside OpenCode, not in this app.
     currentSelectedSkillIds: [],
+    setCurrentSelectedSkillIds: async () => {},
     currentSelectedMcpServerIds: [],
+    setCurrentSelectedMcpServerIds: async () => {},
     pendingInputs: [],
     pendingSecretRequest: null,
     pendingQuestionnaire: harness.pendingQuestionnaire,
@@ -45,15 +52,42 @@ export function useChat() {
     approvePendingToolApproval: () => {
       void harness.replyPermission("once").catch(() => {});
     },
-    // OpenCode's "always" is a saved permission, not a chat-only grant. Do not broaden it.
+    // Keep OpenCode's saved permission unchanged. Remember this one tool for
+    // this chat; the harness replies once the saved approval is visible.
     approvePendingToolApprovalForChat: () => {
-      void harness.replyPermission("once").catch(() => {});
+      const toolName = harness.pendingToolApproval?.toolName;
+      if (harness.sessionID && toolName)
+        direct.approveToolForChat(harness.sessionID, toolName);
     },
     denyPendingToolApproval: () => {
       void harness.replyPermission("reject").catch(() => {});
     },
     editAndResendMessage: unsupported,
-    pickConversationFolder: unsupported,
+    pickConversationFolder: async () => {
+      const grant = phoneBridge.sharing?.grant ?? {
+        folder: phoneBridge.folder,
+        workspace: false,
+        skills: false,
+      };
+      try {
+        const selected = await phoneBridge.pickFolder();
+        await phoneBridge.start({ ...grant, folder: selected });
+        return selected;
+      } catch (error) {
+        // pickFolder revokes sharing before opening the picker. Restore the
+        // previous grant when the user cancels or the new folder is invalid.
+        await phoneBridge.start(grant).catch(() => {});
+        throw error;
+      }
+    },
+    clearConversationFolder: async () => {
+      const grant = phoneBridge.sharing?.grant;
+      if (grant && (grant.workspace || grant.skills)) {
+        await phoneBridge.start({ ...grant, folder: null });
+        return;
+      }
+      await phoneBridge.clearFolder();
+    },
     currentSelectedAgentId: harness.currentAgentID,
     conversationAgentName: harness.currentAgentName,
     agents: harness.agents,
@@ -66,6 +100,6 @@ export function useChat() {
       await harness.selectAgent(agentIdOrName);
     },
     skills: [],
-    workspaceFiles: [],
+    workspaceFiles: direct.workspaceFiles,
   };
 }

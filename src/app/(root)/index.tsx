@@ -801,7 +801,7 @@ export default function Screen() {
                     Allow once
                   </Button>
                 </View>
-                {!harness.active ? <Pressable
+                <Pressable
                   accessibilityRole="button"
                   className="items-center"
                   hitSlop={8}
@@ -811,7 +811,7 @@ export default function Screen() {
                   <Text className="font-sans text-sm text-muted-foreground underline dark:text-muted-foreground-dark">
                     Allow for chat
                   </Text>
-                </Pressable> : null}
+                </Pressable>
               </DrawerFooter>
             </DrawerContent>
           </Drawer>

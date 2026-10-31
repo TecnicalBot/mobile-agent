@@ -61,6 +61,11 @@ describe("OpenCode shared chat presentation", () => {
       providerID: "provider",
       name: "Test model",
       enabled: true,
+      capabilities: {
+        tools: true,
+        input: ["text", "image"],
+        output: ["text"],
+      },
       cost: [{ input: 0, output: 0 }],
       limit: { context: 1000 },
     } as ModelInfo;
@@ -71,6 +76,22 @@ describe("OpenCode shared chat presentation", () => {
     expect(result.providerId).toBe("harness:opencode");
     expect(result.providerLabel).toBe("OpenCode (Harness)");
     expect(result.isFree).toBe(true);
+    expect(result.supportsTools).toBe(true);
+    expect(result.supportsImageInput).toBe(true);
+    expect(result.supportsAudioInput).toBe(false);
+    expect(result.supportsVideoInput).toBe(false);
+  });
+
+  it("treats a model without capability metadata as text-only", () => {
+    const model = {
+      id: "legacy",
+      providerID: "provider",
+      name: "Legacy model",
+      enabled: true,
+      cost: [{ input: 0, output: 0 }],
+      limit: { context: 1000 },
+    } as ModelInfo;
+    const result = presentOpenCodeModel(model);
     expect(result.supportsTools).toBe(false);
     expect(result.supportsImageInput).toBe(false);
   });

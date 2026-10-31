@@ -23,6 +23,15 @@ vi.mock("@/providers/app-state", () => ({ useChat: () => state.direct }));
 vi.mock("@/providers/harness-state", () => ({
   useHarness: () => state.harness,
 }));
+vi.mock("@/providers/phone-bridge-state", () => ({
+  usePhoneBridge: () => ({
+    folder: null,
+    sharing: null,
+    pickFolder: vi.fn(),
+    start: vi.fn(),
+    clearFolder: vi.fn(),
+  }),
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();

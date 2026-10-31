@@ -9,8 +9,13 @@ import {
   type ReactNode,
 } from "react";
 import { fetch as expoFetch } from "expo/fetch";
+import { useSQLiteContext } from "expo-sqlite";
 import { AppState } from "react-native";
+import { createRepositories } from "@/core/db/database";
+import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
+import { useConfig as useDirectConfig } from "@/providers/app-state";
+import { buildOpenCodePromptFiles } from "@/modules/harnesses/opencode-attachments";
 import {
   attachOpenCodePhoneTools,
   PhoneToolsConnectionError,
@@ -47,9 +52,12 @@ import {
 } from "@/modules/harnesses/opencode-presentation";
 
 function useHarnessController() {
+  const database = useSQLiteContext();
+  const directConfig = useDirectConfig();
   const phoneBridge = usePhoneBridge();
   const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
   const [phoneToolsError, setPhoneToolsError] = useState<string | null>(null);
+  const [selectedFileIds, setSelectedFileIdsState] = useState<string[]>([]);
   const phoneBindings = useRef(
     new WeakMap<OpenCodeClient, Map<string, Promise<void>>>(),
   );
@@ -287,6 +295,7 @@ function useHarnessController() {
     setError(null);
     setSessionID(id);
     setSelectedAgentID(null);
+    setSelectedFileIdsState([]);
     setActive(true);
     if (session?.model) {
       const model = models.find(
@@ -488,8 +497,6 @@ function useHarnessController() {
   }, [client, status, sharedPhone?.id]);
 
   const sendMessage = async (input: SendMessageInput) => {
-    if (input.selectedFileIds?.length)
-      throw new Error("Phone attachments are not shared with OpenCode.");
     await mutate(async (api, signal) => {
       let id = sessionID;
       if (!id) {
@@ -517,29 +524,83 @@ function useHarnessController() {
         const session = await api.session.get({ sessionID: id }, { signal });
         await ensurePhoneTools(api, session.location.directory, signal);
       }
+
+      // The harness host cannot read phone paths, so selected files travel as
+      // self-contained data URLs. This keeps the same composer attachments the
+      // direct agent accepts usable with OpenCode.
+      let text = input.content;
+      let files: Awaited<
+        ReturnType<typeof buildOpenCodePromptFiles>
+      >["files"] = [];
+      if (input.selectedFileIds?.length) {
+        const selected =
+          await createRepositories(database).workspaceRepository.getByIds(
+            input.selectedFileIds,
+          );
+        const attachment = await buildOpenCodePromptFiles({
+          files: selected,
+          resolveFile: resolveWorkspaceFile,
+          signal,
+        });
+        files = attachment.files;
+        if (attachment.skipped.length)
+          text += `\n\n[Not attached: ${attachment.skipped.join(", ")}. Files over 20 MB or missing from the workspace are skipped.]`;
+      }
+
       await api.session.prompt(
         {
           sessionID: id,
-          text: input.content,
+          text,
+          files: files.length ? files : undefined,
           delivery: input.delivery === "steer" ? "steer" : "queue",
         },
         { signal },
       );
+      setSelectedFileIdsState([]);
     });
   };
 
   const permission =
     snapshot?.session.id === sessionID ? snapshot.permissions[0] : undefined;
-  const pendingToolApproval: PendingToolApproval | null = permission
-    ? {
-        id: permission.id,
-        toolName: permission.action,
-        inputSummary: permission.resources.join("\n"),
-        chatTitle: currentConversation?.title ?? "OpenCode",
-        conversationId: sessionID!,
-        runId: sessionID!,
-      }
-    : null;
+  const approvalMode = currentConversation
+    ? (directConfig.conversationApprovalModes?.[currentConversation.id] ??
+      "ask")
+    : "ask";
+  // "Always allow" is stored per chat by the shared approval drawer. OpenCode
+  // still owns the permission, so reply once per request instead of writing a
+  // broader saved permission into the harness.
+  const [autoApproveFailure, setAutoApproveFailure] = useState<string | null>(
+    null,
+  );
+  const approvedToolsForChat = currentConversation
+    ? (directConfig.conversationApprovedTools?.[currentConversation.id] ?? [])
+    : [];
+  const autoApprove =
+    approvalMode === "auto" ||
+    (permission ? approvedToolsForChat.includes(permission.action) : false);
+  const autoApprovePermissionID = autoApprove ? permission?.id : undefined;
+  useEffect(() => {
+    if (!autoApprovePermissionID || !client || !sessionID) return;
+    void client.permission
+      .reply({
+        sessionID,
+        requestID: autoApprovePermissionID,
+        decision: "once",
+      })
+      .catch(() => setAutoApproveFailure(autoApprovePermissionID));
+  }, [autoApprovePermissionID, client, sessionID]);
+  const pendingToolApproval: PendingToolApproval | null =
+    permission &&
+    (!autoApprove || autoApproveFailure === permission.id)
+      ? {
+          id: permission.id,
+          toolName: permission.action,
+          inputSummary: permission.resources.join("\n"),
+          chatTitle: currentConversation?.title ?? "OpenCode",
+          conversationId: sessionID!,
+          runId: sessionID!,
+        }
+      : null;
   const form =
     snapshot?.session.id === sessionID ? snapshot.forms[0] : undefined;
   const pendingQuestionnaire = form
@@ -577,6 +638,9 @@ function useHarnessController() {
     currentConversation,
     messages,
     snapshot,
+    selectedFileIds,
+    setSelectedFileIds: async (fileIds: string[]) =>
+      setSelectedFileIdsState(fileIds),
     pendingToolApproval,
     pendingQuestionnaire,
     mutating,
@@ -594,11 +658,13 @@ function useHarnessController() {
       setActive(false);
       setSessionID(null);
       setSelectedAgentID(null);
+      setSelectedFileIdsState([]);
       setError(null);
     },
     newChat: async () => {
       setSessionID(null);
       setSelectedAgentID(null);
+      setSelectedFileIdsState([]);
       setError(null);
       return null;
     },

@@ -44,7 +44,12 @@ function MessageScrollerSeparator() {
 }
 
 const DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION = {
-  disabled: true,
+  // Long rows above the viewport are measured as they enter the recycle
+  // window. Preserve the visible message when those estimates shrink;
+  // otherwise Android clamps the old pixel offset to the new content end.
+  // Do not set autoscroll thresholds here: bottom-follow remains controlled
+  // by the user's drag state below, independently of position anchoring.
+  disabled: false,
 } as const;
 
 type ScrollState = {
@@ -202,8 +207,9 @@ export function MessageScrollerProvider({
     if (pendingScrollRef.current !== null) return;
     pendingScrollRef.current = requestAnimationFrame(() => {
       pendingScrollRef.current = null;
-      if (followingEndRef.current && !draggingRef.current)
+      if (followingEndRef.current && !draggingRef.current) {
         listRef.current?.getNativeScrollRef()?.scrollToEnd({ animated: false });
+      }
     });
   }, []);
 
@@ -376,6 +382,7 @@ function MessageScrollerListInner<ItemT>(
     onScroll,
     onScrollBeginDrag,
     onScrollEndDrag,
+    scrollsChildToFocus = false,
     scrollEventThrottle = 16,
     ...props
   }: MessageScrollerListProps<ItemT>,
@@ -434,6 +441,9 @@ function MessageScrollerListInner<ItemT>(
     [listRef, ref],
   );
 
+  // Android can scroll a newly focused selectable Text into view even while
+  // JS auto-follow is paused (react-native#33440). Disable focus scrolling,
+  // not text selection; gestures and explicit actions still position the list.
   return (
     <FlashList<ItemT>
       ref={handleRef}
@@ -443,6 +453,7 @@ function MessageScrollerListInner<ItemT>(
       drawDistance={drawDistance}
       ItemSeparatorComponent={ItemSeparatorComponent}
       keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+      scrollsChildToFocus={scrollsChildToFocus}
       maintainVisibleContentPosition={maintainVisibleContentPosition}
       onContentSizeChange={handleContentSizeChange}
       onLayout={handleLayout}

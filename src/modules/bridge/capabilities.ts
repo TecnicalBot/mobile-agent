@@ -90,6 +90,14 @@ export async function createPhoneBridgeCapabilities(input: {
       ["renderVideo", false],
       ["previewScene", false],
       ["previewMix", false],
+      // Local media tools are safe to share and are referenced by the
+      // renderVideo contract and html-video skill. Omitting them made the
+      // harness announce a tool call the bridge never exposed, which ended the
+      // turn without a response.
+      ["analyzeAudio", false],
+      ["transcribeAudio", false],
+      ["textToSpeech", false],
+      ["listVoices", true],
     ];
     for (const [name, readOnly] of workspaceTools)
       tools.push(adaptAiBridgeTool(name, workspace[name], readOnly));

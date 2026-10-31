@@ -37,6 +37,10 @@ import { useOpenCode } from "@/hooks/use-opencode";
 import { makeOpenCodeClient } from "@/modules/harnesses/opencode";
 import { readOpenCodeAgents } from "@/modules/harnesses/opencode-agents";
 import {
+  OPENCODE_CONTINUATION_PROMPT,
+  openCodeStalledAssistant,
+} from "@/modules/harnesses/opencode-recovery";
+import {
   loadOpenCodeConnection,
   saveOpenCodeConnection,
   type SavedOpenCodeConnection,
@@ -83,11 +87,18 @@ function useHarnessController() {
   const connection = useRef<SavedOpenCodeConnection | null>(null);
   const generation = useRef(0);
   const mutation = useRef(false);
+  const wasRunning = useRef(false);
+  const recoveredUserMessageID = useRef<string | null>(null);
   const {
     snapshot,
     error: streamError,
     refresh,
   } = useOpenCode(client, active ? sessionID : null);
+
+  useEffect(() => {
+    wasRunning.current = false;
+    recoveredUserMessageID.current = null;
+  }, [sessionID]);
 
   const connect = useCallback(async () => {
     const epoch = ++generation.current;
@@ -230,6 +241,50 @@ function useHarnessController() {
       setSelectedAgentID(snapshot.session.agent ?? null);
     }
   }, [snapshot?.session.id, snapshot?.session.agent, sessionID]);
+
+  // OpenCode can end a turn with no text and no tool call (reasoning-only or
+  // completely empty). Treat that as a stall, not a successful answer, and
+  // resume once per user message with a hidden synthetic prompt. Reacting only
+  // after we observed the session running avoids resurrecting old sessions that
+  // were opened with a historical empty stop.
+  useEffect(() => {
+    if (!client || !sessionID || snapshot?.session.id !== sessionID) return;
+    if (snapshot.running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current) return;
+    const stalled = openCodeStalledAssistant(snapshot.messages);
+    if (!stalled) {
+      wasRunning.current = false;
+      return;
+    }
+    const lastUser = [...snapshot.messages]
+      .reverse()
+      .find((message) => message.type === "user");
+    const recoveryKey = lastUser?.id ?? "no-user-message";
+    if (recoveredUserMessageID.current === recoveryKey) return;
+    recoveredUserMessageID.current = recoveryKey;
+    wasRunning.current = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    void client.session
+      .synthetic(
+        {
+          sessionID,
+          text: OPENCODE_CONTINUATION_PROMPT,
+          delivery: "queue",
+          resume: true,
+        },
+        { signal: controller.signal },
+      )
+      .catch(() => {
+        setError(
+          "OpenCode stopped before finishing the response. Continue the chat to retry.",
+        );
+      })
+      .finally(() => clearTimeout(timeout));
+  }, [client, sessionID, snapshot]);
 
   const disconnect = useCallback(() => {
     generation.current++;

@@ -218,6 +218,11 @@ describe("transcribeAudio tool", () => {
       status: "completed",
       mediaResult: { sourceFileId: "file-1", resultFileId: "saved-transcript" },
     });
+    // The trace preview is what the user sees, so it must carry timings rather
+    // than a plain-text transcript.
+    expect(records.at(-1)?.preview?.text).toContain(
+      "[0.00s → 1.50s] hello world",
+    );
     expect(out).toMatchObject({ resultFileId: "saved-transcript", resultLink: "workspace://saved-transcript" });
     expect(JSON.parse(mocks.createTextFile.mock.calls.at(-1)![0].content)).toMatchObject({
       text: "hello world", segments: TRANSCRIPT.segments,
@@ -335,6 +340,28 @@ describe("transcribeAudio tool", () => {
     )) as Record<string, unknown>;
 
     expect(out).toMatchObject({ engine: "system", segmentCount: 0 });
+    expect(String(out.warning)).toMatch(/no timed `segments`/);
+  });
+
+  it("warns when Whisper returns text without timed segments", async () => {
+    unsubscribe = subscribeAudioAnalysis((job) => {
+      job.resolve({ summary: SUMMARY, pcm: { base64: "AAAA", sampleRate: 16000 } });
+    });
+    mocks.transcribePcm16.mockResolvedValue({
+      ...TRANSCRIPT,
+      segments: [],
+    });
+
+    const tool = createTranscribeAudioTool({
+      repository: repository(mp3Record),
+      onRecord: () => {},
+    });
+    const out = (await tool.execute!(
+      { fileId: "file-1" },
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(out).toMatchObject({ engine: "whisper", segmentCount: 0 });
     expect(String(out.warning)).toMatch(/no timed `segments`/);
   });
 

@@ -82,7 +82,7 @@ export function createTranscribeAudioTool({
         .enum(["whisper", "system"])
         .optional()
         .describe(
-          'Which recognizer to use. "whisper" (default) uses the downloaded on-device models and always returns timed segments. "system" uses the device\'s own recognizer (Android 13+), which is sometimes more accurate but only returns timed segments on Android 14+ with the on-device speech model.',
+          'Which recognizer to use. "whisper" (default) uses the downloaded on-device models and normally returns timed segments; if a model returns text without segment timings, the result includes a warning. "system" uses the device\'s own recognizer (Android 13+), which is sometimes more accurate but only returns timed segments on Android 14+ with the on-device speech model.',
         ),
     }),
     execute: async ({ fileId, language, maxSeconds, engine }, { abortSignal }) => {
@@ -127,22 +127,6 @@ export function createTranscribeAudioTool({
               },
             );
 
-        const output: Record<string, unknown> = {
-          fileId: record.id,
-          displayName: record.displayName,
-          engine: useSystem ? "system" : "whisper",
-          language: transcript.language,
-          duration: transcript.duration,
-          text: transcript.text,
-          segmentCount: transcript.segments.length,
-          segments: transcript.segments,
-        };
-        if (transcript.sourceDuration != null) {
-          output.sourceDuration = transcript.sourceDuration;
-        }
-        if (transcript.truncated) {
-          output.truncated = true;
-        }
         const warnings: string[] = [];
         if (transcript.truncated && transcript.sourceDuration != null) {
           warnings.push(
@@ -154,10 +138,38 @@ export function createTranscribeAudioTool({
             'The system recognizer did not report word timings on this device, so there are no timed `segments` (captions cannot be placed from this result). Re-run with engine "whisper" if you need timings.',
           );
         }
-        if (warnings.length > 0) {
-          output.warning = warnings.join(" ");
+        if (
+          !useSystem &&
+          transcript.text.trim() &&
+          transcript.segments.length === 0
+        ) {
+          warnings.push(
+            "Whisper returned text but no timed `segments` for this file, so captions cannot be placed from this result. Try a clearer recording or a different Whisper model; the plain `text` is still usable.",
+          );
         }
 
+        // Warnings and timings come before the full text on purpose. Tool-result
+        // consumers (including OpenCode's MCP bridge) can truncate large JSON
+        // payloads; keeping `segments` early means captions survive that
+        // truncation. The saved JSON and trace preview also show timings
+        // directly instead of making the agent infer them from plain text.
+        const output: Record<string, unknown> = {
+          fileId: record.id,
+          displayName: record.displayName,
+          engine: useSystem ? "system" : "whisper",
+          language: transcript.language,
+          duration: transcript.duration,
+          ...(transcript.sourceDuration != null
+            ? { sourceDuration: transcript.sourceDuration }
+            : {}),
+          ...(transcript.truncated ? { truncated: true } : {}),
+          ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
+          segmentCount: transcript.segments.length,
+          segments: transcript.segments,
+          text: transcript.text,
+        };
+
+        const previewText = formatTranscriptPreview(transcript);
         const mediaResult = await saveMediaResult(repository, record, "transcript", output);
         if (mediaResult) {
           output.resultFileId = mediaResult.resultFileId;
@@ -169,7 +181,11 @@ export function createTranscribeAudioTool({
             status: "completed",
             inputSummary,
             mediaResult,
-            preview: { title: record.displayName, text: transcript.text.slice(0, 20000), truncated: transcript.text.length > 20000 },
+            preview: {
+              title: record.displayName,
+              text: previewText.slice(0, 20000),
+              truncated: previewText.length > 20000,
+            },
             outputSummary: summarizeValue(output),
           }),
         );
@@ -318,6 +334,28 @@ function inlineBudgetError(
 
 function round1(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+/** Keep the captured trace/transcript readable and visibly timed. */
+export function formatTranscriptPreview(transcript: {
+  text: string;
+  segments: { start: number; end: number; text: string }[];
+}) {
+  if (transcript.segments.length === 0) return transcript.text;
+  return transcript.segments
+    .map(
+      (segment) =>
+        `[${formatTimestamp(segment.start)} → ${formatTimestamp(segment.end)}] ${segment.text}`,
+    )
+    .join("\n");
+}
+
+function formatTimestamp(seconds: number) {
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  if (safe < 60) return `${safe.toFixed(2)}s`;
+  const minutes = Math.floor(safe / 60);
+  const remainder = safe - minutes * 60;
+  return `${minutes}:${remainder.toFixed(2).padStart(5, "0")}`;
 }
 
 function stripScheme(uri: string) {

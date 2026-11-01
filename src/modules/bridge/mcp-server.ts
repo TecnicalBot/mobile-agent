@@ -6,11 +6,36 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { isAllowedBridgeHost } from "./reach";
-import type { BridgeApproval, BridgeOptions } from "./types";
+import type { BridgeApproval, BridgeContent, BridgeOptions } from "./types";
 
 const MAX_SESSIONS = 8;
 const MAX_CONCURRENT_CALLS = 4;
 const MAX_BODY = 2_500_000;
+const MAX_RESULT_TEXT = 1_000_000;
+/** Base64 is ~4/3 the raw size. Keep one result from exhausting the JS heap. */
+const MAX_RESULT_MEDIA_BASE64 = 12_000_000;
+
+function resultContent(output: unknown): BridgeContent[] {
+  const text =
+    typeof output === "string"
+      ? output
+      : JSON.stringify(output ?? null, (_key, value) =>
+          value instanceof Uint8Array
+            ? `[${value.byteLength} bytes]`
+            : value,
+        );
+  return [{ type: "text", text }];
+}
+
+function contentSize(content: BridgeContent[]) {
+  let text = 0;
+  let media = 0;
+  for (const part of content) {
+    if (part.type === "text") text += part.text.length;
+    else media += part.data.length;
+  }
+  return { text, media };
+}
 
 function parseErrorResponse() {
   return new Response(
@@ -169,11 +194,28 @@ export function createBridgeMcpServer(options: BridgeOptions) {
           ? await execute()
           : await runWrite(execute);
         if (extra.signal.aborted) throw new Error("Cancelled");
-        const text =
-          typeof output === "string" ? output : JSON.stringify(output ?? null);
-        if (text.length > 1_000_000)
+        const converted = await tool.toContent?.(input, output);
+        const content =
+          converted && converted.length > 0
+            ? converted
+            : resultContent(output);
+        const { text, media } = contentSize(content);
+        if (text > MAX_RESULT_TEXT)
           return fail("Result is too large. Read a smaller range instead.");
-        return { content: [{ type: "text" as const, text }] };
+        if (media > MAX_RESULT_MEDIA_BASE64) {
+          // Keep any explanatory text rather than failing the whole call. The
+          // model can fall back to ocr or ask for a smaller file.
+          const fallback = content.filter(
+            (part): part is Extract<BridgeContent, { type: "text" }> =>
+              part.type === "text",
+          );
+          fallback.push({
+            type: "text",
+            text: "[The attached media is too large to send over the phone bridge.]",
+          });
+          return { content: fallback };
+        }
+        return { content };
       } catch {
         // Native exceptions can contain filesystem paths, credentials, or internal state.
         return fail(

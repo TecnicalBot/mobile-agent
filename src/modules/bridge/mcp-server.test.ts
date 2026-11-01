@@ -32,7 +32,7 @@ function reactNativeRequest(
   return request;
 }
 
-function setup(allow = true) {
+function setup(allow = true, overrides: Partial<BridgeTool> = {}) {
   const execute = vi.fn(async (input: unknown) => ({ value: input }));
   const approve = vi.fn(async () => allow);
   const tool: BridgeTool = {
@@ -55,6 +55,7 @@ function setup(allow = true) {
       return input;
     },
     execute,
+    ...overrides,
   };
   let id = 0;
   const bridge = createBridgeMcpServer({
@@ -93,6 +94,31 @@ describe("shared phone MCP bridge", () => {
       expect(response.isError).not.toBe(true);
       expect(execute).toHaveBeenCalledOnce();
       expect(approve).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+      await bridge.close();
+    }
+  });
+
+  it("returns image content blocks for media tools", async () => {
+    const { bridge, client, transport } = setup(true, {
+      toContent: async () => [
+        { type: "text", text: "File screenshot.png" },
+        { type: "image", data: "AQID", mimeType: "image/png" },
+      ],
+    });
+    try {
+      await client.connect(transport);
+      const response = await client.callTool({
+        name: "phoneFolderRead",
+        arguments: { path: "screenshot.png" },
+      });
+
+      expect(response.isError).not.toBe(true);
+      expect(response.content).toEqual([
+        { type: "text", text: "File screenshot.png" },
+        { type: "image", data: "AQID", mimeType: "image/png" },
+      ]);
     } finally {
       await client.close();
       await bridge.close();

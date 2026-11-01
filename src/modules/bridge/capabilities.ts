@@ -38,7 +38,9 @@ export async function createPhoneBridgeCapabilities(input: {
     const folder = createExternalFolderTools({
       session: grant.folder,
       onRecord,
-      supportsImageInput: false,
+      // The bridge now forwards image bytes as MCP image content. The harness
+      // decides whether its selected model can consume them.
+      supportsImageInput: true,
     }).tools;
     // The folder grant is already the user's consent to read and edit this
     // tree. Expose the same file operations the direct agent has instead of a
@@ -66,7 +68,10 @@ export async function createPhoneBridgeCapabilities(input: {
     const workspace = createWorkspaceTools({
       repository: repositories.workspaceRepository,
       onRecord,
-      supportsImageInput: false,
+      // viewFile/getVideoFrame/previewScene use this to return bytes instead of
+      // telling the harness model it cannot see images. adaptAiBridgeTool then
+      // converts those bytes into real MCP image content blocks.
+      supportsImageInput: true,
     }).tools;
     // Keep the network-facing tools out of the bridge. The workspace grant is
     // about files and media the user already has on the phone.

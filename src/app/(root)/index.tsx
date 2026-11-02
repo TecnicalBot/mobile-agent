@@ -264,7 +264,7 @@ export default function Screen() {
   const router = useRouter();
   const theme = useTheme();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
-  const { error, ready } = useAppState();
+  const { error } = useAppState();
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
   const {
     activeModels,
@@ -318,6 +318,7 @@ export default function Screen() {
     skills,
     workspaceFiles,
     importFiles,
+    ready,
     refreshWorkspaceFiles,
     reasoningEffort,
     savedPrompts,

@@ -150,6 +150,45 @@ describe("OpenCode shared chat presentation", () => {
     );
   });
 
+  it("keeps the latest completed step streaming while the session is still running", () => {
+    const messages = [
+      {
+        id: "msg_user",
+        type: "user",
+        text: "Do the task",
+        time: { created: 1 },
+      },
+      {
+        id: "msg_step_1",
+        type: "assistant",
+        agent: "build",
+        time: { created: 2, completed: 3 },
+        content: [{ type: "text", text: "First step." }],
+      },
+      {
+        id: "msg_step_2",
+        type: "assistant",
+        agent: "build",
+        time: { created: 4, completed: 5 },
+        content: [{ type: "text", text: "Second step." }],
+      },
+    ] as SessionMessageInfo[];
+
+    const whileRunning = presentOpenCodeMessages(messages, "ses_1", true);
+    expect(whileRunning.map((message) => message.status)).toEqual([
+      "completed",
+      "completed",
+      "streaming",
+    ]);
+
+    const afterStop = presentOpenCodeMessages(messages, "ses_1", false);
+    expect(afterStop.map((message) => message.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+    ]);
+  });
+
   it("keeps session IDs and message IDs stable across snapshot reconciliation", () => {
     const messages = [
       { id: "msg_user", type: "user", text: "Hello", time: { created: 1 } },

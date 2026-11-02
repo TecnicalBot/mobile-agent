@@ -121,6 +121,14 @@ export function presentOpenCodeMessages(
   sessionID: string,
   running: boolean,
 ): StoredMessage[] {
+  // OpenCode emits one assistant message per step. A step can be marked
+  // completed while the session is still running and the next step has not
+  // arrived yet. Treat the latest assistant as streaming for the whole turn so
+  // the UI keeps its loader and does not show the "finished" footer in that gap.
+  const lastAssistantID = [...messages]
+    .reverse()
+    .find((message) => message.type === "assistant")?.id;
+
   return messages.flatMap((message, sequence): StoredMessage[] => {
     if (message.type !== "user" && message.type !== "assistant") return [];
     const createdAt = new Date(message.time.created).toISOString();
@@ -233,7 +241,9 @@ export function presentOpenCodeMessages(
         status:
           message.type === "assistant" && message.error
             ? "failed"
-            : message.type === "assistant" && running && !message.time.completed
+            : message.type === "assistant" &&
+                running &&
+                message.id === lastAssistantID
               ? "streaming"
               : "completed",
         error:

@@ -4,6 +4,7 @@ import { useChat } from "./use-chat";
 const state = vi.hoisted(() => ({
   direct: {
     conversationAgentName: "build",
+    ready: true,
     agents: [{ id: "local-only", name: "Local agent" }],
     setConversationAgent: vi.fn(),
     selectConversation: vi.fn(),
@@ -12,6 +13,7 @@ const state = vi.hoisted(() => ({
   harness: {
     active: true,
     sessionID: "remote-session",
+    loading: false,
     currentAgentID: "plan",
     currentAgentName: "plan",
     agents: [{ id: "plan", name: "plan" }],
@@ -32,7 +34,10 @@ const state = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/providers/app-state", () => ({ useChat: () => state.direct }));
+vi.mock("@/providers/app-state", () => ({
+  useAppState: () => ({ ready: state.direct.ready }),
+  useChat: () => state.direct,
+}));
 vi.mock("@/providers/harness-state", () => ({
   useHarness: () => state.harness,
 }));
@@ -81,6 +86,21 @@ describe("unified chat and device approval controls", () => {
     state.bridge.sharing = null;
     expect(useChat().deviceSharingApprovalMode).toBeNull();
     expect(state.bridge.setApprovalMode).not.toHaveBeenCalled();
+  });
+});
+
+describe("shared chat loading", () => {
+  it("keeps the chat loader visible while a harness session snapshot loads", () => {
+    state.harness.loading = true;
+    expect(useChat().ready).toBe(false);
+    state.harness.loading = false;
+    expect(useChat().ready).toBe(true);
+  });
+
+  it("does not let harness loading hide direct chats", () => {
+    state.harness.active = false;
+    state.harness.loading = true;
+    expect(useChat().ready).toBe(true);
   });
 });
 

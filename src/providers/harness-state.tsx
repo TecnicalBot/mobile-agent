@@ -372,6 +372,16 @@ function useHarnessController() {
     snapshot?.session.id === sessionID
       ? snapshot.session
       : sessions.find((session) => session.id === sessionID);
+  // Selecting a remote session leaves the previous snapshot in place until
+  // useOpenCode replaces it. Keep the chat loader visible for that gap instead
+  // of rendering the old conversation as if it were the selected one.
+  const loading = Boolean(
+    active &&
+      sessionID &&
+      snapshot?.session.id !== sessionID &&
+      !error &&
+      !streamError,
+  );
   const currentConversation: Conversation | null = currentSession
     ? presentOpenCodeConversation(currentSession)
     : null;
@@ -699,6 +709,7 @@ function useHarnessController() {
     pendingToolApproval,
     pendingQuestionnaire,
     mutating,
+    loading,
     connectPhoneTools,
     phoneToolsError,
     phoneToolsEnabled: phoneToolsEnabled && Boolean(phoneBridge.sharing),

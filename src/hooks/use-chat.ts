@@ -1,10 +1,14 @@
-import { useChat as useDirectChat } from "@/providers/app-state";
+import {
+  useAppState as useDirectAppState,
+  useChat as useDirectChat,
+} from "@/providers/app-state";
 import { useHarness } from "@/providers/harness-state";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
 import type { AgentRun, ToolApprovalMode } from "@/core/types/app-state";
 
 export function useChat() {
   const direct = useDirectChat();
+  const directApp = useDirectAppState();
   const harness = useHarness();
   const phoneBridge = usePhoneBridge();
   const approvalControls = {
@@ -23,8 +27,9 @@ export function useChat() {
     harness.deactivate();
     await direct.selectConversation(id);
   };
+  const ready = directApp.ready && !(harness.active && harness.loading);
   if (!harness.active)
-    return { ...direct, ...approvalControls, selectConversation };
+    return { ...direct, ...approvalControls, selectConversation, ready };
   const runStatus: AgentRun["status"] | null = harness.pendingToolApproval
     ? "waiting_for_approval"
     : harness.pendingQuestionnaire
@@ -39,6 +44,7 @@ export function useChat() {
     ...direct,
     ...approvalControls,
     selectConversation,
+    ready,
     currentConversation: harness.currentConversation,
     currentConversationRunStatus: runStatus,
     messages: harness.messages,

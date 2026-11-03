@@ -96,6 +96,7 @@ export function AppSidebar() {
     conversations,
     createConversation,
     currentConversation,
+    currentConversationRunStatus,
     deleteConversation,
     renameConversation,
     runStatusByConversation,
@@ -119,7 +120,9 @@ export function AppSidebar() {
     [conversations],
   );
   const pinnedCount = pinnedConversations.length;
-  const currentConversationId = currentConversation?.id;
+  const currentConversationId = harness.active
+    ? (harness.linkedConversationId ?? currentConversation?.id)
+    : currentConversation?.id;
 
   const handleExportConversation = useCallback((conversationId: string) => {
     setExportConversationId(conversationId);
@@ -168,7 +171,11 @@ export function AppSidebar() {
         onSelect={handleSelectConversation}
         onTogglePin={handleTogglePin}
         pinnedCount={pinnedCount}
-        runStatus={runStatusByConversation[conversation.id]}
+        runStatus={
+          harness.active && harness.linkedConversationId === conversation.id
+            ? currentConversationRunStatus
+            : runStatusByConversation[conversation.id]
+        }
       />
     );
   }

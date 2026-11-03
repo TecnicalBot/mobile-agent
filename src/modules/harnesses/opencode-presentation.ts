@@ -116,10 +116,19 @@ export function presentOpenCodeConversation(
   };
 }
 
+/** Stable local ID for a remote message, including rows the chat UI omits. */
+export function openCodeStoredMessageID(message: SessionMessageInfo): string {
+  return typeof message.metadata?.mobileAgentMessageId === "string"
+    ? message.metadata.mobileAgentMessageId
+    : message.id;
+}
+
 export function presentOpenCodeMessages(
   messages: SessionMessageInfo[],
   sessionID: string,
   running: boolean,
+  conversationId = sessionID,
+  includeSystem = false,
 ): StoredMessage[] {
   // OpenCode emits one assistant message per step. A step can be marked
   // completed while the session is still running and the next step has not
@@ -130,8 +139,29 @@ export function presentOpenCodeMessages(
     .find((message) => message.type === "assistant")?.id;
 
   return messages.flatMap((message, sequence): StoredMessage[] => {
+    if (message.type === "system") {
+      if (!includeSystem) return [];
+      const createdAt = new Date(message.time.created).toISOString();
+      return [
+        {
+          id: openCodeStoredMessageID(message),
+          conversationId,
+          role: "system",
+          content: message.text,
+          metadata: null,
+          status: "completed",
+          error: null,
+          sequence,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ];
+    }
     if (message.type !== "user" && message.type !== "assistant") return [];
     const createdAt = new Date(message.time.created).toISOString();
+    // Imported transcripts keep a pointer to the local message so switching
+    // back and forth does not duplicate rows or break message references.
+    const storedMessageID = openCodeStoredMessageID(message);
     let content = "";
     const tools: ToolExecutionRecord[] = [];
     const generatedVideos: GeneratedVideoAttachment[] = [];
@@ -145,7 +175,7 @@ export function presentOpenCodeMessages(
         if (part.type === "text") content += part.text;
         else if (part.type === "reasoning")
           reasoning.push({
-            id: `${message.id}:reasoning:${index}`,
+            id: `${storedMessageID}:reasoning:${index}`,
             text: part.text,
             textOffset: content.length,
             traceOrder: index,
@@ -227,8 +257,8 @@ export function presentOpenCodeMessages(
       });
     return [
       {
-        id: message.id,
-        conversationId: sessionID,
+        id: storedMessageID,
+        conversationId: conversationId,
         role: message.type === "user" ? "user" : "assistant",
         content,
         metadata: {

@@ -273,6 +273,15 @@ type AppStateContextValue = {
         oauthAccountEmail?: string | null;
     }) => Promise<ProviderConfig>;
     createConversation: (input?: { agentId?: string | null }) => Promise<void>;
+    syncConversationMessages: (input: {
+        agentId?: string | null;
+        agentMode?: Conversation["agentMode"];
+        conversationId: string;
+        messages: StoredMessage[];
+        modelId?: string | null;
+        providerId?: string | null;
+        title?: string;
+    }) => Promise<void>;
     deleteProvider: (providerId: string) => Promise<void>;
     deleteConversation: (conversationId: string) => Promise<void>;
     createWorkspaceFile: (input: {
@@ -585,6 +594,7 @@ const CHAT_KEYS = [
     "createConversation",
     "importConversationJson",
     "exportConversationJson",
+    "syncConversationMessages",
     "currentConversation",
     "currentExternalFolderSession",
     "currentSelectedAgentId",
@@ -3555,6 +3565,163 @@ Your output must be:
         [hydrate],
     );
 
+    const syncConversationMessages = useCallback(
+        async (input: {
+            agentId?: string | null;
+            agentMode?: Conversation["agentMode"];
+            conversationId: string;
+            messages: StoredMessage[];
+            modelId?: string | null;
+            providerId?: string | null;
+            title?: string;
+        }) => {
+            const repositories = repositoriesRef.current;
+            const existing =
+                await repositories.conversationRepository.getById(
+                    input.conversationId,
+                );
+            const title =
+                input.title?.trim() || existing?.title || "Linked chat";
+
+            if (!existing) {
+                await repositories.conversationRepository.create({
+                    id: input.conversationId,
+                    title,
+                    providerId: input.providerId ?? null,
+                    modelId: input.modelId ?? null,
+                    agentId: input.agentId ?? null,
+                    agentMode: input.agentMode ?? "build",
+                    reasoningEffort: "medium",
+                    selectedFileIds: [],
+                    selectedMcpServerIds: null,
+                    selectedSkillIds: [],
+                    externalFolderSession: null,
+                    pinnedAt: null,
+                    archivedAt: null,
+                });
+            } else {
+                await repositories.conversationRepository.updateMetadata(
+                    input.conversationId,
+                    {
+                        title,
+                        providerId:
+                            input.providerId !== undefined
+                                ? input.providerId
+                                : existing.providerId,
+                        modelId:
+                            input.modelId !== undefined
+                                ? input.modelId
+                                : existing.modelId,
+                        agentId:
+                            input.agentId !== undefined
+                                ? input.agentId
+                                : existing.agentId,
+                        agentMode: input.agentMode ?? existing.agentMode,
+                    },
+                );
+            }
+
+            const currentRows =
+                await repositories.messageRepository.listByConversation(
+                    input.conversationId,
+                );
+            const currentByID = new Map(
+                currentRows.map((message) => [message.id, message]),
+            );
+            const incomingIDs = new Set(
+                input.messages.map((message) => message.id),
+            );
+
+            for (const row of currentRows) {
+                if (!incomingIDs.has(row.id)) {
+                    await repositories.messageRepository.delete(row.id);
+                }
+            }
+
+            for (let index = 0; index < input.messages.length; index += 1) {
+                const message = input.messages[index];
+                const sequence = index + 1;
+                const current = currentByID.get(message.id);
+
+                if (!current) {
+                    await repositories.messageRepository.create({
+                        id: message.id,
+                        conversationId: input.conversationId,
+                        content: message.content,
+                        createdAt: message.createdAt || undefined,
+                        error: message.error,
+                        metadata: message.metadata,
+                        role: message.role,
+                        sequence,
+                        status: message.status,
+                        updatedAt: message.updatedAt || undefined,
+                    });
+                    continue;
+                }
+
+                const changed =
+                    current.content !== message.content ||
+                    current.error !== message.error ||
+                    current.status !== message.status ||
+                    current.sequence !== sequence ||
+                    JSON.stringify(current.metadata ?? null) !==
+                        JSON.stringify(message.metadata ?? null);
+
+                if (changed) {
+                    await repositories.messageRepository.updateContent({
+                        id: message.id,
+                        content: message.content,
+                        error: message.error,
+                        metadata: message.metadata,
+                        sequence,
+                        status: message.status,
+                    });
+                }
+            }
+
+            const conversation =
+                await repositories.conversationRepository.getById(
+                    input.conversationId,
+                );
+            if (!conversation) return;
+            const messages =
+                await repositories.messageRepository.listByConversation(
+                    input.conversationId,
+                );
+
+            setSnapshot((current) => {
+                const isCurrent =
+                    current.currentConversation?.id === conversation.id;
+                const next = {
+                    ...current,
+                    conversations: upsertConversation(
+                        current.conversations,
+                        conversation,
+                    ),
+                    currentConversation: isCurrent
+                        ? conversation
+                        : current.currentConversation,
+                    messages: isCurrent ? messages : current.messages,
+                    currentSelectedAgentId: isCurrent
+                        ? conversation.agentId
+                        : current.currentSelectedAgentId,
+                    currentSelectedFileIds: isCurrent
+                        ? conversation.selectedFileIds
+                        : current.currentSelectedFileIds,
+                    currentSelectedMcpServerIds: isCurrent
+                        ? conversation.selectedMcpServerIds
+                        : current.currentSelectedMcpServerIds,
+                    currentSelectedSkillIds: isCurrent
+                        ? conversation.selectedSkillIds
+                        : current.currentSelectedSkillIds,
+                };
+                snapshotRef.current = next;
+                return next;
+            });
+        },
+        [],
+    );
+
     const createSavedPrompt = useCallback(
         async (
         input: {
@@ -5616,6 +5783,7 @@ Your output must be:
             createConversation,
             importConversationJson,
             exportConversationJson,
+            syncConversationMessages,
             currentConversation: snapshot.currentConversation,
             currentExternalFolderSession:
                 snapshot.currentConversation?.externalFolderSession ?? null,
@@ -5672,7 +5840,7 @@ Your output must be:
             setCurrentSelectedSkillIds,
             conversations: snapshot.conversations,
         }),
-        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
+        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, syncConversationMessages, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
     );
     const configValue = useMemo(
         (): ConfigContextValue => ({
@@ -5987,6 +6155,7 @@ export function useChat() {
         exportAgentMarkdown: config.exportAgentMarkdown,
         importConversationJson: chat.importConversationJson,
         exportConversationJson: chat.exportConversationJson,
+        syncConversationMessages: chat.syncConversationMessages,
         setCurrentSelectedFileIds: chat.setCurrentSelectedFileIds,
         setCurrentSelectedMcpServerIds: config.setCurrentSelectedMcpServerIds,
         setCurrentSelectedSkillIds: chat.setCurrentSelectedSkillIds,

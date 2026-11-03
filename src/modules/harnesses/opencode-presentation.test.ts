@@ -200,6 +200,75 @@ describe("OpenCode shared chat presentation", () => {
       content: "Hello",
     });
   });
+
+  it("keeps system rows out of the chat UI but available for transcript sync", () => {
+    const messages = [
+      {
+        id: "msg_system",
+        type: "system",
+        text: "Instructions",
+        time: { created: 1 },
+        metadata: { mobileAgentMessageId: "local-system" },
+      },
+      {
+        id: "msg_user",
+        type: "user",
+        text: "Hello",
+        time: { created: 2 },
+        metadata: { mobileAgentMessageId: "local-user" },
+      },
+    ] as SessionMessageInfo[];
+
+    expect(
+      presentOpenCodeMessages(messages, "ses_1", false).map(
+        (message) => message.role,
+      ),
+    ).toEqual(["user"]);
+    expect(
+      presentOpenCodeMessages(messages, "ses_1", false, "chat_1", true).map(
+        (message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+        }),
+      ),
+    ).toEqual([
+      { id: "local-system", role: "system", content: "Instructions" },
+      { id: "local-user", role: "user", content: "Hello" },
+    ]);
+  });
+
+  it("maps imported messages back to the local conversation and message IDs", () => {
+    const messages = [
+      {
+        id: "msg_imported_user",
+        type: "user",
+        text: "Hello",
+        time: { created: 1 },
+        metadata: { mobileAgentMessageId: "local-user" },
+      },
+      {
+        id: "msg_imported_assistant",
+        type: "assistant",
+        agent: "build",
+        time: { created: 2, completed: 3 },
+        content: [{ type: "text", text: "Hi" }],
+        metadata: { mobileAgentMessageId: "local-assistant" },
+      },
+    ] as SessionMessageInfo[];
+
+    expect(
+      presentOpenCodeMessages(messages, "ses_remote", false, "chat_local").map(
+        (message) => ({
+          id: message.id,
+          conversationId: message.conversationId,
+        }),
+      ),
+    ).toEqual([
+      { id: "local-user", conversationId: "chat_local" },
+      { id: "local-assistant", conversationId: "chat_local" },
+    ]);
+  });
 });
 
 describe("OpenCode shared questionnaire adapter", () => {

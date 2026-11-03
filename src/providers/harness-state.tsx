@@ -8,13 +8,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import * as Crypto from "expo-crypto";
 import { fetch as expoFetch } from "expo/fetch";
 import { useSQLiteContext } from "expo-sqlite";
 import { AppState } from "react-native";
 import { createRepositories } from "@/core/db/database";
 import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
-import { useConfig as useDirectConfig } from "@/providers/app-state";
+import {
+  useChat as useDirectChat,
+  useConfig as useDirectConfig,
+} from "@/providers/app-state";
 import { buildOpenCodePromptFiles } from "@/modules/harnesses/opencode-attachments";
 import {
   attachOpenCodePhoneTools,
@@ -25,6 +29,7 @@ import type {
   ModelInfo,
   OpenCodeClient,
   SessionInfo,
+  SessionMessageInfo,
 } from "@opencode/client";
 import type {
   Conversation,
@@ -54,10 +59,35 @@ import {
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
 } from "@/modules/harnesses/opencode-presentation";
+import { createOpenCodeConversationAdapter } from "@/modules/harnesses/opencode-transfer";
+import {
+  findLinkBySession,
+  linkedSessionIDs,
+  loadHarnessConversationLinks,
+  removeHarnessConversationLink,
+  saveHarnessConversationLink,
+  type HarnessConversationLinks,
+} from "@/modules/harnesses/links";
+
+async function withTimeout<T>(
+  work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs = 20000,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await work(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function useHarnessController() {
   const database = useSQLiteContext();
+  const repositories = useMemo(() => createRepositories(database), [database]);
   const directConfig = useDirectConfig();
+  const directChat = useDirectChat();
+  const syncConversationMessages = directChat.syncConversationMessages;
   const phoneBridge = usePhoneBridge();
   const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
   const [phoneToolsError, setPhoneToolsError] = useState<string | null>(null);
@@ -71,6 +101,12 @@ function useHarnessController() {
     phoneBindings.current = new WeakMap();
   }, [phoneBridge.sharing?.id]);
   const [client, setClient] = useState<OpenCodeClient | null>(null);
+  const conversationAdapter = useMemo(
+    () => (client ? createOpenCodeConversationAdapter(client) : null),
+    [client],
+  );
+  const [links, setLinks] = useState<HarnessConversationLinks>({});
+  const linksRef = useRef<HarnessConversationLinks>({});
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [defaultAgentID, setDefaultAgentID] = useState<string | null>(null);
@@ -94,6 +130,25 @@ function useHarnessController() {
     error: streamError,
     refresh,
   } = useOpenCode(client, active ? sessionID : null);
+
+  useEffect(() => {
+    linksRef.current = links;
+  }, [links]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadHarnessConversationLinks(repositories)
+      .then((next) => {
+        if (!cancelled) {
+          linksRef.current = next;
+          setLinks(next);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [repositories]);
 
   useEffect(() => {
     wasRunning.current = false;
@@ -330,6 +385,276 @@ function useHarnessController() {
     [client, refresh],
   );
 
+  const syncSessionToLocal = useCallback(
+    async (input: {
+      conversationId: string;
+      rawMessages: SessionMessageInfo[];
+      session: SessionInfo;
+    }) => {
+      if (!conversationAdapter) return;
+      await syncConversationMessages({
+        conversationId: input.conversationId,
+        title: input.session.title || "OpenCode chat",
+        providerId: conversationAdapter.providerId,
+        modelId: input.session.model?.id ?? null,
+        agentId: input.session.agent ?? null,
+        agentMode: input.session.agent === "plan" ? "plan" : "build",
+        // A local mirror never owns the running state; the harness does.
+        // Completed/failed is safer than leaving a streaming row behind when
+        // the user switches to a direct model mid-turn.
+        messages: presentOpenCodeMessages(
+          input.rawMessages,
+          input.session.id,
+          false,
+          input.conversationId,
+          true,
+        ),
+      });
+    },
+    [conversationAdapter, syncConversationMessages],
+  );
+
+  const attachConversation = async (
+    conversationId: string,
+    ref: ModelRef,
+  ): Promise<void> => {
+    if (!client || !conversationAdapter)
+      throw new Error("Connect a harness before switching models.");
+    const model = models.find((item) => openCodeModelRef(item) === ref);
+    if (!model) throw new Error("OpenCode model is unavailable.");
+    const conversation =
+      await repositories.conversationRepository.getById(conversationId);
+    if (!conversation) throw new Error("Chat not found.");
+    const localMessages =
+      await repositories.messageRepository.listByConversation(conversationId);
+    const existing = linksRef.current[conversationId];
+    let nextSessionID: string | null = null;
+    let nextSession: SessionInfo | null = null;
+
+    if (existing && existing.providerId === conversationAdapter.providerId) {
+      // Only an export failure means the remote session is unusable. Local
+      // sync or metadata failures must not create a duplicate session.
+      const exported = await withTimeout((signal) =>
+        conversationAdapter.exportConversation(
+          { conversationId, sessionID: existing.sessionID },
+          signal,
+        ),
+      ).catch(() => null);
+      const remoteIDs = new Set(exported?.messageIDs ?? []);
+      if (
+        exported &&
+        localMessages.every((message) => remoteIDs.has(message.id))
+      ) {
+        nextSessionID = existing.sessionID;
+        nextSession = await withTimeout((signal) =>
+          client.session.get({ sessionID: existing.sessionID }, { signal }),
+        );
+        if ((nextSession.title ?? "") !== (conversation.title ?? "")) {
+          await withTimeout((signal) =>
+            client.session.update(
+              {
+                sessionID: existing.sessionID,
+                title: conversation.title || "Linked chat",
+              },
+              { signal },
+            ),
+          );
+          nextSession = {
+            ...nextSession,
+            title: conversation.title || "Linked chat",
+          };
+        }
+        // Keep remote-only messages that arrived after the last local sync.
+        await syncConversationMessages({
+          conversationId,
+          title: nextSession.title || exported.title,
+          providerId: conversationAdapter.providerId,
+          modelId: exported.model?.id ?? null,
+          agentId: exported.agent,
+          agentMode: exported.agent === "plan" ? "plan" : "build",
+          messages: exported.messages,
+        });
+      }
+    }
+
+    if (!nextSessionID) {
+      const importAgent =
+        conversation.agentId &&
+        agents.some((agent) => agent.id === conversation.agentId)
+          ? conversation.agentId
+          : defaultAgentID;
+      const imported = await withTimeout((signal) =>
+        conversationAdapter.importConversation(
+          {
+            conversationId,
+            title: conversation.title || "New chat",
+            messages: localMessages,
+            agent: importAgent,
+            agentMode: conversation.agentMode,
+            model: { id: model.id, providerID: model.providerID },
+            directory: connection.current?.directory,
+          },
+          signal,
+        ),
+      );
+      nextSessionID = imported.sessionID;
+      // Link the new session before any follow-up read or local sync. If one
+      // of those fails, the imported transcript is still discoverable instead
+      // of becoming an orphaned remote session.
+      const nextLinks = await saveHarnessConversationLink(repositories, {
+        conversationId,
+        providerId: conversationAdapter.providerId,
+        sessionID: imported.sessionID,
+      });
+      linksRef.current = nextLinks;
+      setLinks(nextLinks);
+      nextSession = await withTimeout((signal) =>
+        client.session.get({ sessionID: imported.sessionID }, { signal }),
+      );
+      if (existing && existing.providerId === conversationAdapter.providerId) {
+        await withTimeout(async (signal) => {
+          await conversationAdapter.archiveSession?.(
+            existing.sessionID,
+            signal,
+          );
+        }).catch(() => {});
+        setSessions((old) =>
+          old.filter((session) => session.id !== existing.sessionID),
+        );
+      }
+      await syncConversationMessages({
+        conversationId,
+        title: nextSession.title || conversation.title || "Linked chat",
+        providerId: conversationAdapter.providerId,
+        modelId: model.id,
+        agentId: importAgent,
+        agentMode: conversation.agentMode,
+        messages: localMessages,
+      });
+    }
+
+    if (
+      !nextSession?.model ||
+      nextSession.model.id !== model.id ||
+      nextSession.model.providerID !== model.providerID
+    ) {
+      await withTimeout((signal) =>
+        client.session.switchModel(
+          {
+            sessionID: nextSessionID!,
+            model: { id: model.id, providerID: model.providerID },
+          },
+          { signal },
+        ),
+      );
+      if (nextSession)
+        nextSession = {
+          ...nextSession,
+          model: { id: model.id, providerID: model.providerID },
+        };
+    }
+
+    if (nextSession) {
+      setSessions((old) => [
+        nextSession!,
+        ...old.filter((session) => session.id !== nextSession!.id),
+      ]);
+    }
+    setSelectedRef(ref);
+    setSelectedAgentID(nextSession?.agent ?? null);
+    setSelectedFileIdsState(conversation.selectedFileIds);
+    setActive(true);
+    setSessionID(nextSessionID);
+    setError(null);
+  };
+
+  const forgetConversation = async (conversationId: string): Promise<void> => {
+    const link = linksRef.current[conversationId];
+    if (
+      link &&
+      conversationAdapter &&
+      link.providerId === conversationAdapter.providerId
+    ) {
+      await withTimeout(async (signal) => {
+        await conversationAdapter.archiveSession?.(link.sessionID, signal);
+      }).catch(() => {});
+      setSessions((old) =>
+        old.filter((session) => session.id !== link.sessionID),
+      );
+    }
+    const nextLinks = await removeHarnessConversationLink(
+      repositories,
+      conversationId,
+    );
+    linksRef.current = nextLinks;
+    setLinks(nextLinks);
+  };
+
+  const renameLinkedConversation = async (
+    conversationId: string,
+    title: string,
+  ): Promise<void> => {
+    if (!client || !conversationAdapter) return;
+    const link = linksRef.current[conversationId];
+    if (!link || link.providerId !== conversationAdapter.providerId) return;
+    await mutate(async (api, signal) => {
+      await api.session.update(
+        { sessionID: link.sessionID, title },
+        { signal },
+      );
+    });
+    setSessions((old) =>
+      old.map((session) =>
+        session.id === link.sessionID ? { ...session, title } : session,
+      ),
+    );
+  };
+
+  const detachConversation = async (): Promise<string | null> => {
+    if (!client || !sessionID || !conversationAdapter) return null;
+    const link = findLinkBySession(
+      linksRef.current,
+      sessionID,
+      conversationAdapter.providerId,
+    );
+    const conversationId = link?.conversationId ?? Crypto.randomUUID();
+
+    if (snapshot?.session.id === sessionID) {
+      await syncSessionToLocal({
+        conversationId,
+        rawMessages: snapshot.messages,
+        session: snapshot.session,
+      });
+    } else {
+      const exported = await withTimeout((signal) =>
+        conversationAdapter.exportConversation(
+          { conversationId, sessionID },
+          signal,
+        ),
+      );
+      await syncConversationMessages({
+        conversationId,
+        title: exported.title,
+        providerId: conversationAdapter.providerId,
+        modelId: exported.model?.id ?? null,
+        agentId: exported.agent,
+        agentMode: exported.agent === "plan" ? "plan" : "build",
+        messages: exported.messages,
+      });
+    }
+
+    if (!link) {
+      const nextLinks = await saveHarnessConversationLink(repositories, {
+        conversationId,
+        providerId: conversationAdapter.providerId,
+        sessionID,
+      });
+      linksRef.current = nextLinks;
+      setLinks(nextLinks);
+    }
+    return conversationId;
+  };
+
   const selectModel = async (ref: ModelRef) => {
     const model = models.find((item) => openCodeModelRef(item) === ref);
     if (!model) throw new Error("OpenCode model is unavailable.");
@@ -377,10 +702,10 @@ function useHarnessController() {
   // of rendering the old conversation as if it were the selected one.
   const loading = Boolean(
     active &&
-      sessionID &&
-      snapshot?.session.id !== sessionID &&
-      !error &&
-      !streamError,
+    sessionID &&
+    snapshot?.session.id !== sessionID &&
+    !error &&
+    !streamError,
   );
   const currentConversation: Conversation | null = currentSession
     ? presentOpenCodeConversation(currentSession)
@@ -443,6 +768,39 @@ function useHarnessController() {
         : [],
     [snapshot, sessionID],
   );
+
+  const linkedConversationId = useMemo(() => {
+    if (!sessionID || !conversationAdapter) return null;
+    return (
+      findLinkBySession(links, sessionID, conversationAdapter.providerId)
+        ?.conversationId ?? null
+    );
+  }, [conversationAdapter, links, sessionID]);
+
+  const visibleSessions = useMemo(() => {
+    if (!conversationAdapter) return sessions;
+    const hidden = linkedSessionIDs(links, conversationAdapter.providerId);
+    return sessions.filter((session) => !hidden.has(session.id));
+  }, [conversationAdapter, links, sessions]);
+
+  // Persist the remote transcript when the harness becomes idle. The active
+  // chat remains remote-owned, but the local row is the thread that direct
+  // providers will continue from after a model switch.
+  useEffect(() => {
+    if (!conversationAdapter || !sessionID || !snapshot) return;
+    if (snapshot.session.id !== sessionID || snapshot.running) return;
+    const link = findLinkBySession(
+      links,
+      sessionID,
+      conversationAdapter.providerId,
+    );
+    if (!link) return;
+    void syncSessionToLocal({
+      conversationId: link.conversationId,
+      rawMessages: snapshot.messages,
+      session: snapshot.session,
+    }).catch(() => {});
+  }, [conversationAdapter, links, sessionID, snapshot, syncSessionToLocal]);
 
   const ensurePhoneTools = async (
     api: OpenCodeClient,
@@ -594,14 +952,12 @@ function useHarnessController() {
       // self-contained data URLs. This keeps the same composer attachments the
       // direct agent accepts usable with OpenCode.
       let text = input.content;
-      let files: Awaited<
-        ReturnType<typeof buildOpenCodePromptFiles>
-      >["files"] = [];
+      let files: Awaited<ReturnType<typeof buildOpenCodePromptFiles>>["files"] =
+        [];
       if (input.selectedFileIds?.length) {
-        const selected =
-          await createRepositories(database).workspaceRepository.getByIds(
-            input.selectedFileIds,
-          );
+        const selected = await repositories.workspaceRepository.getByIds(
+          input.selectedFileIds,
+        );
         const attachment = await buildOpenCodePromptFiles({
           files: selected,
           resolveFile: resolveWorkspaceFile,
@@ -655,8 +1011,7 @@ function useHarnessController() {
       .catch(() => setAutoApproveFailure(autoApprovePermissionID));
   }, [autoApprovePermissionID, client, sessionID]);
   const pendingToolApproval: PendingToolApproval | null =
-    permission &&
-    (!autoApprove || autoApproveFailure === permission.id)
+    permission && (!autoApprove || autoApproveFailure === permission.id)
       ? {
           id: permission.id,
           toolName: permission.action,
@@ -692,7 +1047,8 @@ function useHarnessController() {
     models,
     availableModels:
       status === "connected" ? models.map(presentOpenCodeModel) : [],
-    sessions,
+    sessions: visibleSessions,
+    linkedConversationId,
     client,
     sessionID,
     agents: agents.map(presentOpenCodeAgent),
@@ -716,6 +1072,10 @@ function useHarnessController() {
     connect,
     disconnect,
     selectModel,
+    attachConversation,
+    detachConversation,
+    forgetConversation,
+    renameLinkedConversation,
     selectSession,
     sendMessage,
     refresh,

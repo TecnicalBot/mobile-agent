@@ -24,12 +24,41 @@ export function useChat() {
     },
   };
   const selectConversation = async (id: string) => {
+    if (harness.active) {
+      try {
+        await harness.detachConversation();
+      } catch (error) {
+        console.error("Could not copy the harness transcript locally", error);
+      }
+    }
     harness.deactivate();
     await direct.selectConversation(id);
   };
+  const renameConversation = async (id: string, title: string) => {
+    await direct.renameConversation(id, title);
+    void harness.renameLinkedConversation(id, title).catch((error) => {
+      console.error("Could not rename the linked harness session", error);
+    });
+  };
+  const deleteConversation = async (id: string) => {
+    if (harness.active && harness.linkedConversationId === id) {
+      harness.deactivate();
+    }
+    await harness.forgetConversation(id).catch((error) => {
+      console.error("Could not archive the linked harness session", error);
+    });
+    await direct.deleteConversation(id);
+  };
   const ready = directApp.ready && !(harness.active && harness.loading);
   if (!harness.active)
-    return { ...direct, ...approvalControls, selectConversation, ready };
+    return {
+      ...direct,
+      ...approvalControls,
+      selectConversation,
+      renameConversation,
+      deleteConversation,
+      ready,
+    };
   const runStatus: AgentRun["status"] | null = harness.pendingToolApproval
     ? "waiting_for_approval"
     : harness.pendingQuestionnaire
@@ -44,6 +73,8 @@ export function useChat() {
     ...direct,
     ...approvalControls,
     selectConversation,
+    renameConversation,
+    deleteConversation,
     ready,
     currentConversation: harness.currentConversation,
     currentConversationRunStatus: runStatus,
@@ -51,8 +82,16 @@ export function useChat() {
     sending: Boolean(runStatus),
     sendMessage: harness.sendMessage,
     stopSending: harness.stop,
-    createConversation: async () => {
-      await harness.newChat();
+    createConversation: async (input?: { agentId?: string | null }) => {
+      if (harness.sessionID) {
+        try {
+          await harness.detachConversation();
+        } catch (error) {
+          console.error("Could not copy the harness transcript locally", error);
+        }
+      }
+      harness.deactivate();
+      await direct.createConversation(input);
     },
     currentExternalFolderSession:
       phoneBridge.sharing?.grant.folder ?? phoneBridge.folder,

@@ -8,17 +8,25 @@ const state = vi.hoisted(() => ({
     agents: [{ id: "local-only", name: "Local agent" }],
     setConversationAgent: vi.fn(),
     selectConversation: vi.fn(),
+    createConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    renameConversation: vi.fn(),
     setConversationApprovalMode: vi.fn(),
   },
   harness: {
     active: true,
     sessionID: "remote-session",
+    linkedConversationId: "local-chat" as string | null,
     loading: false,
     currentAgentID: "plan",
     currentAgentName: "plan",
     agents: [{ id: "plan", name: "plan" }],
     selectAgent: vi.fn().mockResolvedValue(undefined),
     deactivate: vi.fn(),
+    detachConversation: vi.fn(),
+    forgetConversation: vi.fn(),
+    renameLinkedConversation: vi.fn(),
+    newChat: vi.fn(),
   },
   bridge: {
     folder: null,
@@ -48,6 +56,13 @@ vi.mock("@/providers/phone-bridge-state", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   state.harness.active = true;
+  state.harness.linkedConversationId = "local-chat";
+  state.harness.detachConversation.mockResolvedValue(null);
+  state.harness.forgetConversation.mockResolvedValue(undefined);
+  state.harness.renameLinkedConversation.mockResolvedValue(undefined);
+  state.direct.createConversation.mockResolvedValue(undefined);
+  state.direct.deleteConversation.mockResolvedValue(undefined);
+  state.direct.renameConversation.mockResolvedValue(undefined);
   state.bridge.sharing = null;
   state.bridge.approvalMode = "ask";
 });
@@ -135,5 +150,56 @@ describe("shared chat agent selection", () => {
     const chat = useChat();
     expect(chat.conversationAgentName).toBe("build");
     expect(chat.setConversationAgent).toBe(state.direct.setConversationAgent);
+  });
+});
+
+describe("linked conversation switching", () => {
+  it("copies the active harness transcript locally before selecting another chat", async () => {
+    state.harness.detachConversation.mockResolvedValue("linked-local");
+    const chat = useChat();
+    await chat.selectConversation("next-chat");
+
+    expect(state.harness.detachConversation).toHaveBeenCalledTimes(1);
+    expect(state.harness.deactivate).toHaveBeenCalledTimes(1);
+    expect(state.direct.selectConversation).toHaveBeenCalledWith("next-chat");
+    expect(
+      state.harness.detachConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(state.harness.deactivate.mock.invocationCallOrder[0]);
+  });
+
+  it("deactivates the harness and creates a normal chat for a new conversation", async () => {
+    const chat = useChat();
+    await chat.createConversation({ agentId: "local-agent" });
+
+    expect(state.harness.detachConversation).toHaveBeenCalledTimes(1);
+    expect(state.harness.deactivate).toHaveBeenCalledTimes(1);
+    expect(state.direct.createConversation).toHaveBeenCalledWith({
+      agentId: "local-agent",
+    });
+  });
+
+  it("archives a linked harness session before deleting its local chat", async () => {
+    const chat = useChat();
+    await chat.deleteConversation("local-chat");
+
+    expect(state.harness.forgetConversation).toHaveBeenCalledWith("local-chat");
+    expect(state.direct.deleteConversation).toHaveBeenCalledWith("local-chat");
+    expect(
+      state.harness.forgetConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(state.direct.deleteConversation.mock.invocationCallOrder[0]);
+  });
+
+  it("renames both the local chat and its linked harness session", async () => {
+    const chat = useChat();
+    await chat.renameConversation("local-chat", "New title");
+
+    expect(state.direct.renameConversation).toHaveBeenCalledWith(
+      "local-chat",
+      "New title",
+    );
+    expect(state.harness.renameLinkedConversation).toHaveBeenCalledWith(
+      "local-chat",
+      "New title",
+    );
   });
 });

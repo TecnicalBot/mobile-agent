@@ -20,8 +20,8 @@ export function createMessageRepository(db: AppDatabase): MessageRepository {
         role: input.role,
         sequence: input.sequence,
         status: input.status,
-        createdAt: timestamp,
-        updatedAt: timestamp,
+        createdAt: input.createdAt ?? timestamp,
+        updatedAt: input.updatedAt ?? timestamp,
       });
 
       const row = (
@@ -83,6 +83,7 @@ export function createMessageRepository(db: AppDatabase): MessageRepository {
           content: input.content,
           error: input.error ?? null,
           metadata: input.metadata !== undefined ? input.metadata : undefined,
+          ...(input.sequence !== undefined ? { sequence: input.sequence } : {}),
           status: input.status,
           updatedAt: nowIso(),
         })

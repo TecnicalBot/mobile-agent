@@ -125,12 +125,14 @@ export interface MessageRepository {
   create(input: {
     content: string;
     conversationId: string;
+    createdAt?: string;
     error?: string | null;
     id?: string;
     metadata?: MessageMetadata | null;
     role: StoredMessage["role"];
     sequence: number;
     status: StoredMessage["status"];
+    updatedAt?: string;
   }): Promise<StoredMessage>;
   delete(id: string): Promise<void>;
   getNextSequence(conversationId: string): Promise<number>;
@@ -142,6 +144,7 @@ export interface MessageRepository {
     error?: string | null;
     id: string;
     metadata?: MessageMetadata | null;
+    sequence?: number;
     status?: StoredMessage["status"];
   }): Promise<void>;
 }

@@ -1,4 +1,7 @@
-import { useConfig as useDirectConfig } from "@/providers/app-state";
+import {
+  useChat as useDirectChat,
+  useConfig as useDirectConfig,
+} from "@/providers/app-state";
 import { useHarness } from "@/providers/harness-state";
 import type { ModelRef, ResolvedModel } from "@/core/types/app-state";
 
@@ -10,6 +13,7 @@ function labelDirectSource(model: ResolvedModel): ResolvedModel {
 
 export function useConfig() {
   const direct = useDirectConfig();
+  const directChat = useDirectChat();
   const harness = useHarness();
   const model = harness.active
     ? harness.currentModel
@@ -30,11 +34,33 @@ export function useConfig() {
     currentModelSupportsVideoInput: model?.supportsVideoInput ?? false,
     currentModelSupportsTools: model?.supportsTools ?? false,
     selectModel: async (ref: ModelRef) => {
-      if (ref.startsWith("harness:opencode/")) await harness.selectModel(ref);
-      else {
-        harness.deactivate();
-        await direct.selectModel(ref);
+      if (ref.startsWith("harness:")) {
+        if (harness.active) {
+          await harness.selectModel(ref);
+          return;
+        }
+        const conversation = directChat.currentConversation;
+        if (conversation) {
+          await harness.attachConversation(conversation.id, ref);
+          return;
+        }
+        await harness.selectModel(ref);
+        return;
       }
+
+      if (harness.active) {
+        let conversationId: string | null = null;
+        try {
+          conversationId = await harness.detachConversation();
+        } catch (error) {
+          console.error("Could not copy the harness transcript locally", error);
+        }
+        harness.deactivate();
+        if (conversationId) {
+          await directChat.selectConversation(conversationId);
+        }
+      }
+      await direct.selectModel(ref);
     },
   };
 }

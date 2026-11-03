@@ -6,8 +6,11 @@ import type {
 } from "@opencode/client";
 import type { StoredMessage } from "@/core/types/app-state";
 import {
+  buildDetachedTranscriptText,
   createOpenCodeConversationAdapter,
+  detachedLocalMessages,
   localMessagesToOpenCode,
+  mergeHarnessTranscript,
 } from "./opencode-transfer";
 
 const session = {
@@ -175,6 +178,126 @@ describe("localMessagesToOpenCode", () => {
       agent: "build",
       model: { id: "unknown", providerID: "unknown" },
     });
+  });
+});
+
+function storedMessage(
+  id: string,
+  role: StoredMessage["role"],
+  content: string,
+  createdAt: string,
+  sequence: number,
+): StoredMessage {
+  return {
+    id,
+    conversationId: "chat_local",
+    role,
+    content,
+    status: "completed",
+    sequence,
+    metadata: null,
+    error: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+describe("detached transcript reconciliation", () => {
+  const remote = [
+    storedMessage(
+      "local-user",
+      "user",
+      "Hello",
+      "2026-01-01T00:00:00.000Z",
+      1,
+    ),
+    storedMessage(
+      "local-assistant",
+      "assistant",
+      "Hi there",
+      "2026-01-01T00:00:01.000Z",
+      2,
+    ),
+  ];
+  const localOnly = storedMessage(
+    "local-direct",
+    "user",
+    "Sent while detached",
+    "2026-01-01T00:00:02.000Z",
+    3,
+  );
+
+  it("finds rows that the remote session has never seen", () => {
+    expect(
+      detachedLocalMessages(remote, [...remote, localOnly]).map(
+        (message) => message.id,
+      ),
+    ).toEqual(["local-direct"]);
+  });
+
+  it("merges local-only rows without dropping remote messages", () => {
+    const merged = mergeHarnessTranscript(remote, [...remote, localOnly]);
+    expect(merged.map((message) => message.id)).toEqual([
+      "local-user",
+      "local-assistant",
+      "local-direct",
+    ]);
+  });
+
+  it("interleaves a detached row by time", () => {
+    const between = storedMessage(
+      "local-between",
+      "user",
+      "Sent between turns",
+      "2026-01-01T00:00:00.500Z",
+      3,
+    );
+    const merged = mergeHarnessTranscript(remote, [...remote, between]);
+    expect(merged.map((message) => message.id)).toEqual([
+      "local-user",
+      "local-between",
+      "local-assistant",
+    ]);
+  });
+
+  it("builds hidden catch-up context from conversational rows only", () => {
+    const text = buildDetachedTranscriptText([
+      storedMessage(
+        "system",
+        "system",
+        "ignored",
+        "2026-01-01T00:00:00.000Z",
+        1,
+      ),
+      localOnly,
+      storedMessage(
+        "assistant",
+        "assistant",
+        "Answer while detached",
+        "2026-01-01T00:00:03.000Z",
+        2,
+      ),
+      storedMessage("empty", "assistant", "   ", "2026-01-01T00:00:04.000Z", 3),
+    ]);
+
+    expect(text).toContain("User: Sent while detached");
+    expect(text).toContain("Assistant: Answer while detached");
+    expect(text).not.toContain("ignored");
+    expect(text).not.toContain("empty");
+  });
+
+  it("returns no catch-up text when there is nothing conversational", () => {
+    expect(
+      buildDetachedTranscriptText([
+        storedMessage(
+          "system",
+          "system",
+          "ignored",
+          "2026-01-01T00:00:00.000Z",
+          1,
+        ),
+      ]),
+    ).toBeNull();
   });
 });
 

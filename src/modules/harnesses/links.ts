@@ -6,6 +6,12 @@ export type HarnessConversationLink = {
   conversationId: string;
   providerId: string;
   sessionID: string;
+  /**
+   * Local message IDs whose text has already been injected into the remote
+   * session as detached-context. They are not part of the remote transcript,
+   * so remember them here to avoid replaying the same catch-up on every attach.
+   */
+  syncedMessageIDs?: string[];
 };
 
 export type HarnessConversationLinks = Record<string, HarnessConversationLink>;
@@ -25,10 +31,16 @@ function parseLinks(raw: string | null): HarnessConversationLinks {
         typeof record.sessionID !== "string"
       )
         continue;
+      const syncedMessageIDs = Array.isArray(record.syncedMessageIDs)
+        ? record.syncedMessageIDs.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : [];
       links[conversationId] = {
         conversationId,
         providerId: record.providerId,
         sessionID: record.sessionID,
+        ...(syncedMessageIDs.length ? { syncedMessageIDs } : {}),
       };
     }
     return links;

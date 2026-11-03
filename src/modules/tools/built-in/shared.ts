@@ -11,7 +11,7 @@ export function summarizeValue(value: unknown) {
  * Preview text is persisted with every tool record (message metadata), so it
  * is bounded like the other captured content in the chat renderer.
  */
-export const TOOL_PREVIEW_TEXT_LIMIT = 20000;
+export { TOOL_PREVIEW_TEXT_LIMIT } from "@/modules/tools/tool-preview";
 
 export function createRecord(input: {
   announcement?: ToolExecutionRecord["announcement"];

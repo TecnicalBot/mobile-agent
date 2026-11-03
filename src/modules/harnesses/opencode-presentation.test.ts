@@ -144,10 +144,145 @@ describe("OpenCode shared chat presentation", () => {
       toolName: "shell",
       status: "completed",
       outputSummary: "/project",
+      preview: { title: "pwd", text: "/project", truncated: false },
     });
     expect(presentOpenCodeMessages(messages, "ses_1", false)[0].status).toBe(
       "completed",
     );
+  });
+
+  it("uses the useful tool input as the trace preview title", () => {
+    const messages = [
+      {
+        id: "msg_tools",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "p" },
+        time: { created: 1 },
+        content: [
+          {
+            type: "tool",
+            id: "tool_read",
+            name: "read",
+            time: { created: 1 },
+            state: {
+              status: "completed",
+              input: { filePath: "/repo/src/app.ts" },
+              content: [{ type: "text", text: "export {};" }],
+            },
+          },
+          {
+            type: "tool",
+            id: "tool_grep",
+            name: "grep",
+            time: { created: 1 },
+            state: {
+              status: "completed",
+              input: { pattern: "needle", path: "/repo" },
+              content: [{ type: "text", text: "src/app.ts:1:needle" }],
+            },
+          },
+        ],
+      },
+    ] as SessionMessageInfo[];
+
+    const [message] = presentOpenCodeMessages(messages, "ses_1", false);
+    expect(
+      message.metadata?.toolExecutions?.map((record) => record.preview?.title),
+    ).toEqual(["/repo/src/app.ts", "needle"]);
+  });
+
+  it("caps oversized tool output in the trace preview", () => {
+    const output = "x".repeat(20_005);
+    const messages = [
+      {
+        id: "msg_long",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "p" },
+        time: { created: 1 },
+        content: [
+          {
+            type: "tool",
+            id: "tool_long",
+            name: "shell",
+            time: { created: 1 },
+            state: {
+              status: "completed",
+              input: { command: "cat big.log" },
+              content: [{ type: "text", text: output }],
+            },
+          },
+        ],
+      },
+    ] as SessionMessageInfo[];
+
+    const [message] = presentOpenCodeMessages(messages, "ses_1", false);
+    const preview = message.metadata?.toolExecutions?.[0].preview;
+    expect(preview?.text).toHaveLength(20_000);
+    expect(preview?.truncated).toBe(true);
+  });
+
+  it("previews safe remote images but never host file paths", () => {
+    const messages = [
+      {
+        id: "msg_images",
+        type: "assistant",
+        agent: "build",
+        model: { id: "m", providerID: "p" },
+        time: { created: 1 },
+        content: [
+          {
+            type: "tool",
+            id: "tool_remote_image",
+            name: "read",
+            time: { created: 1 },
+            state: {
+              status: "completed",
+              input: { filePath: "/repo/photo.png" },
+              content: [
+                {
+                  type: "file",
+                  uri: "https://example.com/photo.png",
+                  mime: "image/png",
+                  name: "photo.png",
+                },
+              ],
+            },
+          },
+          {
+            type: "tool",
+            id: "tool_host_image",
+            name: "read",
+            time: { created: 1 },
+            state: {
+              status: "completed",
+              input: { filePath: "/repo/secret.png" },
+              content: [
+                {
+                  type: "file",
+                  uri: "file:///repo/secret.png",
+                  mime: "image/png",
+                  name: "secret.png",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ] as SessionMessageInfo[];
+
+    const [message] = presentOpenCodeMessages(messages, "ses_1", false);
+    expect(message.metadata?.toolExecutions?.[0].preview).toMatchObject({
+      title: "/repo/photo.png",
+      uri: "https://example.com/photo.png",
+      mimeType: "image/png",
+    });
+    expect(message.metadata?.toolExecutions?.[1].preview).toEqual({
+      title: "/repo/secret.png",
+      text: "[file] secret.png",
+      truncated: false,
+    });
   });
 
   it("keeps the latest completed step streaming while the session is still running", () => {

@@ -52,6 +52,10 @@ function useSidebarContext(name: string) {
   return context;
 }
 
+export function useSidebar() {
+  return useSidebarContext("useSidebar");
+}
+
 function useControllableState({
   defaultValue,
   onChange,

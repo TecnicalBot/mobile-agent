@@ -5,7 +5,19 @@ const RESOURCE_TOOLS = new Set([
 ]);
 
 export function hasLegacyToolResource(record: ToolExecutionRecord) {
-  return !record.preview && !record.diff && record.status === "completed" && RESOURCE_TOOLS.has(record.toolName);
+  if (
+    record.preview ||
+    record.diff ||
+    record.status !== "completed" ||
+    !RESOURCE_TOOLS.has(record.toolName)
+  ) {
+    return false;
+  }
+  // A remote harness can use the same tool name (`read`, `edit`, ...) without
+  // referring to a local workspace file. Only fall back to the lazy workspace
+  // reader when this record actually names a local resource.
+  const reference = readToolResourceReference(record);
+  return Boolean(reference.fileId || reference.displayName || reference.skillName);
 }
 
 /** Old summaries can end halfway through JSON. Recover only complete string fields. */

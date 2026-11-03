@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
     sessionID: "remote-session",
     linkedConversationId: "local-chat" as string | null,
     loading: false,
+    approvalMode: "ask" as "ask" | "auto",
     currentAgentID: "plan",
     currentAgentName: "plan",
     agents: [{ id: "plan", name: "plan" }],
@@ -43,8 +44,11 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/providers/app-state", () => ({
-  useAppState: () => ({ ready: state.direct.ready }),
+  useAppState: () => ({
+    ready: state.direct.ready,
+  }),
   useChat: () => state.direct,
+  useConfig: () => ({ conversationApprovalModes: {} }),
 }));
 vi.mock("@/providers/harness-state", () => ({
   useHarness: () => state.harness,
@@ -101,6 +105,13 @@ describe("unified chat and device approval controls", () => {
     state.bridge.sharing = null;
     expect(useChat().deviceSharingApprovalMode).toBeNull();
     expect(state.bridge.setApprovalMode).not.toHaveBeenCalled();
+  });
+
+  it("shows the harness's effective approval mode", () => {
+    state.harness.approvalMode = "auto";
+    expect(useChat().currentToolApprovalMode).toBe("auto");
+    state.harness.approvalMode = "ask";
+    expect(useChat().currentToolApprovalMode).toBe("ask");
   });
 });
 

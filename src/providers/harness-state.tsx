@@ -59,7 +59,11 @@ import {
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
 } from "@/modules/harnesses/opencode-presentation";
-import { createOpenCodeConversationAdapter } from "@/modules/harnesses/opencode-transfer";
+import {
+  buildDetachedTranscriptText,
+  createOpenCodeConversationAdapter,
+  mergeHarnessTranscript,
+} from "@/modules/harnesses/opencode-transfer";
 import {
   findLinkBySession,
   linkedSessionIDs,
@@ -232,6 +236,100 @@ function useHarnessController() {
     // This counter intentionally invalidates outstanding requests on unmount.
   }, [connect]);
 
+  const refreshSessions = useCallback(async () => {
+    if (!client) return;
+    const epoch = generation.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const directory = connection.current?.directory.trim() || undefined;
+      const list = await client.session.list(
+        { directory, limit: 50, archived: false },
+        { signal: controller.signal },
+      );
+      if (epoch !== generation.current) return;
+      setSessions(list.data);
+      setStatus("connected");
+    } catch {
+      if (epoch === generation.current) setStatus("disconnected");
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    if (!client) return;
+    let disposed = false;
+    let foreground = AppState.currentState === "active";
+    let scheduled: ReturnType<typeof setTimeout> | undefined;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | null = null;
+    let backoff = 1000;
+    const refreshSoon = () => {
+      if (disposed || scheduled) return;
+      scheduled = setTimeout(() => {
+        scheduled = undefined;
+        if (!disposed) void refreshSessions();
+      }, 250);
+    };
+
+    const subscribe = async () => {
+      if (disposed || !foreground) return;
+      const active = new AbortController();
+      controller = active;
+      try {
+        for await (const event of client.event.subscribe({
+          signal: active.signal,
+        })) {
+          if (disposed) break;
+          backoff = 1000;
+          if (
+            event.type === "server.connected" ||
+            event.type === "session.created" ||
+            event.type === "session.deleted" ||
+            event.type === "session.archived" ||
+            event.type === "session.unarchived" ||
+            event.type === "session.renamed" ||
+            event.type === "session.forked" ||
+            event.type === "session.moved"
+          ) {
+            refreshSoon();
+          }
+        }
+      } catch {
+        // The stream is repaired below; the regular list poll also recovers.
+      } finally {
+        if (!disposed && foreground && !active.signal.aborted) {
+          reconnect = setTimeout(() => {
+            void subscribe();
+          }, backoff);
+          backoff = Math.min(backoff * 2, 30000);
+        }
+      }
+    };
+
+    void subscribe();
+    const listener = AppState.addEventListener("change", (state) => {
+      foreground = state === "active";
+      if (!foreground) {
+        controller?.abort();
+        if (reconnect) clearTimeout(reconnect);
+      } else {
+        backoff = 1000;
+        void refreshSessions();
+        void subscribe();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      controller?.abort();
+      listener.remove();
+      if (scheduled) clearTimeout(scheduled);
+      if (reconnect) clearTimeout(reconnect);
+    };
+  }, [client, refreshSessions]);
+
   useEffect(() => {
     if (!client) return;
     let disposed = false;
@@ -392,6 +490,20 @@ function useHarnessController() {
       session: SessionInfo;
     }) => {
       if (!conversationAdapter) return;
+      const remoteMessages = presentOpenCodeMessages(
+        input.rawMessages,
+        input.session.id,
+        false,
+        input.conversationId,
+        true,
+      );
+      // Messages sent through a direct provider while the harness was detached
+      // do not exist remotely. Preserve them in the local mirror instead of
+      // letting the remote export delete them.
+      const localMessages =
+        await repositories.messageRepository.listByConversation(
+          input.conversationId,
+        );
       await syncConversationMessages({
         conversationId: input.conversationId,
         title: input.session.title || "OpenCode chat",
@@ -402,16 +514,10 @@ function useHarnessController() {
         // A local mirror never owns the running state; the harness does.
         // Completed/failed is safer than leaving a streaming row behind when
         // the user switches to a direct model mid-turn.
-        messages: presentOpenCodeMessages(
-          input.rawMessages,
-          input.session.id,
-          false,
-          input.conversationId,
-          true,
-        ),
+        messages: mergeHarnessTranscript(remoteMessages, localMessages),
       });
     },
-    [conversationAdapter, syncConversationMessages],
+    [conversationAdapter, repositories, syncConversationMessages],
   );
 
   const attachConversation = async (
@@ -432,48 +538,116 @@ function useHarnessController() {
     let nextSession: SessionInfo | null = null;
 
     if (existing && existing.providerId === conversationAdapter.providerId) {
-      // Only an export failure means the remote session is unusable. Local
-      // sync or metadata failures must not create a duplicate session.
+      // An export failure is recoverable: keep the original session as long as
+      // it still exists. Creating a duplicate session here loses permissions
+      // and splits the conversation.
       const exported = await withTimeout((signal) =>
         conversationAdapter.exportConversation(
           { conversationId, sessionID: existing.sessionID },
           signal,
         ),
       ).catch(() => null);
-      const remoteIDs = new Set(exported?.messageIDs ?? []);
-      if (
-        exported &&
-        localMessages.every((message) => remoteIDs.has(message.id))
-      ) {
+      const existingSession = await withTimeout((signal) =>
+        client.session.get({ sessionID: existing.sessionID }, { signal }),
+      ).catch(() => null);
+      // An export proves the session exists even if the lookup was transiently
+      // unavailable. Reuse it and let the snapshot load the session details.
+      if (existingSession || exported) {
         nextSessionID = existing.sessionID;
-        nextSession = await withTimeout((signal) =>
-          client.session.get({ sessionID: existing.sessionID }, { signal }),
-        );
-        if ((nextSession.title ?? "") !== (conversation.title ?? "")) {
-          await withTimeout((signal) =>
-            client.session.update(
-              {
-                sessionID: existing.sessionID,
-                title: conversation.title || "Linked chat",
-              },
-              { signal },
-            ),
-          );
-          nextSession = {
-            ...nextSession,
-            title: conversation.title || "Linked chat",
-          };
+        nextSession = existingSession;
+        if (nextSession) {
+          if ((nextSession.title ?? "") !== (conversation.title ?? "")) {
+            await withTimeout((signal) =>
+              client.session.update(
+                {
+                  sessionID: existing.sessionID,
+                  title: conversation.title || "Linked chat",
+                },
+                { signal },
+              ),
+            );
+            nextSession = {
+              ...nextSession,
+              title: conversation.title || "Linked chat",
+            };
+          }
+          if (nextSession.time.archived) {
+            await withTimeout((signal) =>
+              client.session.update(
+                { sessionID: existing.sessionID, archived: false },
+                { signal },
+              ),
+            );
+            nextSession = {
+              ...nextSession,
+              time: { ...nextSession.time, archived: undefined },
+            };
+          }
         }
-        // Keep remote-only messages that arrived after the last local sync.
-        await syncConversationMessages({
-          conversationId,
-          title: nextSession.title || exported.title,
-          providerId: conversationAdapter.providerId,
-          modelId: exported.model?.id ?? null,
-          agentId: exported.agent,
-          agentMode: exported.agent === "plan" ? "plan" : "build",
-          messages: exported.messages,
-        });
+
+        if (exported) {
+          // Reuse the original session even when the local thread has messages
+          // the harness has not seen. Those rows are kept locally, and their text
+          // is injected once as hidden context so the harness can pick up where
+          // the direct provider left off.
+          const remoteIDs = new Set(exported.messageIDs);
+          const syncedIDs = new Set(existing.syncedMessageIDs ?? []);
+          const localOnly = localMessages.filter(
+            (message) => !remoteIDs.has(message.id),
+          );
+          const toInject = localOnly.filter(
+            (message) => !syncedIDs.has(message.id),
+          );
+          if (toInject.length) {
+            const transcript = buildDetachedTranscriptText(toInject);
+            if (transcript) {
+              try {
+                await withTimeout((signal) =>
+                  client.session.synthetic(
+                    {
+                      sessionID: existing.sessionID,
+                      text: transcript,
+                      delivery: "queue",
+                      resume: false,
+                    },
+                    { signal },
+                  ),
+                );
+                const nextLinks = await saveHarnessConversationLink(
+                  repositories,
+                  {
+                    ...existing,
+                    syncedMessageIDs: [
+                      ...syncedIDs,
+                      ...toInject.map((message) => message.id),
+                    ],
+                  },
+                );
+                linksRef.current = nextLinks;
+                setLinks(nextLinks);
+              } catch (cause) {
+                // A catch-up failure must not force a new session. Keep the
+                // messages local and retry on the next attach.
+                console.warn(
+                  "Could not inject detached harness context.",
+                  cause,
+                );
+              }
+            }
+          }
+
+          // Keep remote-only messages that arrived after the last local sync and
+          // preserve messages that only exist in the phone transcript.
+          await syncConversationMessages({
+            conversationId,
+            title: nextSession?.title || exported.title,
+            providerId: conversationAdapter.providerId,
+            modelId: exported.model?.id ?? null,
+            agentId: exported.agent,
+            agentMode: exported.agent === "plan" ? "plan" : "build",
+            messages: mergeHarnessTranscript(exported.messages, localMessages),
+          });
+        }
       }
     }
 
@@ -498,6 +672,22 @@ function useHarnessController() {
         ),
       );
       nextSessionID = imported.sessionID;
+      // Carry approvals from the replaced session so "allow always" keeps
+      // working even when the old remote session cannot be reused.
+      if (existing) {
+        const previousMode =
+          directConfig.conversationApprovalModes?.[existing.sessionID];
+        if (previousMode) {
+          directConfig.setConversationApprovalMode(
+            conversationId,
+            previousMode,
+          );
+        }
+        for (const toolName of
+          directConfig.conversationApprovedTools?.[existing.sessionID] ?? []) {
+          directChat.approveToolForChat(conversationId, toolName);
+        }
+      }
       // Link the new session before any follow-up read or local sync. If one
       // of those fails, the imported transcript is still discoverable instead
       // of becoming an orphaned remote session.
@@ -619,6 +809,21 @@ function useHarnessController() {
     );
     const conversationId = link?.conversationId ?? Crypto.randomUUID();
 
+    // Carry session-scoped approvals onto the local chat so later provider
+    // switches or a re-created harness session keep the same choice.
+    const sessionApprovalMode =
+      directConfig.conversationApprovalModes?.[sessionID];
+    if (sessionApprovalMode) {
+      directConfig.setConversationApprovalMode(
+        conversationId,
+        sessionApprovalMode,
+      );
+    }
+    for (const toolName of
+      directConfig.conversationApprovedTools?.[sessionID] ?? []) {
+      directChat.approveToolForChat(conversationId, toolName);
+    }
+
     if (snapshot?.session.id === sessionID) {
       await syncSessionToLocal({
         conversationId,
@@ -632,6 +837,10 @@ function useHarnessController() {
           signal,
         ),
       );
+      const localMessages =
+        await repositories.messageRepository.listByConversation(
+          conversationId,
+        );
       await syncConversationMessages({
         conversationId,
         title: exported.title,
@@ -639,7 +848,7 @@ function useHarnessController() {
         modelId: exported.model?.id ?? null,
         agentId: exported.agent,
         agentMode: exported.agent === "plan" ? "plan" : "build",
-        messages: exported.messages,
+        messages: mergeHarnessTranscript(exported.messages, localMessages),
       });
     }
 
@@ -983,9 +1192,17 @@ function useHarnessController() {
 
   const permission =
     snapshot?.session.id === sessionID ? snapshot.permissions[0] : undefined;
-  const approvalMode = currentConversation
-    ? (directConfig.conversationApprovalModes?.[currentConversation.id] ??
-      "ask")
+  // Prefer the linked local chat: approvals then survive a harness session
+  // being replaced or re-created. Fall back to the remote session ID so
+  // approvals saved before links existed keep working.
+  const approvalIDs = [
+    linkedConversationId,
+    currentConversation?.id,
+  ].filter((id): id is string => Boolean(id));
+  const approvalMode: "ask" | "auto" = approvalIDs.some(
+    (id) => directConfig.conversationApprovalModes?.[id] === "auto",
+  )
+    ? "auto"
     : "ask";
   // "Always allow" is stored per chat by the shared approval drawer. OpenCode
   // still owns the permission, so reply once per request instead of writing a
@@ -993,9 +1210,13 @@ function useHarnessController() {
   const [autoApproveFailure, setAutoApproveFailure] = useState<string | null>(
     null,
   );
-  const approvedToolsForChat = currentConversation
-    ? (directConfig.conversationApprovedTools?.[currentConversation.id] ?? [])
-    : [];
+  const approvedToolsForChat = [
+    ...new Set(
+      approvalIDs.flatMap(
+        (id) => directConfig.conversationApprovedTools?.[id] ?? [],
+      ),
+    ),
+  ];
   const autoApprove =
     approvalMode === "auto" ||
     (permission ? approvedToolsForChat.includes(permission.action) : false);
@@ -1079,7 +1300,9 @@ function useHarnessController() {
     selectSession,
     sendMessage,
     refresh,
+    refreshSessions,
     mutate,
+    approvalMode,
     deactivate: () => {
       setActive(false);
       setSessionID(null);

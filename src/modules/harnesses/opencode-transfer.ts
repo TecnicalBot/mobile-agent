@@ -99,6 +99,82 @@ export function localMessagesToOpenCode(
   return messages;
 }
 
+/**
+ * Local rows that exist only in the phone transcript. They were added while the
+ * chat was attached to a direct provider, so the remote harness has never seen
+ * them.
+ */
+export function detachedLocalMessages(
+  remoteMessages: StoredMessage[],
+  localMessages: StoredMessage[],
+): StoredMessage[] {
+  const remoteIDs = new Set(remoteMessages.map((message) => message.id));
+  return localMessages.filter((message) => !remoteIDs.has(message.id));
+}
+
+/**
+ * Keep the full local thread when a remote export is synced back into the app.
+ * `syncConversationMessages` deletes rows missing from its input, so merging is
+ * required to avoid losing messages that were sent while the harness was
+ * detached.
+ */
+export function mergeHarnessTranscript(
+  remoteMessages: StoredMessage[],
+  localMessages: StoredMessage[],
+): StoredMessage[] {
+  const localOnly = detachedLocalMessages(remoteMessages, localMessages);
+  if (!localOnly.length) return remoteMessages;
+
+  return [...remoteMessages, ...localOnly]
+    .map((message, index) => {
+      const parsed = Date.parse(message.createdAt);
+      return {
+        index,
+        message,
+        time: Number.isFinite(parsed) ? parsed : 0,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.time - right.time ||
+        left.message.sequence - right.message.sequence ||
+        left.index - right.index,
+    )
+    .map(({ message }) => message);
+}
+
+/** Hidden, model-facing context that catches the harness up after a detach. */
+export function buildDetachedTranscriptText(
+  messages: StoredMessage[],
+): string | null {
+  const lines = messages
+    .filter(
+      (message) => message.role === "user" || message.role === "assistant",
+    )
+    .map((message) => {
+      const content = message.content.trim();
+      if (!content) return null;
+      return `${message.role === "user" ? "User" : "Assistant"}: ${content}`;
+    })
+    .filter((line): line is string => Boolean(line));
+
+  if (!lines.length) return null;
+
+  const maxLength = 20_000;
+  let transcript = lines.join("\n\n");
+  if (transcript.length > maxLength) {
+    // Keep the most recent exchange; that is the context the next turn needs.
+    transcript = `[Earlier detached messages omitted.]\n\n${transcript.slice(-maxLength)}`;
+  }
+
+  return [
+    "While the OpenCode harness was detached, the user continued this chat with another provider.",
+    "Treat the exchange below as prior context. Do not repeat it or answer it directly; continue the conversation from it.",
+    "",
+    transcript,
+  ].join("\n");
+}
+
 export function createOpenCodeConversationAdapter(
   client: OpenCodeClient,
 ): HarnessConversationAdapter {

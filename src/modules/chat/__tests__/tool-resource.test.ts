@@ -22,9 +22,11 @@ describe("legacy trace resources", () => {
   });
 
   it("does not replace captured historical content with today's file", () => {
-    expect(hasLegacyToolResource(record('{}'))).toBe(true);
-    expect(hasLegacyToolResource({ ...record('{}'), preview: { title: "Snapshot", text: "original" } })).toBe(false);
-    expect(hasLegacyToolResource({ ...record('{}'), diff: "-old\n+new" })).toBe(false);
-    expect(hasLegacyToolResource({ ...record('{}'), status: "failed" })).toBe(false);
+    expect(hasLegacyToolResource(record('{}'))).toBe(false);
+    expect(hasLegacyToolResource(record('{"fileId":"abc"}'))).toBe(true);
+    expect(hasLegacyToolResource(record('{"displayName":"notes.md"}'))).toBe(true);
+    expect(hasLegacyToolResource({ ...record('{"fileId":"abc"}'), preview: { title: "Snapshot", text: "original" } })).toBe(false);
+    expect(hasLegacyToolResource({ ...record('{"fileId":"abc"}'), diff: "-old\n+new" })).toBe(false);
+    expect(hasLegacyToolResource({ ...record('{"fileId":"abc"}'), status: "failed" })).toBe(false);
   });
 });

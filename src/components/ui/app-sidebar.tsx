@@ -26,6 +26,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
@@ -45,7 +46,7 @@ import {
   Upload,
   Users,
 } from "lucide-react-native";
-import { useState, memo, useCallback, useMemo } from "react";
+import { useState, memo, useCallback, useEffect, useMemo } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -111,6 +112,11 @@ export function AppSidebar() {
   const [exportConversationId, setExportConversationId] = useState<
     string | null
   >(null);
+  const sidebar = useSidebar();
+  const refreshSessions = harness.refreshSessions;
+  useEffect(() => {
+    if (sidebar.open) void refreshSessions();
+  }, [refreshSessions, sidebar.open]);
   const pinnedConversations = useMemo(
     () => conversations.filter((conversation) => conversation.pinnedAt),
     [conversations],

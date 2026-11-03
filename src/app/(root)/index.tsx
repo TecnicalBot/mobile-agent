@@ -279,7 +279,6 @@ export default function Screen() {
     mcpServers,
     selectModel,
     setCurrentSelectedMcpServerIds,
-    conversationApprovalModes,
   } = useConfig();
   const chatInfo = useChatInfo();
   const starterPrompts = useStarterPrompts();
@@ -292,9 +291,11 @@ export default function Screen() {
     clearConversationFolder,
     clearWorkspaceFiles,
     deleteWorkspaceFile,
+    approvalConversationId,
     currentConversation,
     currentConversationRunStatus,
     currentExternalFolderSession,
+    currentToolApprovalMode,
     currentSelectedFileIds,
     currentSelectedSkillIds,
     editAndResendMessage,
@@ -712,15 +713,11 @@ export default function Screen() {
                 reasoningEffort={reasoningEffort}
                 savedPrompts={savedPrompts}
                 setReasoningEffort={setReasoningEffort}
-                toolApprovalMode={
-                  (currentConversation?.id
-                    ? conversationApprovalModes?.[currentConversation.id]
-                    : undefined) ?? "ask"
-                }
+                toolApprovalMode={currentToolApprovalMode}
                 deviceSharingApprovalMode={deviceSharingApprovalMode}
                 updateToolApprovalMode={(mode) => {
-                  if (currentConversation?.id) {
-                    setConversationApprovalMode(currentConversation.id, mode);
+                  if (approvalConversationId) {
+                    setConversationApprovalMode(approvalConversationId, mode);
                   }
 
                   return Promise.resolve();
@@ -1378,6 +1375,19 @@ const ChatInput = memo(function ChatInput({
   const sendingRef = useRef(false);
   const composerRef = useRef<TextInput>(null);
   const [prompt, setPrompt] = useState("");
+  // Android can deliver the last keystroke after React has already rendered
+  // the previous value. Keep a synchronously-updated copy so pressing send
+  // never reads a stale, one-character-behind prompt.
+  const promptRef = useRef("");
+  const setPromptValue = useCallback(
+    (next: string | ((current: string) => string)) => {
+      const value =
+        typeof next === "function" ? next(promptRef.current) : next;
+      promptRef.current = value;
+      setPrompt(value);
+    },
+    [],
+  );
   // Pending "Ask agent" quote: highlighted reply text waiting to be sent with
   // the next message. Shown as a preview card above the composer instead of
   // raw markdown in the input.
@@ -1466,7 +1476,7 @@ const ChatInput = memo(function ChatInput({
 
   useEffect(() => {
     if (editDraft !== null) {
-      setPrompt(editDraft);
+      setPromptValue(editDraft);
       const focusComposer = () => {
         composerRef.current?.focus();
         KeyboardController.setFocusTo("current");
@@ -1482,8 +1492,8 @@ const ChatInput = memo(function ChatInput({
       };
     }
 
-    setPrompt("");
-  }, [editDraft, editNonce]);
+    setPromptValue("");
+  }, [editDraft, editNonce, setPromptValue]);
 
   // Starter prompts drop a full prompt straight into the composer (rather than
   // sending it). This is separate from the edit flow so it never flips the send
@@ -1491,7 +1501,7 @@ const ChatInput = memo(function ChatInput({
   useEffect(() => {
     if (insertDraft === null) return;
 
-    setPrompt(insertDraft);
+    setPromptValue(insertDraft);
     // Remount the field so Android re-measures the inserted content height
     // (programmatic value changes don't emit `onContentSizeChange`).
     setComposerKey((current) => current + 1);
@@ -1508,7 +1518,7 @@ const ChatInput = memo(function ChatInput({
       cancelAnimationFrame(focusFrame);
       clearTimeout(focusTimeout);
     };
-  }, [insertDraft, insertNonce]);
+  }, [insertDraft, insertNonce, setPromptValue]);
 
   // Native Android text selection offers an "Ask agent" item (see the
   // `quote-selection` Expo module). The highlighted text becomes a pending
@@ -1525,7 +1535,7 @@ const ChatInput = memo(function ChatInput({
       }
 
       if (editDraft !== null) {
-        setPrompt((current) => appendQuote(current, quoted));
+        setPromptValue((current) => appendQuote(current, quoted));
       } else {
         setPendingQuote({ preview: text.trim(), quoted });
       }
@@ -1534,7 +1544,7 @@ const ChatInput = memo(function ChatInput({
         composerRef.current?.focus();
       });
     });
-  }, [editDraft]);
+  }, [editDraft, setPromptValue]);
 
   useEffect(() => {
     setPendingQuote(null);
@@ -1568,7 +1578,7 @@ const ChatInput = memo(function ChatInput({
       if (!clean) {
         return;
       }
-      setPrompt((current) => (current ? `${current} ${clean}` : clean));
+      setPromptValue((current) => (current ? `${current} ${clean}` : clean));
       // The composer input remounts once voice mode closes, so focus on the
       // next frame after that render commits.
       requestAnimationFrame(() => {
@@ -1766,8 +1776,11 @@ const ChatInput = memo(function ChatInput({
       return;
     }
 
+    const currentPrompt = promptRef.current;
     const cleanPrompt = (
-      pendingQuote ? appendQuote(prompt, pendingQuote.quoted) : prompt
+      pendingQuote
+        ? appendQuote(currentPrompt, pendingQuote.quoted)
+        : currentPrompt
     ).trim();
     const folderIntent = detectFolderIntent(cleanPrompt);
     const nextFileContextSource =
@@ -1798,7 +1811,7 @@ const ChatInput = memo(function ChatInput({
         cleanPromptLength: cleanPrompt.length,
         hasSelectedFiles: selectedFileIds.length > 0,
         loading,
-        promptLength: prompt.length,
+        promptLength: currentPrompt.length,
         reason,
         selectedFileIds,
       });
@@ -1811,7 +1824,7 @@ const ChatInput = memo(function ChatInput({
       return;
     }
 
-    const previousPrompt = prompt;
+    const previousPrompt = currentPrompt;
     const previousSelectedFileIds = selectedFileIds;
     const wasBusy = loading;
 
@@ -1843,7 +1856,7 @@ const ChatInput = memo(function ChatInput({
     }
 
     sendingRef.current = true;
-    setPrompt("");
+    setPromptValue("");
     setPendingQuote(null);
     KeyboardController.dismiss();
     composerRef.current?.blur();
@@ -1874,7 +1887,7 @@ const ChatInput = memo(function ChatInput({
       if (__DEV__) {
         Alert.alert("Send failed", errorMessage);
       }
-      setPrompt(previousPrompt);
+      setPromptValue(previousPrompt);
       await setSelectedFileIds(previousSelectedFileIds);
     } finally {
       sendingRef.current = false;
@@ -1893,7 +1906,7 @@ const ChatInput = memo(function ChatInput({
 
       setFolderDrawerOpen(false);
       setPendingFolderSend(null);
-      setPrompt("");
+      setPromptValue("");
       setPendingQuote(null);
       KeyboardController.dismiss();
       composerRef.current?.blur();
@@ -1979,7 +1992,7 @@ const ChatInput = memo(function ChatInput({
         const imported = await importFiles(result.assets);
 
         await attachImportedFiles(imported);
-        setPrompt((current) => clearComposerTrigger(current));
+        setPromptValue((current) => clearComposerTrigger(current));
       }
     } finally {
       setBusyAction(null);
@@ -2108,9 +2121,9 @@ const ChatInput = memo(function ChatInput({
     !hasSendableContent || !canSend || !canAttachSelectedFiles ||
     (loading && editDraft !== null);
   const primaryActionDisabled = !showStop && sendDisabled;
-  const clearTriggerText = () => {
-    setPrompt((current) => clearComposerTrigger(current));
-  };
+  const clearTriggerText = useCallback(() => {
+    setPromptValue((current) => clearComposerTrigger(current));
+  }, [setPromptValue]);
   const mentionMenuItems = useMemo(
     () =>
       [
@@ -2179,6 +2192,7 @@ const ChatInput = memo(function ChatInput({
     [
       activeFolderLabel,
       clearConversationFolder,
+      clearTriggerText,
       currentExternalFolderSession,
       pickConversationFolder,
       supportsTools,
@@ -2193,7 +2207,7 @@ const ChatInput = memo(function ChatInput({
         icon: <Bookmark color={theme.text} size={16} />,
         label: "Saved prompts",
         onPress: () => {
-          setPrompt((current) => {
+          setPromptValue((current) => {
             const withoutTrigger = clearComposerTrigger(current);
             return withoutTrigger ? `${withoutTrigger} /` : "/";
           });
@@ -2279,12 +2293,14 @@ const ChatInput = memo(function ChatInput({
     ],
     [
       activeMcpServerIds.size,
+      clearTriggerText,
       conversationAgentName,
       currentModelLabel,
       enabledMcpServers.length,
       reasoningEffort,
       savedPrompts.length,
       selectedSkills.length,
+      setPromptValue,
       toolApprovalMode,
       theme.text,
     ],
@@ -2296,7 +2312,7 @@ const ChatInput = memo(function ChatInput({
         icon: <ChevronLeft color={theme.text} size={16} />,
         label: "Back",
         onPress: () => {
-          setPrompt((current) => {
+          setPromptValue((current) => {
             const withoutTrigger = clearComposerTrigger(current);
             return withoutTrigger ? `${withoutTrigger} /` : "/";
           });
@@ -2309,7 +2325,7 @@ const ChatInput = memo(function ChatInput({
         icon: <Bookmark color={theme.text} size={16} />,
         label: savedPrompt.title,
         onPress: () => {
-          setPrompt((current) => {
+          setPromptValue((current) => {
             const withoutTrigger = clearComposerTrigger(current);
             return withoutTrigger
               ? `${withoutTrigger} ${savedPrompt.content}`
@@ -2319,7 +2335,7 @@ const ChatInput = memo(function ChatInput({
         subtitle: savedPrompt.content.replace(/\s+/g, " ").trim(),
       })),
     ],
-    [savedPrompts, theme.text],
+    [savedPrompts, setPromptValue, theme.text],
   );
   const triggerMenuItems = useMemo(() => {
     if (!composerTrigger) {
@@ -2624,7 +2640,7 @@ const ChatInput = memo(function ChatInput({
                     key={composerKey}
                     ref={composerRef}
                     className="min-h-0 rounded-full border-0 bg-transparent px-4 py-3 text-base dark:bg-transparent"
-                    onChangeText={setPrompt}
+                    onChangeText={setPromptValue}
                     onFocus={() => setComposerActionsOpen(false)}
                     onContentSizeChange={(event) => {
                       setComposerContentHeight(
@@ -2734,7 +2750,7 @@ const ChatInput = memo(function ChatInput({
                       }
                       if (sendDisabled) return;
                       if (editDraft !== null) {
-                        const cleanEditPrompt = prompt.trim();
+                        const cleanEditPrompt = promptRef.current.trim();
                         if (!cleanEditPrompt) return;
                         KeyboardController.dismiss();
                         composerRef.current?.blur();

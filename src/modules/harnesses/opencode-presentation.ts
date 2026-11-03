@@ -16,6 +16,7 @@ import type {
   PendingQuestionnaire,
   PendingQuestionnaireAnswer,
 } from "@/core/types/app-state";
+import { presentHarnessToolExecution } from "@/modules/harnesses/tool-execution";
 
 export const OPENCODE_PROVIDER_ID = "harness:opencode";
 
@@ -231,28 +232,23 @@ export function presentOpenCodeMessages(
               }
             }
           }
-          tools.push({
-            id: part.id,
-            toolName: part.name,
-            traceOrder: index,
-            status:
-              state.status === "error"
-                ? "failed"
-                : state.status === "completed"
-                  ? "completed"
-                  : "running",
-            inputSummary: "input" in state ? JSON.stringify(state.input) : "",
-            outputSummary:
-              "content" in state
-                ? (state.content
-                    ?.map((item) =>
-                      item.type === "text" ? item.text : "[Remote file]",
-                    )
-                    .join("\n") ?? null)
-                : null,
-            error: "error" in state ? JSON.stringify(state.error) : null,
-            createdAt,
-          });
+          tools.push(
+            presentHarnessToolExecution({
+              id: part.id,
+              toolName: part.name,
+              traceOrder: index,
+              status:
+                state.status === "error"
+                  ? "failed"
+                  : state.status === "completed"
+                    ? "completed"
+                    : "running",
+              input: "input" in state ? state.input : undefined,
+              content: "content" in state ? state.content : undefined,
+              error: "error" in state ? JSON.stringify(state.error) : null,
+              createdAt,
+            }),
+          );
         }
       });
     return [

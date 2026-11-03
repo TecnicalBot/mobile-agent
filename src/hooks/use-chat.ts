@@ -1,6 +1,7 @@
 import {
   useAppState as useDirectAppState,
   useChat as useDirectChat,
+  useConfig as useDirectConfig,
 } from "@/providers/app-state";
 import { useHarness } from "@/providers/harness-state";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
@@ -9,6 +10,7 @@ import type { AgentRun, ToolApprovalMode } from "@/core/types/app-state";
 export function useChat() {
   const direct = useDirectChat();
   const directApp = useDirectAppState();
+  const directConfig = useDirectConfig();
   const harness = useHarness();
   const phoneBridge = usePhoneBridge();
   const approvalControls = {
@@ -20,6 +22,21 @@ export function useChat() {
       mode: ToolApprovalMode,
     ) => {
       direct.setConversationApprovalMode(conversationId, mode);
+      // Harness approvals belong to the local chat as well as the remote
+      // session, so switching providers or reattaching keeps the same choice.
+      const linkedConversationId = harness.linkedConversationId;
+      if (linkedConversationId && linkedConversationId !== conversationId) {
+        if (conversationId === harness.sessionID) {
+          direct.setConversationApprovalMode(linkedConversationId, mode);
+        }
+      } else if (
+        linkedConversationId &&
+        conversationId === linkedConversationId &&
+        harness.sessionID &&
+        harness.sessionID !== conversationId
+      ) {
+        direct.setConversationApprovalMode(harness.sessionID, mode);
+      }
       phoneBridge.setApprovalMode(mode);
     },
   };
@@ -58,6 +75,12 @@ export function useChat() {
       renameConversation,
       deleteConversation,
       ready,
+      approvalConversationId: direct.currentConversation?.id ?? null,
+      currentToolApprovalMode: direct.currentConversation
+        ? (directConfig.conversationApprovalModes?.[
+            direct.currentConversation.id
+          ] ?? "ask")
+        : "ask",
     };
   const runStatus: AgentRun["status"] | null = harness.pendingToolApproval
     ? "waiting_for_approval"
@@ -76,6 +99,9 @@ export function useChat() {
     renameConversation,
     deleteConversation,
     ready,
+    approvalConversationId:
+      harness.linkedConversationId ?? harness.currentConversation?.id ?? null,
+    currentToolApprovalMode: harness.approvalMode,
     currentConversation: harness.currentConversation,
     currentConversationRunStatus: runStatus,
     messages: harness.messages,
@@ -115,8 +141,15 @@ export function useChat() {
     // this chat; the harness replies once the saved approval is visible.
     approvePendingToolApprovalForChat: () => {
       const toolName = harness.pendingToolApproval?.toolName;
-      if (harness.sessionID && toolName)
-        direct.approveToolForChat(harness.sessionID, toolName);
+      if (!toolName) return;
+      const approvalIDs = new Set(
+        [harness.linkedConversationId, harness.sessionID].filter(
+          (id): id is string => Boolean(id),
+        ),
+      );
+      for (const id of approvalIDs) {
+        direct.approveToolForChat(id, toolName);
+      }
     },
     denyPendingToolApproval: () => {
       void harness.replyPermission("reject").catch(() => {});

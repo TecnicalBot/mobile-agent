@@ -85,6 +85,37 @@ describe("harness conversation links", () => {
     expect(JSON.parse(read() ?? "{}")).toEqual({});
   });
 
+  it("round-trips message IDs already injected as detached context", async () => {
+    const { repositories } = repositoriesWithSetting(null);
+    await saveHarnessConversationLink(repositories, {
+      conversationId: "chat_a",
+      providerId: "opencode",
+      sessionID: "ses_a",
+      syncedMessageIDs: ["local-user", "local-assistant"],
+    });
+
+    const links = await loadHarnessConversationLinks(repositories);
+    expect(links.chat_a.syncedMessageIDs).toEqual([
+      "local-user",
+      "local-assistant",
+    ]);
+  });
+
+  it("drops malformed injected message IDs", async () => {
+    const { repositories } = repositoriesWithSetting(
+      JSON.stringify({
+        chat_a: {
+          providerId: "opencode",
+          sessionID: "ses_a",
+          syncedMessageIDs: ["kept", 2, null, ""],
+        },
+      }),
+    );
+
+    const links = await loadHarnessConversationLinks(repositories);
+    expect(links.chat_a.syncedMessageIDs).toEqual(["kept"]);
+  });
+
   it("ignores provider filters that do not match", async () => {
     const { repositories } = repositoriesWithSetting(null);
     const links = await saveHarnessConversationLink(repositories, {

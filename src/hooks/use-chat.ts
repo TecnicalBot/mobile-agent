@@ -86,7 +86,9 @@ export function useChat() {
     ? "waiting_for_approval"
     : harness.pendingQuestionnaire
       ? "waiting_for_question"
-      : harness.snapshot?.running || harness.mutating
+      : harness.snapshot?.running ||
+          harness.mutating ||
+          harness.awaitingPrompt
         ? "running"
         : null;
   const unsupported = async () => {

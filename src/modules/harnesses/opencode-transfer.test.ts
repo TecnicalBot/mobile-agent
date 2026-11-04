@@ -163,6 +163,28 @@ describe("localMessagesToOpenCode", () => {
     expect(times).toEqual([...times].sort((left, right) => left - right));
     expect(new Set(times).size).toBe(times.length);
     expect("completed" in imported[2].time).toBe(true);
+    expect(imported[2]).toMatchObject({ finish: "stop" });
+  });
+
+  it("imports interrupted assistant rows as finished history", () => {
+    const [assistant] = localMessagesToOpenCode({
+      conversationId: "chat_local",
+      title: "Imported",
+      messages: [
+        {
+          ...messages[2],
+          status: "streaming",
+        },
+      ],
+      agent: "build",
+      agentMode: "build",
+      model: { id: "model_1", providerID: "provider_1" },
+    });
+    expect(assistant).toMatchObject({
+      type: "assistant",
+      finish: "stop",
+      time: { created: expect.any(Number), completed: expect.any(Number) },
+    });
   });
 
   it("falls back to default agent and unknown model when absent", () => {

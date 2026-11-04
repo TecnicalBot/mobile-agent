@@ -43,6 +43,8 @@ import { makeOpenCodeClient } from "@/modules/harnesses/opencode";
 import { readOpenCodeAgents } from "@/modules/harnesses/opencode-agents";
 import {
   OPENCODE_CONTINUATION_PROMPT,
+  openCodeExecutionFailure,
+  openCodePromptReply,
   openCodeStalledAssistant,
 } from "@/modules/harnesses/opencode-recovery";
 import {
@@ -124,6 +126,12 @@ function useHarnessController() {
   >("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [mutating, setMutating] = useState(false);
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    sessionID: string;
+    userID: string;
+    previousMessageID: string | null;
+    submittedAt: number;
+  } | null>(null);
   const connection = useRef<SavedOpenCodeConnection | null>(null);
   const generation = useRef(0);
   const mutation = useRef(false);
@@ -157,6 +165,7 @@ function useHarnessController() {
   useEffect(() => {
     wasRunning.current = false;
     recoveredUserMessageID.current = null;
+    setPendingPrompt(null);
   }, [sessionID]);
 
   const connect = useCallback(async () => {
@@ -439,6 +448,73 @@ function useHarnessController() {
       .finally(() => clearTimeout(timeout));
   }, [client, sessionID, snapshot]);
 
+  // A prompt can be admitted and then stop before the next snapshot/poll shows
+  // the session running. Track the inbound prompt itself so a fast empty turn is
+  // still recovered, and so a prompt that never produces a reply becomes an
+  // error instead of returning the composer to idle in silence.
+  useEffect(() => {
+    if (!client || !sessionID || !pendingPrompt) return;
+    if (pendingPrompt.sessionID !== sessionID) return;
+    if (snapshot?.session.id !== sessionID) {
+      // Do not leave the composer stuck in a running state if the snapshot
+      // never arrives (for example, the harness connection dropped).
+      const age = Date.now() - pendingPrompt.submittedAt;
+      if (age < 20000) {
+        const timer = setTimeout(() => refresh(), 20000 - age + 50);
+        return () => clearTimeout(timer);
+      }
+      setError(
+        "OpenCode did not return this session. Check the connection and retry.",
+      );
+      setPendingPrompt(null);
+      return;
+    }
+
+    const reply = openCodePromptReply(snapshot.messages, pendingPrompt);
+    if (reply.state === "answered") {
+      setPendingPrompt(null);
+      return;
+    }
+    if (reply.state !== "missing") {
+      const failure = openCodeExecutionFailure(snapshot.messages);
+      if (failure) {
+        setError(failure.message);
+        setPendingPrompt(null);
+        return;
+      }
+    }
+    if (reply.state === "stalled") {
+      if (!snapshot.running) {
+        setPendingPrompt(null);
+        // Let the existing stall recovery inject the continuation prompt.
+        wasRunning.current = true;
+        refresh();
+      }
+      return;
+    }
+    if (snapshot.running) return;
+
+    const age = Date.now() - pendingPrompt.submittedAt;
+    if (age < 20000) {
+      const timer = setTimeout(() => refresh(), 20000 - age + 50);
+      return () => clearTimeout(timer);
+    }
+    setError(
+      reply.state === "missing"
+        ? "OpenCode did not start this response. Retry the prompt; it may not have been delivered."
+        : "OpenCode did not finish this response. Retry the prompt to continue.",
+    );
+    setPendingPrompt(null);
+  }, [client, pendingPrompt, refresh, sessionID, snapshot]);
+
+  // Surface execution failures that OpenCode records as a trailing idle row.
+  useEffect(() => {
+    if (!client || !sessionID || pendingPrompt) return;
+    if (snapshot?.session.id !== sessionID || snapshot.running) return;
+    const failure = openCodeExecutionFailure(snapshot.messages);
+    if (failure) setError(failure.message);
+  }, [client, pendingPrompt, sessionID, snapshot]);
+
   const disconnect = useCallback(() => {
     generation.current++;
     setClient(null);
@@ -470,8 +546,12 @@ function useHarnessController() {
         await work(client, controller.signal);
         refresh();
       } catch (cause) {
+        const detail =
+          cause instanceof Error && cause.message.trim()
+            ? `: ${cause.message.trim()}`
+            : "";
         setError(
-          "OpenCode request failed. Refresh before retrying; it may already have been accepted.",
+          `OpenCode request failed${detail}. Refresh before retrying; it may already have been accepted.`,
         );
         throw cause;
       } finally {
@@ -1177,15 +1257,26 @@ function useHarnessController() {
           text += `\n\n[Not attached: ${attachment.skipped.join(", ")}. Files over 20 MB or missing from the workspace are skipped.]`;
       }
 
-      await api.session.prompt(
+      const previousMessageID =
+        snapshot?.session.id === id
+          ? (snapshot.messages.at(-1)?.id ?? null)
+          : null;
+      const prompt = await api.session.prompt(
         {
           sessionID: id,
           text,
           files: files.length ? files : undefined,
           delivery: input.delivery === "steer" ? "steer" : "queue",
+          resume: true,
         },
         { signal },
       );
+      setPendingPrompt({
+        sessionID: id,
+        userID: prompt.id,
+        previousMessageID,
+        submittedAt: Date.now(),
+      });
       setSelectedFileIdsState([]);
     });
   };
@@ -1286,6 +1377,7 @@ function useHarnessController() {
     pendingToolApproval,
     pendingQuestionnaire,
     mutating,
+    awaitingPrompt: Boolean(pendingPrompt),
     loading,
     connectPhoneTools,
     phoneToolsError,
@@ -1308,16 +1400,19 @@ function useHarnessController() {
       setSessionID(null);
       setSelectedAgentID(null);
       setSelectedFileIdsState([]);
+      setPendingPrompt(null);
       setError(null);
     },
     newChat: async () => {
       setSessionID(null);
       setSelectedAgentID(null);
       setSelectedFileIdsState([]);
+      setPendingPrompt(null);
       setError(null);
       return null;
     },
     stop: async () => {
+      setPendingPrompt(null);
       if (sessionID)
         await mutate(async (api, signal) => {
           await api.session.interrupt({ sessionID }, { signal });

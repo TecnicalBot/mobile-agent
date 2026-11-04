@@ -82,16 +82,17 @@ export function localMessagesToOpenCode(
 
     const content = message.content.trim();
     if (!content) return;
+    // Local rows are history. Import them as finished turns even when the
+    // phone run was interrupted; a stale streaming status makes OpenCode
+    // think the imported session is still running and swallow the next prompt.
     messages.push({
       id,
       type: "assistant",
       agent,
       model,
       content: [{ type: "text", text: message.content }],
-      time:
-        message.status === "completed"
-          ? { created, completed: created + 1 }
-          : { created },
+      time: { created, completed: created + 1 },
+      finish: "stop",
       metadata,
     });
   });

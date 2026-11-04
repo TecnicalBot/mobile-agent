@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SessionMessageInfo } from "@opencode/client";
 
-import { openCodeStalledAssistant } from "./opencode-recovery";
+import {
+  openCodeExecutionFailure,
+  openCodePromptReply,
+  openCodeStalledAssistant,
+} from "./opencode-recovery";
 
 type Assistant = Extract<SessionMessageInfo, { type: "assistant" }>;
 
@@ -94,5 +98,105 @@ describe("openCodeStalledAssistant", () => {
       text: "Continue",
     } as SessionMessageInfo;
     expect(openCodeStalledAssistant([stalled, user])).toBeNull();
+  });
+
+  it("ignores trailing idle rows", () => {
+    const stalled = assistant();
+    const idle = {
+      id: "msg_idle",
+      type: "idle",
+      time: { created: 3 },
+      outcome: "succeeded",
+    } as SessionMessageInfo;
+    expect(openCodeStalledAssistant([stalled, idle])).toBe(stalled);
+  });
+});
+
+describe("openCodeExecutionFailure", () => {
+  it("reads a failed trailing idle row", () => {
+    const message = {
+      id: "msg_idle",
+      type: "idle",
+      time: { created: 3 },
+      outcome: "failed",
+      error: { type: "ProviderError", message: "provider rejected the turn" },
+    } as SessionMessageInfo;
+    expect(openCodeExecutionFailure([message])).toEqual({
+      type: "ProviderError",
+      message: "provider rejected the turn",
+    });
+  });
+
+  it("ignores successful idle rows and newer conversation turns", () => {
+    const success = {
+      id: "msg_idle",
+      type: "idle",
+      time: { created: 3 },
+      outcome: "succeeded",
+    } as SessionMessageInfo;
+    expect(openCodeExecutionFailure([success])).toBeNull();
+    expect(openCodeExecutionFailure([success, assistant()])).toBeNull();
+  });
+});
+
+describe("openCodePromptReply", () => {
+  const user = {
+    id: "msg_user",
+    type: "user",
+    time: { created: 1 },
+    text: "Hello",
+  } as SessionMessageInfo;
+
+  it("waits until the prompt is visible", () => {
+    expect(openCodePromptReply([], { userID: "msg_user" })).toEqual({
+      state: "missing",
+    });
+    expect(openCodePromptReply([user], { userID: "msg_user" })).toEqual({
+      state: "waiting",
+    });
+  });
+
+  it("detects answers and stalls", () => {
+    expect(
+      openCodePromptReply(
+        [user, assistant({ content: [{ type: "text", text: "Done." }] })],
+        { userID: "msg_user" },
+      ),
+    ).toEqual({ state: "answered" });
+    const stalled = assistant();
+    expect(
+      openCodePromptReply([user, stalled], { userID: "msg_user" }),
+    ).toEqual({
+      state: "stalled",
+      assistant: stalled,
+    });
+  });
+
+  it("treats an unfinished assistant step as waiting", () => {
+    expect(
+      openCodePromptReply([user, assistant({ time: { created: 2 } })], {
+        userID: "msg_user",
+      }),
+    ).toEqual({ state: "waiting" });
+  });
+
+  it("falls back to the row before the prompt when the inbox ID differs", () => {
+    const previous = assistant({ content: [{ type: "text", text: "Hello." }] });
+    const next = {
+      id: "msg_new_user",
+      type: "user",
+      time: { created: 3 },
+      text: "Next",
+    } as SessionMessageInfo;
+    expect(
+      openCodePromptReply(
+        [
+          previous,
+          next,
+          assistant({ id: "msg_new_assistant", time: { created: 4, completed: 5 } }),
+        ],
+        { userID: "inbox_id", previousMessageID: previous.id },
+      ),
+    ).toMatchObject({ state: "stalled" });
   });
 });

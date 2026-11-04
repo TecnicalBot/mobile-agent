@@ -148,6 +148,25 @@ describe("formatUsagePlanLabel", () => {
 });
 
 describe("getProviderUsage", () => {
+  it("rejects non-subscription providers without reading OAuth credentials", async () => {
+    mockedFlavor.mockReturnValue(null);
+    mockedChatGptToken.mockClear();
+    mockedCodexToken.mockClear();
+    await expect(getProviderUsage("anthropic", null)).rejects.toThrow("only available for OpenAI");
+    expect(mockedChatGptToken).not.toHaveBeenCalled();
+    expect(mockedCodexToken).not.toHaveBeenCalled();
+  });
+
+  it("refreshes cached plan limits when explicitly requested", async () => {
+    mockedFlavor.mockReturnValue("chatgpt");
+    mockedChatGptToken.mockResolvedValue({ accessToken: "tok" } as never);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    await getProviderUsage("openai-chatgpt", null);
+    await getProviderUsage("openai-chatgpt", null, { force: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("fetches with the ChatGPT token and caches the result", async () => {
     mockedFlavor.mockReturnValue("chatgpt");
     mockedChatGptToken.mockResolvedValue({

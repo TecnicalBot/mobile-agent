@@ -4,6 +4,7 @@ import { prepareMessagesForLLM } from "../index";
 import { estimateMessagesTokens } from "../token-estimator";
 import {
   fakeModel,
+  contentMessage,
   msg,
   windowForUsable,
 } from "./test-fixtures";
@@ -28,7 +29,7 @@ describe("prepareMessagesForLLM", () => {
 
   it("prunes tool outputs when that frees enough space", () => {
     const large = Array.from({ length: 9 }, () =>
-      msg("user", "x".repeat(7_000)),
+      contentMessage("tool", "x".repeat(7_000)),
     );
     const tail = Array.from({ length: 4 }, () => msg("user", "small"));
     const messages = [...large, ...tail];
@@ -68,7 +69,7 @@ describe("prepareMessagesForLLM", () => {
 
   it("prunes then truncates when pruning alone is insufficient", () => {
     const large = Array.from({ length: 9 }, () =>
-      msg("user", "x".repeat(7_000)),
+      contentMessage("tool", "x".repeat(7_000)),
     );
     const small = Array.from({ length: 50 }, () => msg("user", "m".repeat(500)));
     const messages = [...large, ...small];

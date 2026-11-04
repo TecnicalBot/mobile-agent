@@ -459,13 +459,15 @@ export function normalizeMetric(value: number | null | undefined) {
 
 export function buildUsageSnapshot(input: {
   contextWindow?: number | null;
+  contextUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   model: ResolvedModel;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
   };
-}) {
+}): ModelUsageSnapshot {
   return {
     providerId: input.model.providerId,
     providerLabel: input.model.providerLabel,
@@ -474,6 +476,16 @@ export function buildUsageSnapshot(input: {
     inputTokens: normalizeMetric(input.usage?.inputTokens),
     outputTokens: normalizeMetric(input.usage?.outputTokens),
     totalTokens: normalizeMetric(input.usage?.totalTokens),
+    contextTokens: normalizeMetric(
+      input.contextUsage?.totalTokens ??
+        (input.contextUsage?.inputTokens !== undefined &&
+        input.contextUsage?.outputTokens !== undefined
+          ? input.contextUsage.inputTokens + input.contextUsage.outputTokens
+          : null),
+    ),
+    contextIsEstimated: false,
+    cacheReadTokens: normalizeMetric(input.usage?.inputTokenDetails?.cacheReadTokens),
+    cacheWriteTokens: normalizeMetric(input.usage?.inputTokenDetails?.cacheWriteTokens),
     costInput: null,
     costOutput: null,
     costTotal: null,
@@ -484,6 +496,7 @@ export function buildUsageSnapshot(input: {
 }
 
 export function buildAssistantMetadata(input: {
+  contextCompactions?: MessageMetadata["contextCompactions"];
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];
   generatedImages?: GeneratedImageAttachment[];
@@ -500,6 +513,10 @@ export function buildAssistantMetadata(input: {
   usage?: ModelUsageSnapshot | null;
 }) {
   const metadata: MessageMetadata = {};
+
+  if (input.contextCompactions?.length) {
+    metadata.contextCompactions = input.contextCompactions;
+  }
 
   if (input.runId) {
     metadata.runId = input.runId;

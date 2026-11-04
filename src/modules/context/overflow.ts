@@ -23,7 +23,7 @@ export function calculateContextBudget(input: {
   tools?: ToolSet;
   model: ResolvedModel;
 }): ContextBudget {
-  const contextWindow = input.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  const contextWindow = input.contextWindow ?? input.model.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
   const maxOutput = input.maxOutputTokens ?? DEFAULT_MAX_OUTPUT;
   const reservedOutput = Math.min(
     maxOutput,

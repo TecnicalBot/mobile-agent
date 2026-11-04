@@ -75,11 +75,14 @@ function getPartPrunableLength(part: ContentPart): number {
 }
 
 function getMessagePrunableLength(message: ModelMessage): number {
-  if (typeof message.content === "string") {
-    return message.content.length;
+  // Never replace user instructions or assistant prose with a tool placeholder.
+  if (message.role !== "tool") return 0;
+  const content: unknown = message.content;
+  if (typeof content === "string") {
+    return content.length;
   }
-  if (Array.isArray(message.content)) {
-    return (message.content as ContentPart[]).reduce(
+  if (Array.isArray(content)) {
+    return (content as ContentPart[]).reduce(
       (sum, part) => sum + getPartPrunableLength(part),
       0,
     );

@@ -1,4 +1,4 @@
-import type { ModelMessage, ToolSet } from "ai";
+import type { LanguageModelUsage, ModelMessage, ToolSet } from "ai";
 import { updateReasoningPhase } from "@/modules/runtime/reasoning-stream";
 import type { RefObject } from "react";
 
@@ -19,10 +19,17 @@ import {
   isPlanAgent,
 } from "@/modules/agents/permissions";
 import {
+  isOverflow,
   prepareMessagesForLLMWithSummary,
   type GenerateSummary,
 } from "@/modules/context";
 import type { Repositories } from "@/core/db/repositories/types";
+import { compactHistory } from "@/modules/context/manual-compaction";
+import { calculateContextBudget } from "@/modules/context/overflow";
+import { createSummaryMessage } from "@/modules/context/summarizer";
+import { estimateMessagesTokens } from "@/modules/context/token-estimator";
+import { combineUsage } from "@/modules/runtime/drivers/ai-sdk-runtime";
+import type { GenerateModelTextStreamResult } from "@/modules/runtime/drivers/types";
 import { createMcpRuntimeTools } from "@/modules/mcp/runtime-tools";
 import { isMcpToolReadOnly } from "@/modules/mcp/read-only";
 import {
@@ -537,6 +544,7 @@ export async function executeClaimedAgentRun(
   const userMessage = persistedMessages.find(
     (message) => message.id === run.userMessageId,
   );
+  const manualCompaction = run.input.trim().toLowerCase() === "/compact";
 
   if (!assistantMessage) {
     const orphanedMessage = persistedMessages.find(
@@ -660,7 +668,8 @@ export async function executeClaimedAgentRun(
   try {
     runtimeMessageResult = await convertStoredMessagesToModelMessages({
       messages: persistedMessages.filter(
-        (message) => message.id !== assistantMessage.id,
+        (message) => message.id !== assistantMessage.id &&
+          (!manualCompaction || message.id !== run.userMessageId),
       ),
       supportsImageInput: resolvedModel.supportsImageInput,
       supportsAudioInput: resolvedModel.supportsAudioInput,
@@ -796,8 +805,10 @@ export async function executeClaimedAgentRun(
     executionTimeline.push(event);
   };
 
+  const contextCompactions = [...(assistantMessage.metadata?.contextCompactions ?? [])];
   const buildLiveAssistantMetadata = () =>
     buildAssistantMetadata({
+      contextCompactions,
       appliedSkillIds,
       executionTimeline,
       memoryEvents,
@@ -1885,15 +1896,11 @@ export async function executeClaimedAgentRun(
         )?.contextWindow ?? null;
     } catch {}
 
-    if (
-      contextWindowFromCatalog === null &&
-      resolvedModel.contextWindow !== null
-    ) {
+    if (resolvedModel.contextWindow !== null) {
       contextWindowFromCatalog = resolvedModel.contextWindow;
     }
 
     if (
-      contextWindowFromCatalog === null &&
       resolvedModel.providerFamily === "ollama"
     ) {
       const ollamaOptions = resolvedModel.options?.ollama;
@@ -1935,61 +1942,86 @@ export async function executeClaimedAgentRun(
       contextWindowFromCatalog = onDevicePolicy.contextWindow;
     }
 
+    let summaryUsage: LanguageModelUsage | undefined;
+    let compactedSummary: string | undefined;
+    const generateContextSummary: GenerateSummary = async (prompt) => {
+      const result = await modelRuntime.generateTextStream({
+        abortSignal: abortController.signal,
+        maxToolSteps: 1,
+        messages: [{ role: "user", content: prompt }],
+        model: resolvedModel,
+        provider,
+        secretStore: secureSecretStore,
+        onEvent: () => markActivity(),
+        onDelta: () => markActivity(),
+      });
+      summaryUsage = combineUsage(summaryUsage, result.usage);
+      return result.text;
+    };
     const generateSummary: GenerateSummary | undefined =
       resolvedModel.providerFamily === "on-device"
         ? undefined
-        : async (prompt) => {
-            const result = await modelRuntime.generateTextStream({
-              abortSignal: abortController.signal,
-              maxToolSteps: 1,
-              messages: [{ role: "user", content: prompt }],
-              model: resolvedModel,
-              provider,
-              secretStore: secureSecretStore,
-            });
-            return result.text;
-          };
+        : generateContextSummary;
 
-    const contextResult = await prepareMessagesForLLMWithSummary({
-      contextWindow: contextWindowFromCatalog,
-      messages: runtimeMessages,
-      model: resolvedModel,
-      systemPrompt: runtimeSystem,
-      tools: runtimeTools,
-      generateSummary,
-    });
-    if (
-      resolvedModel.providerFamily === "on-device" &&
-      runtimeTools &&
-      contextResult.budget.usable === 0
-    ) {
-      throw new Error(
-        "Enabled tools exceed this device safe context limit. Disable some tools or MCP servers, or switch the model back to Auto.",
-      );
-    }
+    const prepareRuntimeMessages = async (messages: ModelMessage[]) => {
+      const contextResult = await prepareMessagesForLLMWithSummary({
+        contextWindow: contextWindowFromCatalog,
+        messages,
+        model: resolvedModel,
+        systemPrompt: runtimeSystem,
+        tools: runtimeTools,
+        generateSummary,
+      });
+      if (
+        resolvedModel.providerFamily === "on-device" &&
+        runtimeTools &&
+        contextResult.budget.usable === 0
+      ) {
+        throw new Error(
+          "Enabled tools exceed this device safe context limit. Disable some tools or MCP servers, or switch the model back to Auto.",
+        );
+      }
 
-    runtimeMessages = contextResult.messages;
+      if (isOverflow(contextResult.messages, contextResult.budget)) {
+        throw new Error(
+          "The latest messages or tool results still exceed the context budget after compaction. Use smaller inputs, disable some tools, or select a model with a larger context window.",
+        );
+      }
 
-    if (
-      contextResult.didPrune ||
-      contextResult.didTruncate ||
-      contextResult.didSummarize
-    ) {
-      const actions = [
-        contextResult.didPrune ? "pruned tool outputs" : null,
-        contextResult.didSummarize ? "summarized older messages" : null,
-        contextResult.didTruncate ? "truncated old messages" : null,
-      ].filter((action): action is string => action !== null);
-      pushTimelineEvent(
-        createExecutionTimelineEvent({
-          detail: `Context managed: ${actions.join(" + ")} (${contextResult.budget.usable} token budget)`,
-          kind: "run",
-          status: "info",
-          title: "Context managed",
+      if (
+        contextResult.didPrune ||
+        contextResult.didTruncate ||
+        contextResult.didSummarize
+      ) {
+        const actions = [
+          contextResult.didPrune ? "pruned tool outputs" : null,
+          contextResult.didSummarize ? "summarized older messages" : null,
+          contextResult.didTruncate ? "truncated old messages" : null,
+        ].filter((action): action is string => action !== null);
+        contextCompactions.push({
+          trigger: "automatic",
           createdAt: new Date().toISOString(),
-        }),
-      );
-    }
+          beforeTokens: estimateMessagesTokens(messages),
+          afterTokens: estimateMessagesTokens(contextResult.messages),
+          inputBudget: contextResult.budget.usable,
+          didPrune: contextResult.didPrune,
+          didTruncate: contextResult.didTruncate,
+          summary: contextResult.summaryText ?? null,
+        });
+        pushTimelineEvent(
+          createExecutionTimelineEvent({
+            detail: `Context managed: ${actions.join(" + ")} (${contextResult.budget.usable} token budget)`,
+            kind: "run",
+            status: "info",
+            title: "Context managed",
+            createdAt: new Date().toISOString(),
+          }),
+        );
+      }
+      return contextResult.messages;
+    };
+
+    if (!manualCompaction) runtimeMessages = await prepareRuntimeMessages(runtimeMessages);
 
     pushTimelineEvent(
       createExecutionTimelineEvent({
@@ -2154,6 +2186,7 @@ export async function executeClaimedAgentRun(
       pendingSnapshotStatus = null;
       pendingSnapshotError = null;
       if (continuationRow) {
+        if (preSplitText.trim()) contextCompactions.length = 0;
         toolExecutions.length = 0;
         toolRunAnchors.clear();
         reasoning.length = 0;
@@ -2223,8 +2256,29 @@ export async function executeClaimedAgentRun(
       }));
     };
 
-    const runtimeResultPromise = modelRuntime.generateTextStream({
+    const runtimeResultPromise: Promise<GenerateModelTextStreamResult> = manualCompaction
+      ? (async () => {
+          const budget = calculateContextBudget({ model: resolvedModel, contextWindow: contextWindowFromCatalog });
+          compactedSummary = await compactHistory({
+            messages: runtimeMessages,
+            inputBudget: budget.usable,
+            generateSummary: generateContextSummary,
+          });
+          contextCompactions.push({
+            trigger: "manual",
+            createdAt: new Date().toISOString(),
+            beforeTokens: estimateMessagesTokens(runtimeMessages),
+            afterTokens: estimateMessagesTokens([createSummaryMessage(compactedSummary)]),
+            inputBudget: budget.usable,
+            didPrune: false,
+            didTruncate: false,
+            summary: compactedSummary,
+          });
+          return { text: "Conversation compacted. Earlier messages remain visible; future replies will use the summary." };
+        })()
+      : modelRuntime.generateTextStream({
       abortSignal: abortController.signal,
+      prepareMessages: prepareRuntimeMessages,
       getStepBudgetBase: () => steerStepBudgetBase,
       maxToolSteps: 9999,
       messages: runtimeMessages,
@@ -2429,10 +2483,23 @@ export async function executeClaimedAgentRun(
 
     const assistantUsage = buildUsageSnapshot({
       contextWindow: contextWindowFromCatalog,
+      contextUsage: runtimeResult.contextUsage,
       model: resolvedModel,
-      usage: runtimeResult.usage,
+      usage: combineUsage(runtimeResult.usage, summaryUsage),
     });
+    if (compactedSummary) {
+      const budget = calculateContextBudget({
+        contextWindow: contextWindowFromCatalog,
+        model: resolvedModel,
+        systemPrompt: runtimeSystem,
+        tools: runtimeTools,
+      });
+      assistantUsage.contextTokens = estimateMessagesTokens([createSummaryMessage(compactedSummary)]) +
+        budget.systemTokens + budget.toolDefinitionTokens;
+      assistantUsage.contextIsEstimated = true;
+    }
     const assistantMetadata = buildAssistantMetadata({
+      contextCompactions,
       appliedSkillIds,
       executionTimeline: [
         ...executionTimeline,
@@ -2461,6 +2528,12 @@ export async function executeClaimedAgentRun(
       toolExecutions,
       usage: assistantUsage,
     });
+    if (compactedSummary && assistantMetadata && userMessage) {
+      assistantMetadata.contextCompaction = {
+        summary: compactedSummary,
+        throughSequence: userMessage.sequence,
+      };
+    }
 
     await flushPersist("completed", null, assistantMetadata);
     await safeUpdateRunRecord(run.id, {

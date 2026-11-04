@@ -3,18 +3,15 @@ import type { ModelMessage, ToolSet } from "ai";
 import type { ResolvedModel } from "@/core/types/app-state";
 
 import { truncateMessages } from "./compaction";
+import { safeTailStart } from "./message-boundaries";
+import { compactHistory } from "./manual-compaction";
 import {
   type ContextBudget,
   calculateContextBudget,
   isOverflow,
 } from "./overflow";
 import { pruneToolOutputs } from "./pruner";
-import {
-  buildSummaryPrompt,
-  createSummaryMessage,
-  findPreviousSummary,
-  serializeForSummary,
-} from "./summarizer";
+import { createSummaryMessage } from "./summarizer";
 import { selectTail } from "./tail";
 import { estimateMessageTokens } from "./token-estimator";
 
@@ -73,6 +70,7 @@ export function prepareMessagesForLLM(input: {
 }
 
 async function summarizeConversation(input: {
+  inputBudget: number;
   generateSummary: GenerateSummary;
   messages: ModelMessage[];
   tailStartIndex: number;
@@ -81,20 +79,13 @@ async function summarizeConversation(input: {
   const tail = input.messages.slice(input.tailStartIndex);
   if (head.length === 0) return undefined;
 
-  const previous = findPreviousSummary(head);
-  const history = previous
-    ? [...head.slice(0, previous.index), ...head.slice(previous.index + 1)]
-    : head;
-  if (history.length === 0) return undefined;
-
-  const prompt = buildSummaryPrompt({
-    previousSummary: previous?.summary,
-    history: serializeForSummary(history),
-  });
-
   let summary: string | undefined;
   try {
-    summary = await input.generateSummary(prompt);
+    summary = await compactHistory({
+      messages: head,
+      inputBudget: input.inputBudget,
+      generateSummary: input.generateSummary,
+    });
   } catch {
     summary = undefined;
   }
@@ -157,9 +148,10 @@ export async function prepareMessagesForLLMWithSummary(input: {
     });
 
     const summarized = await summarizeConversation({
+      inputBudget: budget.contextWindow - budget.reserved,
       generateSummary: input.generateSummary,
       messages,
-      tailStartIndex: selection?.tailStartIndex ?? 0,
+      tailStartIndex: safeTailStart(messages, selection?.tailStartIndex ?? 0),
     });
 
     if (summarized) {

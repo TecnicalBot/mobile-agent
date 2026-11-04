@@ -19,22 +19,21 @@ export function shouldUseStreamingAISDK() {
  * injected exactly once, at the next safe boundary after it arrives —
  * never mid-stream and never inside a step's retries.
  */
-function buildSteerPrepareStep(params: GenerateModelTextStreamParams) {
+function buildPrepareStep(params: GenerateModelTextStreamParams) {
   const takeSteeredUserInput = params.takeSteeredUserInput;
-  if (!takeSteeredUserInput) return undefined;
+  if (!takeSteeredUserInput && !params.prepareMessages) return undefined;
 
   return async (options: { stepNumber: number; messages: ModelMessage[] }) => {
-    if (options.stepNumber === 0) {
-      return undefined;
-    }
-
-    const steered = await takeSteeredUserInput(options.stepNumber);
-
-    if (steered.length === 0) {
-      return undefined;
-    }
-
-    return { messages: [...options.messages, ...steered] };
+    const steered = options.stepNumber > 0
+      ? await takeSteeredUserInput?.(options.stepNumber) ?? []
+      : [];
+    const messages = steered.length > 0
+      ? [...options.messages, ...steered]
+      : options.messages;
+    const prepared = params.prepareMessages
+      ? await params.prepareMessages(messages)
+      : messages;
+    return prepared === options.messages ? undefined : { messages: prepared };
   };
 }
 
@@ -130,7 +129,7 @@ function needsToolFollowup(steps: StepResult<ToolSet>[], hasTools: boolean, text
   return last.toolResults.length > 0 || (!last.text.trim() && last.finishReason === "stop");
 }
 
-function combineUsage(a: LanguageModelUsage | undefined, b: LanguageModelUsage | undefined): LanguageModelUsage | undefined {
+export function combineUsage(a: LanguageModelUsage | undefined, b: LanguageModelUsage | undefined): LanguageModelUsage | undefined {
   if (!a) return b;
   if (!b) return a;
   const sum = (x: number | undefined, y: number | undefined) =>
@@ -185,7 +184,7 @@ async function generateViaAISDKWithContinuation(
   };
 
   try {
-    const steerPrepareStep = buildSteerPrepareStep(params);
+    const prepareStep = buildPrepareStep(params);
     const result = streamText({
       abortSignal: params.abortSignal,
       headers: params.requestHeaders,
@@ -254,7 +253,7 @@ async function generateViaAISDKWithContinuation(
         params.onEvent?.("tool-execution-start", event);
       },
       providerOptions: params.providerOptions as any,
-      ...(steerPrepareStep ? { prepareStep: steerPrepareStep } : {}),
+      ...(prepareStep ? { prepareStep } : {}),
       ...(params.reasoning !== undefined
         ? { reasoning: params.reasoning }
         : {}),
@@ -316,6 +315,7 @@ async function generateViaAISDKWithContinuation(
         generatedFiles: allFiles.length > 0 ? allFiles : files,
         toolResults: allToolResults.length > 0 ? allToolResults : toolResults,
         usage,
+        contextUsage: steps.at(-1)?.usage,
         stepLimitReached: steps.length - getStepBudgetBase(params) >= params.maxToolSteps && steps.at(-1)?.finishReason === "tool-calls",
       };
       if (needsToolFollowup(steps, (current.toolResults?.length ?? 0) > 0, finalText) && steps.length - getStepBudgetBase(params) < params.maxToolSteps) {
@@ -422,7 +422,7 @@ export async function generateViaAISDKNonStreaming(
   continuationCount = 0,
   lateSteerCount = 0,
 ): Promise<GenerateModelTextStreamResult> {
-  const steerPrepareStep = buildSteerPrepareStep(params);
+  const prepareStep = buildPrepareStep(params);
   const result = await generateText({
     abortSignal: params.abortSignal,
     headers: params.requestHeaders,
@@ -441,7 +441,7 @@ export async function generateViaAISDKNonStreaming(
       params.onEvent?.("tool-execution-start", event);
     },
     providerOptions: params.providerOptions as any,
-    ...(steerPrepareStep ? { prepareStep: steerPrepareStep } : {}),
+    ...(prepareStep ? { prepareStep } : {}),
     ...(params.reasoning !== undefined ? { reasoning: params.reasoning } : {}),
     stopWhen: ({ steps }) =>
       steps.length - getStepBudgetBase(params) >= params.maxToolSteps,
@@ -485,6 +485,7 @@ export async function generateViaAISDKNonStreaming(
     text: result.text,
     toolResults: allToolResults.length > 0 ? allToolResults : result.toolResults,
     usage: result.totalUsage,
+    contextUsage: result.steps.at(-1)?.usage,
     stepLimitReached:
       result.steps.length - getStepBudgetBase(params) >= params.maxToolSteps &&
       result.steps.at(-1)?.finishReason === "tool-calls",

@@ -7,6 +7,7 @@ import {
 } from "@/core/services/workspace-file-service";
 import type { MessageRole, StoredMessage, WorkspaceFile } from "@/core/types/app-state";
 import { mediaEvidenceForMessage } from "@/modules/runtime/conversation-evidence";
+import { applyStoredCompaction } from "@/modules/context/stored-compaction";
 
 const IMAGE_MIME_PREFIXES = ["image/"];
 const AUDIO_MIME_PREFIXES = ["audio/"];
@@ -171,7 +172,7 @@ export async function convertStoredMessagesToModelMessages(input: {
   // alone does not protect the mobile heap when history contains many files.
   const budget = { bytes: MAX_DIRECT_MEDIA_BYTES, parts: MAX_REQUEST_MEDIA_PARTS };
 
-  for (const message of input.messages.filter(
+  for (const message of applyStoredCompaction(input.messages).filter(
     (item): item is StoredMessage & { role: MessageRole } =>
       item.role === "assistant" ||
       item.role === "system" ||

@@ -29,6 +29,8 @@ export type GenerateModelTextStreamParams = {
   sessionId?: string;
   system?: string;
   tools?: ToolSet;
+  /** Recheck the context budget before every request, including tool follow-ups. */
+  prepareMessages?: (messages: ModelMessage[]) => Promise<ModelMessage[]>;
   /**
    * Called by the driver at each safe step boundary (before steps 1+).
    * Returns user messages that arrived mid-run ("steered" input); the driver
@@ -51,6 +53,8 @@ export type GenerateModelTextStreamResult = {
   text: string;
   toolResults?: TypedToolResult<ToolSet>[];
   usage?: LanguageModelUsage;
+  /** Final step usage; aggregate usage is only suitable for billing totals. */
+  contextUsage?: LanguageModelUsage;
   stepLimitReached?: boolean;
 };
 

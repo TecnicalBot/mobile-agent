@@ -1,4 +1,5 @@
 import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
+import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 import {
   getValidOpenAiChatGptTokenInfo,
   getValidOpenAiChatGptTokenInfoForAccount,
@@ -11,7 +12,8 @@ import {
 /**
  * ChatGPT reports plan allowance (the same 5-hour / weekly windows the official
  * Codex client shows) from a private backend endpoint. The response is
- * best-effort: when it is unavailable the UI simply hides the usage panel.
+ * best-effort: token-sharing credentials may not authorize this endpoint.
+ * The UI must show an unavailable state, not silently hide plan usage.
  */
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CACHE_TTL_MS = 60_000;
@@ -192,7 +194,7 @@ export async function fetchOpenAiUsage(input: {
   signal?: AbortSignal;
   token: string;
 }): Promise<ProviderUsage> {
-  const response = await fetch(USAGE_URL, {
+  const response = await fetchWithTimeout(USAGE_URL, {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${input.token}`,
@@ -207,7 +209,7 @@ export async function fetchOpenAiUsage(input: {
     throw new Error(`Usage request failed (HTTP ${response.status}).`);
   }
 
-  return normalizeUsageResponse(await response.json().catch(() => ({})));
+  return normalizeUsageResponse(await response.json());
 }
 
 function cacheKey(providerId: string, accountId: string | null) {
@@ -243,6 +245,9 @@ export async function getProviderUsage(
   accountId: string | null,
   options: { force?: boolean; signal?: AbortSignal } = {},
 ): Promise<ProviderUsage> {
+  if (!getOpenAiOAuthFlavor(providerId)) {
+    throw new Error("Plan usage is only available for OpenAI subscription providers.");
+  }
   const key = cacheKey(providerId, accountId);
   const cached = memoryCache.get(key);
 

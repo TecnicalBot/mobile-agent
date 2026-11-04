@@ -40,6 +40,7 @@ let cachedCatalog: {
 const PROVIDER_ID_ALIASES: Record<string, string> = {
   fireworks: "fireworks-ai",
   "openai-api": "openai",
+  "openai-chatgpt": "openai",
 };
 
 // OpenCode Zen serves different model families over different protocols. The
@@ -172,6 +173,8 @@ export function invalidateModelsDevCatalog() {
 
 export type ModelsDevModelInfo = {
   contextWindow: number | null;
+  cacheReadPricePerToken: number | null;
+  cacheWritePricePerToken: number | null;
   inputPricePerToken: number | null;
   outputPricePerToken: number | null;
 };
@@ -185,6 +188,8 @@ function toPerTokenPrice(value: number | undefined) {
 function toModelInfo(model: ModelsDevModel): ModelsDevModelInfo {
   return {
     contextWindow: model.limit?.context ?? null,
+    cacheReadPricePerToken: toPerTokenPrice(model.cost?.cache_read),
+    cacheWritePricePerToken: toPerTokenPrice(model.cost?.cache_write),
     inputPricePerToken: toPerTokenPrice(model.cost?.input),
     outputPricePerToken: toPerTokenPrice(model.cost?.output),
   };

@@ -15,7 +15,7 @@ function usage(tokens = 1) {
   };
 }
 function step(text: string, toolResults: unknown[] = [], finishReason = "stop", files: unknown[] = []) {
-  return { text, toolResults, finishReason, files };
+  return { text, toolResults, finishReason, files, usage: usage() };
 }
 function response(text: string, steps: ReturnType<typeof step>[]) {
   return {
@@ -94,6 +94,59 @@ describe.each(["streaming", "non-streaming"])("tool follow-up recovery (%s)", (m
     mock.mockReturnValueOnce(response("Working", [step("Working", [mediaResult])]));
     await expect(run(params({ abortSignal: controller.signal }))).rejects.toThrow("aborted");
     expect(mock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe.each(["streaming", "non-streaming"])("context management (%s)", (mode) => {
+  const run = (p: GenerateModelTextStreamParams) => mode === "streaming"
+    ? generateViaAISDK("model" as never, p)
+    : generateViaAISDKNonStreaming("model" as never, p);
+  const mock = mode === "streaming" ? mocks.stream : mocks.generate;
+  beforeEach(() => vi.resetAllMocks());
+
+  it("keeps the final step's context usage separate from billing totals", async () => {
+    mock.mockReturnValueOnce({
+      ...response("Done.", [step("tool", [mediaResult]), { ...step("Done."), usage: usage(21_000) }]),
+      totalUsage: usage(173_500),
+    });
+    const result = await run(params());
+    expect(result.usage?.totalTokens).toBe(347_000);
+    expect(result.contextUsage?.totalTokens).toBe(42_000);
+  });
+
+  it("uses the final continuation's context usage, not a sum", async () => {
+    mock.mockReturnValueOnce(response("Working.", [step("Working.", [mediaResult], "tool-calls")]))
+      .mockReturnValueOnce({ ...response("Done.", [{ ...step("Done."), usage: usage(10) }]), totalUsage: usage(10) });
+    const result = await run(params());
+    expect(result.usage?.totalTokens).toBe(22);
+    expect(result.contextUsage?.totalTokens).toBe(20);
+  });
+
+  it("checks context on every step, including initial and steered requests", async () => {
+    mock.mockReturnValueOnce(assistantResponse("Done."));
+    const prepareMessages = vi.fn(async (messages) => messages.slice(-1));
+    const steer = { role: "user", content: "new guidance" };
+    const takeSteeredUserInput = vi.fn().mockReturnValue([]);
+    await run(params({ prepareMessages, takeSteeredUserInput }));
+    const hook = mock.mock.calls[0][0].prepareStep;
+    const messages = [{ role: "user", content: "old history" }, { role: "user", content: "current" }];
+    expect((await hook({ stepNumber: 0, messages })).messages).toEqual([messages[1]]);
+    takeSteeredUserInput.mockReturnValueOnce([steer]);
+    expect((await hook({ stepNumber: 1, messages })).messages).toEqual([steer]);
+    await hook({ stepNumber: 2, messages });
+    expect(prepareMessages).toHaveBeenCalledTimes(3);
+    expect(prepareMessages.mock.calls[1][0]).toEqual([...messages, steer]);
+  });
+
+  it("checks context again for manual continuation calls", async () => {
+    const prepareMessages = vi.fn(async (messages) => messages);
+    mock.mockReturnValueOnce(response("Working.", [step("Working.", [mediaResult], "tool-calls")]))
+      .mockReturnValueOnce(assistantResponse("Done."));
+    await run(params({ prepareMessages }));
+    expect(mock.mock.calls[1][0].prepareStep).toBeTypeOf("function");
+    const messages = mock.mock.calls[1][0].messages;
+    await mock.mock.calls[1][0].prepareStep({ stepNumber: 0, messages });
+    expect(prepareMessages).toHaveBeenCalledWith(messages);
   });
 });
 

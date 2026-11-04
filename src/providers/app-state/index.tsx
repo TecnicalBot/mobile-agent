@@ -5081,10 +5081,11 @@ Your output must be:
 
     const sendMessage = useCallback(async (input: SendMessageInput) => {
         const cleanContent = input.content.trim();
+        const manualCompaction = cleanContent.toLowerCase() === "/compact";
         const selectedFileIds = Array.from(
             new Set(
                 (
-                    input.selectedFileIds ?? snapshotRef.current.currentSelectedFileIds
+                    manualCompaction ? [] : input.selectedFileIds ?? snapshotRef.current.currentSelectedFileIds
                 ).filter(Boolean),
             ),
         );
@@ -5102,7 +5103,7 @@ Your output must be:
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
         const fileContextSource = resolveFileContextSource({
             currentConversation: activeConversation,
-            fileContextSource: input.fileContextSource,
+            fileContextSource: manualCompaction ? "workspace" : input.fileContextSource,
             selectedFileIds,
         });
         const externalFolderSession =
@@ -5152,6 +5153,9 @@ Your output must be:
             ));
 
         if (existingRun) {
+            if (manualCompaction) {
+                failSend("Wait for the current response to finish, or stop it, before compacting.");
+            }
             logMessageDebug("send-existing-run", {
                 conversationId: conversation.id,
                 existingRunId: existingRun.id,

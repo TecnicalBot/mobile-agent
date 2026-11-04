@@ -151,6 +151,8 @@ describe("findModelsDevModel", () => {
     const info = findModelsDevModel(catalog, "openrouter", "poolside/laguna-s-2.1");
     expect(info).toEqual({
       contextWindow: 1000000,
+      cacheReadPricePerToken: null,
+      cacheWritePricePerToken: null,
       inputPricePerToken: 0.00000009,
       outputPricePerToken: 0.00000018,
     });
@@ -164,6 +166,7 @@ describe("findModelsDevModel", () => {
 
   it("resolves aliased providers", () => {
     expect(findModelsDevModel(catalog, "openai-api", "gpt-5.4")?.contextWindow).toBe(400000);
+    expect(findModelsDevModel(catalog, "openai-chatgpt", "gpt-5.4")?.contextWindow).toBe(400000);
   });
 
   it("falls back to scanning all providers for exact ids", () => {

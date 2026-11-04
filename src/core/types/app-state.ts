@@ -227,6 +227,11 @@ export type ModelUsageSnapshot = {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  /** Tokens in the final model request/response, not the sum of all tool steps. */
+  contextTokens?: number | null;
+  contextIsEstimated?: boolean;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
   costInput: number | null;
   costOutput: number | null;
   costTotal: number | null;
@@ -399,7 +404,20 @@ export type ScheduleRun = {
   completedAt: string | null;
 };
 
+export type ContextCompactionRecord = {
+  trigger: "automatic" | "manual";
+  createdAt: string;
+  beforeTokens: number;
+  afterTokens: number;
+  inputBudget: number;
+  didPrune: boolean;
+  didTruncate: boolean;
+  summary: string | null;
+};
+
 export type MessageMetadata = {
+  contextCompactions?: ContextCompactionRecord[];
+  contextCompaction?: { summary: string; throughSequence: number };
   agentName?: string | null;
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];

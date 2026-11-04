@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 
 import { estimateMessageTokens } from "./token-estimator";
+import { safeTailStart } from "./message-boundaries";
 
 const COMPACTION_MARKER =
   "[Earlier conversation was truncated to fit the model's context window.]";
@@ -40,7 +41,10 @@ export function truncateMessages(
     0,
   );
 
-  const remainingBudget = Math.max(budgetTokens - systemTokens, 0);
+  const marker = createCompactionMarker();
+  const remainingBudget = Math.max(
+    budgetTokens - systemTokens - estimateMessageTokens(marker), 0,
+  );
 
   if (nonSystemMessages.length <= 2) {
     return messages;
@@ -57,11 +61,11 @@ export function truncateMessages(
     (secondLastMessage ? estimateMessageTokens(secondLastMessage) : 0);
 
   if (tailTokens >= remainingBudget) {
+    const tailStart = safeTailStart(nonSystemMessages, nonSystemMessages.length - 2);
     return [
       ...systemMessages,
-      createCompactionMarker(),
-      secondLastMessage!,
-      lastMessage,
+      marker,
+      ...nonSystemMessages.slice(tailStart),
     ];
   }
 
@@ -90,5 +94,6 @@ export function truncateMessages(
     return messages;
   }
 
-  return [...systemMessages, createCompactionMarker(), ...keptMessages];
+  const tailStart = safeTailStart(nonSystemMessages, droppedCount);
+  return [...systemMessages, marker, ...nonSystemMessages.slice(tailStart)];
 }

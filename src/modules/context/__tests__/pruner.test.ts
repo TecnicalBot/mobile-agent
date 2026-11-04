@@ -12,8 +12,8 @@ import {
 const LARGE_TEXT = "x".repeat(7_000);
 const SMALL_TEXT = "small";
 
-function largeMessages(count: number, role: "user" | "assistant" = "user") {
-  return Array.from({ length: count }, () => msg(role, LARGE_TEXT));
+function largeMessages(count: number, role: "user" | "assistant" | "tool" = "tool") {
+  return Array.from({ length: count }, () => contentMessage(role, LARGE_TEXT));
 }
 
 function smallTail(count: number) {
@@ -58,7 +58,7 @@ describe("pruneToolOutputs", () => {
   });
 
   it("only replaces text parts longer than 6000 characters", () => {
-    const mixed = contentMessage("user", [
+    const mixed = contentMessage("tool", [
       textPart("keep me"),
       textPart(LARGE_TEXT),
     ]);
@@ -84,6 +84,11 @@ describe("pruneToolOutputs", () => {
       typeof toolResultPart
     >[];
     expect(firstContent[0]!.content).toMatch(/^\[Tool output pruned/);
+  });
+
+  it("never prunes user instructions or assistant prose as tool output", () => {
+    const messages = [...largeMessages(10, "user"), ...largeMessages(10, "assistant"), ...smallTail(4)];
+    expect(pruneToolOutputs(messages)).toBe(messages);
   });
 
   it("prunes large AI SDK v7 tool-result output parts and keeps a valid output shape", () => {

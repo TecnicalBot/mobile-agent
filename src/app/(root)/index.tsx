@@ -70,6 +70,8 @@ import {
 import { ComposerTip } from "@/components/chat/composer-tip";
 import { useStarterPrompts } from "@/modules/chat/use-starter-prompts";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { describeCompaction } from "@/modules/chat/compaction-info";
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
@@ -125,6 +127,7 @@ import {
 } from "@/core/services/workspace-file-service";
 import { inferMimeType } from "@/core/services/file-names";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { isOpenAiSubscriptionProvider } from "@/modules/providers/openai";
 import type {
   AgentConfig,
   ExternalFolderSession,
@@ -868,7 +871,8 @@ export default function Screen() {
                   />
                 </InfoSection>
 
-                {chatInfo.currentModel ? (
+                {infoDrawerOpen && chatInfo.currentModel &&
+                isOpenAiSubscriptionProvider(chatInfo.currentModel.providerId) ? (
                   <ProviderUsageInfo
                     accountId={
                       activeProviderAccountIds[
@@ -947,7 +951,12 @@ export default function Screen() {
                       ) : null}
                     </InfoSection>
 
-                    <InfoSection title="Context">
+                    <InfoSection
+                      title="Context"
+                      subtitle={chatInfo.latestTurn?.contextIsEstimated
+                        ? "Estimated context after manual compaction."
+                        : "Final model step, after context management. Turn totals include all tool steps."}
+                    >
                       <InfoRow
                         label="Context window"
                         value={formatTokenCount(
@@ -959,7 +968,7 @@ export default function Screen() {
                       <InfoRow
                         label="Used"
                         value={formatTokenCount(
-                          chatInfo.latestTurn?.totalTokens ?? null,
+                          chatInfo.latestTurn?.contextTokens ?? null,
                         )}
                       />
                       <InfoRow
@@ -977,6 +986,41 @@ export default function Screen() {
                     </InfoSection>
                   </>
                 )}
+                {chatInfo.compactionHistory.length > 0 ? (
+                  <InfoSection
+                    title="Compaction details"
+                    subtitle="Exact saved summaries and context changes, newest first. Token counts are estimates for history only."
+                  >
+                    {chatInfo.compactionHistory.map((record) => (
+                      <CollapsibleSection
+                        key={record.id}
+                        label={`${record.trigger === "manual" ? "Manual" : "Automatic"} · ${new Date(record.createdAt).toLocaleString()}`}
+                        contentClassName="gap-sp-2"
+                      >
+                        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                          {describeCompaction(record)}
+                        </Text>
+                        <InfoRow label="History before" value={formatTokenCount(record.beforeTokens)} />
+                        <InfoRow label="History after" value={formatTokenCount(record.afterTokens)} />
+                        <InfoRow label="History token budget" value={formatTokenCount(record.inputBudget)} />
+                        {record.summary ? (
+                          <>
+                            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                              Full generated summary
+                            </Text>
+                            <Text selectable className="font-mono text-xs text-foreground dark:text-foreground-dark">
+                              {record.summary}
+                            </Text>
+                          </>
+                        ) : (
+                          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                            No summary was generated. Context was reduced by pruning or truncation.
+                          </Text>
+                        )}
+                      </CollapsibleSection>
+                    ))}
+                  </InfoSection>
+                ) : null}
               </DrawerBody>
             </DrawerContent>
           </Drawer>
@@ -1161,6 +1205,7 @@ function ProviderUsageInfo({
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">(
     "loading",
   );
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1168,7 +1213,7 @@ function ProviderUsageInfo({
     setStatus("loading");
     setUsage(null);
 
-    getProviderUsage(providerId, accountId)
+    getProviderUsage(providerId, accountId, { force: refreshKey > 0 })
       .then((next) => {
         if (cancelled) {
           return;
@@ -1186,15 +1231,26 @@ function ProviderUsageInfo({
     return () => {
       cancelled = true;
     };
-  }, [accountId, providerId]);
+  }, [accountId, providerId, refreshKey]);
 
   if (status === "unavailable") {
-    return null;
+    return (
+      <InfoSection title="Plan usage" subtitle="Plan limits unavailable">
+        <InfoRow label="Billing" value="Covered by your plan" />
+        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          Could not retrieve plan limits. This sign-in may not allow access to
+          usage data. Check usage in ChatGPT settings; chat token totals are shown below.
+        </Text>
+        <Button variant="outline" onPress={() => setRefreshKey((key) => key + 1)}>
+          Retry
+        </Button>
+      </InfoSection>
+    );
   }
 
   if (status === "loading") {
     return (
-      <InfoSection title="Usage">
+      <InfoSection title="Plan usage">
         <View className="flex-row items-center gap-sp-2">
           <ActivityIndicator color={theme.text} size="small" />
           <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
@@ -1211,17 +1267,28 @@ function ProviderUsageInfo({
   ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
   if (!usage || windows.length === 0) {
-    return null;
+    return (
+      <InfoSection title="Plan usage" subtitle={formatUsagePlanLabel(usage?.plan ?? null) ?? undefined}>
+        <InfoRow label="Billing" value="Covered by your plan" />
+        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          This connection did not return plan limits. Check usage in ChatGPT settings.
+        </Text>
+        <Button variant="outline" onPress={() => setRefreshKey((key) => key + 1)}>
+          Refresh
+        </Button>
+      </InfoSection>
+    );
   }
 
   return (
     <InfoSection
       subtitle={formatUsagePlanLabel(usage.plan) ?? undefined}
-      title="Usage"
+      title="Plan usage"
     >
+      <InfoRow label="Billing" value="Covered by your plan" />
       <View className="gap-sp-3">
-        {windows.map(({ window }) => (
-          <View className="gap-sp-1" key={window.resetAt ?? window.windowSeconds}>
+        {windows.map(({ window }, index) => (
+          <View className="gap-sp-1" key={index}>
             <View className="flex-row items-center justify-between gap-sp-3">
               <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
                 {formatUsageWindowLabel(window.windowSeconds)}
@@ -1233,7 +1300,7 @@ function ProviderUsageInfo({
             <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
               <View
                 className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
-                style={{ width: `${Math.max(2, window.usedPercent)}%` }}
+                style={{ width: `${window.leftPercent}%` }}
               />
             </View>
             {window.resetAt ? (
@@ -1790,6 +1857,25 @@ const ChatInput = memo(function ChatInput({
         ? appendQuote(currentPrompt, pendingQuote.quoted)
         : currentPrompt
     ).trim();
+    if (cleanPrompt.toLowerCase() === "/compact") {
+      if (harnessAgents || loading) {
+        Alert.alert("Cannot compact now", harnessAgents
+          ? "Manage compaction in OpenCode for this session."
+          : "Wait for the response to finish, or stop it first.");
+        return;
+      }
+      sendingRef.current = true;
+      setPromptValue("");
+      try {
+        await onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" });
+      } catch (error) {
+        setPromptValue(currentPrompt);
+        Alert.alert("Could not compact", error instanceof Error ? error.message : String(error));
+      } finally {
+        sendingRef.current = false;
+      }
+      return;
+    }
     const folderIntent = detectFolderIntent(cleanPrompt);
     const nextFileContextSource =
       selectedFileIds.length > 0
@@ -2227,6 +2313,20 @@ const ChatInput = memo(function ChatInput({
             : "No saved prompts",
       },
       {
+        id: "compact",
+        icon: <Brain color={theme.text} size={16} />,
+        label: "Compact conversation",
+        disabled: loading || !canSend || harnessAgents,
+        onPress: () => {
+          clearTriggerText();
+          onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" })
+            .catch((error: unknown) => Alert.alert("Could not compact", error instanceof Error ? error.message : String(error)));
+        },
+        subtitle: harnessAgents
+          ? "Manage compaction in OpenCode"
+          : "Summarize context now · /compact",
+      },
+      {
         id: "tool-permissions",
         icon: <Check color={theme.text} size={16} />,
         label: "Tool permissions",
@@ -2301,10 +2401,14 @@ const ChatInput = memo(function ChatInput({
     ],
     [
       activeMcpServerIds.size,
+      canSend,
       clearTriggerText,
       conversationAgentName,
       currentModelLabel,
       enabledMcpServers.length,
+      harnessAgents,
+      loading,
+      onSend,
       reasoningEffort,
       savedPrompts.length,
       selectedSkills.length,

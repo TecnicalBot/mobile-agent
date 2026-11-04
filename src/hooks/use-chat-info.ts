@@ -3,11 +3,9 @@ import { useMemo } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useConfig } from "@/hooks/use-config";
 import { useModelsDevCatalog } from "@/hooks/use-models-dev-catalog";
-import {
-  findModelsDevModel,
-  type ModelsDevModelInfo,
-} from "@/modules/config/models-dev-catalog";
-import { isOpenAiSubscriptionProvider } from "@/modules/providers/openai";
+import { findModelsDevModel } from "@/modules/config/models-dev-catalog";
+import { enrichUsage, type DisplayUsage } from "@/modules/chat/usage";
+import { getCompactionHistory } from "@/modules/chat/compaction-info";
 import type { ModelUsageSnapshot, ResolvedModel } from "@/core/types/app-state";
 
 function getOllamaContextWindow(model: ResolvedModel): number | null {
@@ -19,23 +17,6 @@ function getOllamaContextWindow(model: ResolvedModel): number | null {
   }
   return null;
 }
-
-type DisplayUsage = {
-  contextUsagePercent: number | null;
-  contextWindow: number | null;
-  costInput: number | null;
-  costOutput: number | null;
-  costTotal: number | null;
-  hasPaidUsage: boolean;
-  inputTokens: number | null;
-  isPartial: boolean;
-  modelLabel: string;
-  outputTokens: number | null;
-  planCovered: boolean;
-  providerLabel: string;
-  remainingContext: number | null;
-  totalTokens: number | null;
-};
 
 function sumNullableNumbers(values: Array<number | null>) {
   let sawValue = false;
@@ -49,70 +30,6 @@ function sumNullableNumbers(values: Array<number | null>) {
   }
 
   return sawValue ? total : null;
-}
-
-function roundPercent(value: number | null) {
-  if (value === null) {
-    return null;
-  }
-
-  return Math.round(value * 10) / 10;
-}
-
-function enrichUsage(
-  usage: ModelUsageSnapshot,
-  catalogModel: ModelsDevModelInfo | null,
-  fallbackContextWindow?: number | null,
-) {
-  const inputPricePerToken = catalogModel?.inputPricePerToken ?? null;
-  const outputPricePerToken = catalogModel?.outputPricePerToken ?? null;
-  const inputCost =
-    usage.inputTokens !== null && inputPricePerToken !== null
-      ? usage.inputTokens * inputPricePerToken
-      : usage.costInput;
-  const outputCost =
-    usage.outputTokens !== null && outputPricePerToken !== null
-      ? usage.outputTokens * outputPricePerToken
-      : usage.costOutput;
-  const totalCost =
-    inputCost !== null || outputCost !== null
-      ? (inputCost ?? 0) + (outputCost ?? 0)
-      : usage.costTotal;
-  const contextWindow =
-    catalogModel?.contextWindow ??
-    usage.contextWindow ??
-    fallbackContextWindow ??
-    null;
-  const usedTokens =
-    usage.totalTokens ??
-    (usage.inputTokens !== null || usage.outputTokens !== null
-      ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
-      : null);
-  const remainingContext =
-    contextWindow !== null && usedTokens !== null
-      ? Math.max(contextWindow - usedTokens, 0)
-      : usage.remainingContext;
-  const contextUsagePercent =
-    contextWindow !== null && usedTokens !== null && contextWindow > 0
-      ? roundPercent((usedTokens / contextWindow) * 100)
-      : usage.contextUsagePercent;
-
-  return {
-    contextUsagePercent,
-    contextWindow,
-    costInput: inputCost,
-    costOutput: outputCost,
-    costTotal: totalCost,
-    hasPaidUsage: !isOpenAiSubscriptionProvider(usage.providerId),
-    inputTokens: usage.inputTokens,
-    isPartial: false,
-    modelLabel: usage.modelLabel,
-    outputTokens: usage.outputTokens,
-    planCovered: isOpenAiSubscriptionProvider(usage.providerId),
-    providerLabel: usage.providerLabel,
-    remainingContext,
-    totalTokens: usedTokens,
-  } satisfies DisplayUsage;
 }
 
 export function useChatInfo() {
@@ -160,16 +77,13 @@ export function useChatInfo() {
             const providerLabels = new Set(
               enriched.map((usage) => usage.providerLabel),
             );
-            const partial =
-              enriched.some(
-                (usage) =>
-                  usage.inputTokens === null ||
-                  usage.outputTokens === null ||
-                  usage.totalTokens === null ||
-                  usage.costTotal === null,
-              ) || modelLabels.size > 1;
+            const partial = enriched.some(
+              (usage) => usage.isPartial || usage.totalTokens === null,
+            );
 
             return {
+              contextIsEstimated: false,
+              contextTokens: null,
               contextUsagePercent: null,
               contextWindow: null,
               costInput: sumNullableNumbers(enriched.map((usage) => usage.costInput)),
@@ -203,13 +117,14 @@ export function useChatInfo() {
         : null;
 
     return {
+      compactionHistory: getCompactionHistory(messages),
       conversationTotals,
       currentModel: currentModel
         ? {
             contextWindow:
-              currentCatalogModel?.contextWindow ??
-              currentModel.contextWindow ??
               ollamaContextWindow ??
+              currentModel.contextWindow ??
+              currentCatalogModel?.contextWindow ??
               null,
             modelId: currentModel.modelId,
             modelLabel: currentModel.label,

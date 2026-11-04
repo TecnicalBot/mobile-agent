@@ -2,6 +2,8 @@ import { File } from "expo-file-system";
 import { tool } from "ai";
 import { getThumbnailAsync } from "expo-video-thumbnails";
 import { z } from "zod";
+import { createContactSheet, MAX_CONTACT_SHEET_FRAMES } from "@/modules/preview/contact-sheet";
+import type { ScenePreviewFrame } from "@/modules/preview/video-preview";
 
 import { createWorkspaceFileService, resolveWorkspaceFile } from "@/core/services/workspace-file-service";
 import {
@@ -29,7 +31,9 @@ type VideoFrameOutput = {
   text: string;
   fileId: string;
   link: string;
-  time: number;
+  time?: number;
+  times?: number[];
+  frameCount?: number;
   width: number;
   height: number;
   inlineImage: boolean;
@@ -44,7 +48,7 @@ export function createVideoFrameTool({
   const workspaceService = createWorkspaceFileService(repository);
   return tool({
     description:
-      "Grab a still frame from a workspace video at a given timestamp and look at it. Use this when the user points at a moment in a rendered video ('at 0:12 the logo is cut off', 'check the middle'). Pass the video fileId and time in seconds. Returns the frame as a workspace image file and — on vision-capable models — inline image content you can actually see. On models without image input you only get the file link: use the ocr tool to read on-screen text, or ask the user what they see.",
+      "Inspect a workspace video. Pass fileId and either time for ONE full-resolution still, or times (up to 12 seconds-based timestamps) to capture a batch and return ONE compact, timestamp-labeled contact sheet. Prefer times for reviewing multiple moments: one tool call and one vision image, no separate reads needed. Use time for a closer look at small text or details. Non-vision models get a file link for ocr instead.",
     inputSchema: z.object({
       fileId: z
         .string()
@@ -54,14 +58,22 @@ export function createVideoFrameTool({
         .number()
         .min(0)
         .max(3600)
+        .optional()
         .describe(
           "Timestamp in seconds into the video (e.g. 12 for 'at 0:12').",
         ),
-    }),
-    execute: async ({ fileId, time }: { fileId: string; time: number }) => {
-      const inputSummary = summarizeValue({ fileId, time });
+      times: z.array(z.number().min(0).max(3600)).min(1).max(MAX_CONTACT_SHEET_FRAMES).optional()
+        .describe("Batch timestamps in seconds; returns one numbered contact sheet. Do not also pass time."),
+    }).refine((input) => (input.time != null) !== (input.times != null), "Pass either time or times, not both."),
+    execute: async ({ fileId, time, times }: { fileId: string; time?: number; times?: number[] }, { abortSignal }: { abortSignal?: AbortSignal }): Promise<VideoFrameOutput> => {
+      const inputSummary = summarizeValue({ fileId, time, times });
 
       try {
+        if ((time != null) === (times != null)) throw new Error("Pass either time or times, not both.");
+        const requested = times ?? [time!];
+        if (!requested.length || requested.length > MAX_CONTACT_SHEET_FRAMES || requested.some((t) => !Number.isFinite(t) || t < 0 || t > 3600)) {
+          throw new Error("Provide 1–12 finite timestamps between 0 and 3600 seconds.");
+        }
         const record = await repository.getById(fileId);
         if (!record) {
           throw new Error(`No workspace file found with id ${fileId}.`);
@@ -73,8 +85,39 @@ export function createVideoFrameTool({
           );
         }
 
+        const baseName = record.displayName.replace(/\.[a-z0-9]+$/i, "");
+        if (times) {
+          const timestamps = [...new Set(times)].sort((a, b) => a - b);
+          const frames: ScenePreviewFrame[] = [];
+          // Keep decoding bounded: one thumbnail at a time, one model response
+          // for the whole batch. Never allocate twelve native full-size bitmaps.
+          for (const timestamp of timestamps) {
+            abortSignal?.throwIfAborted();
+            const thumb = await getThumbnailAsync(source.uri, { time: Math.round(timestamp * 1000), quality: 0.8 });
+            const file = new File(thumb.uri);
+            try {
+              frames.push({ time: timestamp, width: thumb.width, height: thumb.height, base64: await file.base64() });
+            } finally {
+              try { file.delete(); } catch { /* Best-effort cache cleanup. */ }
+            }
+          }
+          const sheet = await createContactSheet(frames, abortSignal);
+          const binary = atob(sheet.base64);
+          const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+          const saved = await workspaceService.createDocumentFile({ bytes, mimeType: "image/jpeg", name: `${baseName}-contact-sheet.jpg` });
+          const text = `Contact sheet of "${record.displayName}": ${timestamps.length} frames, left-to-right, top-to-bottom (${timestamps.map((t, i) => `${i + 1}=${t}s`).join(", ")}). Saved as workspace://${saved.id}. Use time for a full-resolution closer look; thumbnails cannot verify fine details or motion.` +
+            (supportsImageInput ? "" : " Your model cannot display images; use the ocr tool on the saved sheet or ask the user what they see.");
+          const output: VideoFrameOutput = { text, fileId: saved.id, link: `workspace://${saved.id}`, times: timestamps, frameCount: timestamps.length, width: sheet.width, height: sheet.height, inlineImage: supportsImageInput, image: supportsImageInput ? bytes : null };
+          onRecord?.(createRecord({ toolName: "getVideoFrame", status: "completed", inputSummary,
+            mediaResult: { sourceFileId: record.id, sourceUpdatedAt: record.updatedAt, resultFileId: saved.id },
+            preview: { title: `${record.displayName} · contact sheet`, uri: resolveWorkspaceFile(saved.relativePath).uri, mimeType: "image/jpeg" },
+            outputSummary: summarizeValue({ fileId: saved.id, times: timestamps, frameCount: timestamps.length, width: sheet.width, height: sheet.height, inlineImage: supportsImageInput }),
+          }));
+          return output;
+        }
+        abortSignal?.throwIfAborted();
         const thumb = await getThumbnailAsync(source.uri, {
-          time: Math.round(time * 1000),
+          time: Math.round(time! * 1000),
           quality: 0.9,
         });
         const thumbFile = new File(thumb.uri);
@@ -85,7 +128,6 @@ export function createVideoFrameTool({
           // Cache cleanup is best-effort.
         }
 
-        const baseName = record.displayName.replace(/\.[a-z0-9]+$/i, "");
         const saved = await workspaceService.createDocumentFile({
           bytes,
           mimeType: "image/jpeg",

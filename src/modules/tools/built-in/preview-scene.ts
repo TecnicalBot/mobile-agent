@@ -8,6 +8,7 @@ import {
   inlineVideoAssets,
 } from "@/modules/preview/video-assets";
 import { requestScenePreview } from "@/modules/preview/video-preview";
+import { createContactSheet, MAX_CONTACT_SHEET_FRAMES } from "@/modules/preview/contact-sheet";
 import {
   createRecord,
   summarizeValue,
@@ -15,7 +16,7 @@ import {
 import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types";
 import { resolveHtml } from "@/modules/tools/built-in/render-video";
 
-const MAX_PREVIEW_FRAMES = 8;
+const MAX_PREVIEW_FRAMES = MAX_CONTACT_SHEET_FRAMES;
 
 type PreviewSceneContentItem = Record<string, unknown>;
 
@@ -25,6 +26,8 @@ export type PreviewSceneOutput = {
   frames?: unknown;
   frameCount?: number;
   warnings?: unknown;
+  layout?: string;
+  times?: number[];
 };
 
 function round2(value: number) {
@@ -104,7 +107,7 @@ export function createPreviewSceneTool({
   const workspaceService = createWorkspaceFileService(repository);
   return tool({
     description:
-      "Look at a video scene before rendering it. Use this after writing or revising a scene for renderVideo — especially with user images, video clips, or tricky layout — to check composition, framing, and caption placement while iteration is cheap. Pass the same HTML (or scene fileId) you would render, plus the promised duration. Returns storyboard stills as workspace image files and — on vision-capable models — inline image content you can actually see. On models without image input you only get the file links: use the ocr tool to read on-screen text, or ask the user what they see. The preview is approximate (media settles, no audio plays); the render is truth.",
+      "Look at a video scene before rendering it. Pass the scene HTML or fileId and optional times (up to 12). Multi-frame previews return ONE compact contact sheet with numbered timestamps by default, not separate vision images. Use layout: frames only for detailed full-resolution inspection. Vision-capable models see the image inline; otherwise use the saved image with ocr. The preview is approximate (media settles, no audio plays); the render is truth.",
     inputSchema: z.object({
       html: z
         .string()
@@ -133,6 +136,7 @@ export function createPreviewSceneTool({
         .describe(
           "Timestamps in seconds to capture (default: a 5-frame storyboard across the scene).",
         ),
+      layout: z.enum(["contactSheet", "frames"]).optional().describe("Default: contactSheet. Use frames for full-resolution individual stills."),
       name: z
         .string()
         .min(1)
@@ -147,12 +151,14 @@ export function createPreviewSceneTool({
         duration,
         times,
         name,
+        layout = "contactSheet",
       }: {
         html?: string;
         fileId?: string;
         duration?: number;
         times?: number[];
         name?: string;
+        layout?: "contactSheet" | "frames";
       },
       { abortSignal },
     ) => {
@@ -162,6 +168,7 @@ export function createPreviewSceneTool({
         duration: duration ?? null,
         times: times ?? null,
         name: name ?? null,
+        layout,
       });
 
       try {
@@ -220,23 +227,28 @@ export function createPreviewSceneTool({
         const frames: {
           fileId: string;
           link: string;
-          time: number;
+          time?: number;
+          times?: number[];
           width: number;
           height: number;
         }[] = [];
         const inlineParts: { type: "file"; data: Uint8Array; mediaType: string }[] = [];
-        for (const frame of preview.frames) {
+        const useSheet = layout === "contactSheet" && preview.frames.length > 1;
+        const images = useSheet
+          ? [await createContactSheet(preview.frames, abortSignal)]
+          : preview.frames;
+        for (const frame of images) {
           const bytes = base64ToBytes(frame.base64);
           const saved = await workspaceService.createDocumentFile({
             bytes,
             mimeType: "image/jpeg",
-            name: `${baseName}-preview-${frame.time}s.jpg`,
+            name: useSheet ? `${baseName}-contact-sheet.jpg` : `${baseName}-preview-${frame.time}s.jpg`,
           });
-          previewImages.push({ uri: resolveWorkspaceFile(saved.relativePath).uri, title: `${frame.time}s` });
+          previewImages.push({ uri: resolveWorkspaceFile(saved.relativePath).uri, title: useSheet ? "Contact sheet" : `${frame.time}s` });
           frames.push({
             fileId: saved.id,
             link: `workspace://${saved.id}`,
-            time: frame.time,
+            ...(useSheet ? { times: preview.frames.map((f) => f.time) } : { time: frame.time }),
             width: frame.width,
             height: frame.height,
           });
@@ -248,15 +260,17 @@ export function createPreviewSceneTool({
         }
 
         const text =
-          `Storyboard of "${baseName}" (${videoDuration}s, ${frames.length} frame${frames.length === 1 ? "" : "s"}): ` +
-          frames.map((f) => `${f.time}s as workspace://${f.fileId}`).join(", ") +
+          `Storyboard of "${baseName}" (${videoDuration}s, ${preview.frames.length} frames${useSheet ? ", one contact sheet; read left-to-right, top-to-bottom: " + preview.frames.map((f, i) => `${i + 1}=${f.time}s`).join(", ") : ""}): ` +
+          frames.map((f) => `${useSheet ? "contact sheet" : `${f.time}s`} as workspace://${f.fileId}`).join(", ") +
           ". Describe what you see at each timestamp when replying.";
 
         const output: PreviewSceneOutput = supportsImageInput
           ? {
               content: [{ type: "text" as const, text }, ...inlineParts],
               frames,
-              frameCount: frames.length,
+              frameCount: preview.frames.length,
+              layout: useSheet ? "contactSheet" : "frames",
+              times: preview.frames.map((f) => f.time),
               warnings,
             }
           : {
@@ -265,7 +279,9 @@ export function createPreviewSceneTool({
                 `the saved stills with the ocr tool for on-screen text, or ask ` +
                 `the user what they see at each timestamp.`,
               frames,
-              frameCount: frames.length,
+              frameCount: preview.frames.length,
+              layout: useSheet ? "contactSheet" : "frames",
+              times: preview.frames.map((f) => f.time),
               warnings,
             };
 
@@ -276,7 +292,8 @@ export function createPreviewSceneTool({
             inputSummary,
             preview: { title: baseName, images: previewImages, text: warnings.length ? warnings.join("\n") : undefined },
             outputSummary: summarizeValue({
-              frameCount: frames.length,
+              frameCount: preview.frames.length,
+              layout: useSheet ? "contactSheet" : "frames",
               frames: frames.map((f) => ({
                 fileId: f.fileId,
                 link: f.link,

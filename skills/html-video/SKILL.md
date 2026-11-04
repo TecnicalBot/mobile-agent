@@ -195,9 +195,12 @@ authoring a scene — especially with user images, video clips, or tricky
 layout — check it with the **`previewScene` tool** before calling
 `renderVideo`. Pass the same HTML (or scene `fileId`) and the promised
 `duration`: it runs the scene's `render(t, ...)` at storyboard timestamps
-in a hidden host and returns the stills as workspace images (inline for
+in a hidden host and returns ONE compact timestamp-labeled contact sheet for
+multiple timestamps by default (inline for
 vision-capable models, file links + `ocr` fallback otherwise), so you can
 fix composition, framing, and caption placement while iteration is cheap.
+Pass up to 12 `times` in one call. Use `layout: "frames"` only when individual
+full-resolution stills are needed for small text or detailed inspection.
 
 Rules:
 
@@ -239,12 +242,15 @@ what's actually on screen. On models without image input you only get the
 file link — use the `ocr` tool to read on-screen text, or ask the user what
 they see. After inspecting, revise via the source-HTML workflow above.
 
-To assess a whole video at once, call `getVideoFrame` several times **in one
-block** at spread timestamps (e.g. start, middle, end — 2 to 4 frames, not
-more): each call returns its own frame and they all arrive together, so you
-can compare moments in a single step. Every frame is also saved to the
-workspace, so later turns can reference individual frames by fileId without
-re-fetching. Keep it to a few frames — each one costs vision context.
+To assess multiple moments, call `getVideoFrame({ fileId, times: [0, 2, 4] })`
+ONCE (up to 12 timestamps). It captures the batch and returns ONE compact JPEG
+contact sheet, numbered left-to-right/top-to-bottom with timestamps. Inspect
+that inline image directly: do not issue separate reads for each frame.
+The sheet is saved to the workspace. For a closer look at small text or a
+suspicious thumbnail, call `getVideoFrame({ fileId, time: 2 })` for that one
+full-resolution frame. Pass either `time` or `times`, never both. Thumbnail
+sheets cannot verify fine details or motion; cost depends on model/resolution,
+not just the number of image parts.
 
 After the tool returns, embed the video **inline** in your response exactly
 where you talk about it, the same way you would embed an image:

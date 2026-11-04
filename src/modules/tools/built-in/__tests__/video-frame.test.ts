@@ -6,6 +6,12 @@ const mocks = vi.hoisted(() => ({
   createDocumentFile: vi.fn(),
   onRecord: vi.fn(),
   files: new Map<string, { bytes: Uint8Array }>(),
+  createContactSheet: vi.fn(),
+  deleteFile: vi.fn(),
+}));
+vi.mock("@/modules/preview/contact-sheet", () => ({
+  MAX_CONTACT_SHEET_FRAMES: 12,
+  createContactSheet: mocks.createContactSheet,
 }));
 
 vi.mock("expo-video-thumbnails", () => ({
@@ -31,7 +37,8 @@ vi.mock("expo-file-system", () => ({
     async bytes() {
       return mocks.files.get(this.uri)?.bytes ?? new Uint8Array(0);
     }
-    delete() {}
+    async base64() { return "QUJD"; }
+    delete() { mocks.deleteFile(this.uri); }
   },
 }));
 
@@ -78,6 +85,35 @@ describe("getVideoFrame", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.files.clear();
+  });
+
+  it("captures a sorted deduplicated batch and sends exactly one image", async () => {
+    const tool = makeTool() as any;
+    mocks.createContactSheet.mockResolvedValue({ base64: "QUJD", width: 960, height: 268 });
+    const out = await execute(tool, { fileId: "video-1", times: [10, 0, 5, 5] }) as any;
+    expect(mocks.getThumbnailAsync.mock.calls.map((call) => call[1].time)).toEqual([0, 5000, 10000]);
+    expect(mocks.deleteFile).toHaveBeenCalledTimes(3);
+    expect(mocks.createContactSheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ time: 5 })]), undefined);
+    expect(mocks.createDocumentFile).toHaveBeenCalledOnce();
+    expect(out).toMatchObject({ times: [0, 5, 10], frameCount: 3, width: 960 });
+    const converted = tool.toModelOutput({ output: out });
+    expect(converted.value.filter((part: any) => part.type === "file")).toHaveLength(1);
+    expect(out.text).toContain("2=5s");
+  });
+
+  it("rejects ambiguous and oversized batches", async () => {
+    const tool = makeTool();
+    await expect(execute(tool, { fileId: "video-1", time: 0, times: [1] })).rejects.toThrow(/either/);
+    await expect(execute(tool, { fileId: "video-1", times: Array(13).fill(1) })).rejects.toThrow(/1–12/);
+    expect(mocks.getThumbnailAsync).not.toHaveBeenCalled();
+  });
+
+  it("stops a batch when cancelled", async () => {
+    const tool = makeTool() as any;
+    const controller = new AbortController();
+    controller.abort();
+    await expect(tool.execute({ fileId: "video-1", times: [0, 1] }, { abortSignal: controller.signal })).rejects.toThrow();
+    expect(mocks.getThumbnailAsync).not.toHaveBeenCalled();
   });
 
   it("returns frame metadata with bytes for the model-output converter", async () => {

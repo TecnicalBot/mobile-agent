@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   readTextFile: vi.fn(),
   requestScenePreview: vi.fn(),
   onRecord: vi.fn(),
+  createContactSheet: vi.fn(),
+}));
+vi.mock("@/modules/preview/contact-sheet", () => ({
+  MAX_CONTACT_SHEET_FRAMES: 12,
+  createContactSheet: mocks.createContactSheet,
 }));
 
 // The real preview host is a mounted WebView; the queue has its own tests.
@@ -58,6 +63,7 @@ function jpegFile(displayName: string, mimeType: string) {
 }
 
 function makeTool(supportsImageInput = true) {
+  mocks.createContactSheet.mockResolvedValue({ time: 0, width: 960, height: 536, base64: "QUJD" });
   mocks.resolveWorkspaceFile.mockReturnValue({ uri: "file:///workspace/frame.jpg" });
   mocks.requestScenePreview.mockImplementation(
     async (_html: string, options: { times: number[] }) => ({
@@ -104,12 +110,12 @@ describe("normalizePreviewTimes", () => {
 
   it("caps the frame count", () => {
     const { times, warnings } = normalizePreviewTimes(
-      [0, 1, 2, 3, 4, 5, 6, 7, 8],
-      10,
+      Array.from({ length: 13 }, (_, i) => i),
+      20,
       [0],
     );
-    expect(times).toHaveLength(8);
-    expect(warnings).toEqual([expect.stringContaining("first 8")]);
+    expect(times).toHaveLength(12);
+    expect(warnings).toEqual([expect.stringContaining("first 12")]);
   });
 
   it("falls back to the opening frame for garbage input", () => {
@@ -137,10 +143,11 @@ describe("previewScene", () => {
       expect.stringContaining("MOBILE_AGENT_VIDEO"),
       expect.objectContaining({ times: [0, 1.5, 3, 4.5, 5.95] }),
     );
-    expect(mocks.createDocumentFile).toHaveBeenCalledTimes(5);
+    expect(mocks.createDocumentFile).toHaveBeenCalledTimes(1);
+    expect(mocks.createContactSheet).toHaveBeenCalledOnce();
     expect(out.frameCount).toBe(5);
-    expect(out.frames[0]).toMatchObject({ time: 0 });
-    expect(out.content).toHaveLength(6);
+    expect(out.frames[0]).toMatchObject({ times: [0, 1.5, 3, 4.5, 5.95] });
+    expect(out.content).toHaveLength(2);
     expect(mocks.onRecord).toHaveBeenCalledWith(
       expect.objectContaining({ toolName: "previewScene", status: "completed" }),
     );
@@ -242,13 +249,21 @@ describe("previewScene", () => {
     expect(modelOutput.type).toBe("content");
     expect(modelOutput.value[0]).toMatchObject({ type: "text" });
     const files = modelOutput.value.slice(1);
-    expect(files).toHaveLength(2);
+    expect(files).toHaveLength(1);
     for (const file of files) {
       expect(file.type).toBe("file");
       expect(file.mediaType).toBe("image/jpeg");
       expect(file.data?.type).toBe("data");
       expect(file.data?.data).toBeInstanceOf(Uint8Array);
     }
+  });
+
+  it("keeps full-resolution individual frames opt-in", async () => {
+    const out = await execute(makeTool(), { html: SCENE_6S, times: [0, 3], layout: "frames" }) as { content: unknown[]; frameCount: number };
+    expect(mocks.createContactSheet).not.toHaveBeenCalled();
+    expect(mocks.createDocumentFile).toHaveBeenCalledTimes(2);
+    expect(out.content).toHaveLength(3);
+    expect(out.frameCount).toBe(2);
   });
 
   it("toModelOutput falls back to text without image input", async () => {

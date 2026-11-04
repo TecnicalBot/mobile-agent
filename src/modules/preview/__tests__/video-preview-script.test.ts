@@ -16,6 +16,7 @@ type FakeCanvas = {
 
 function installDom(options: {
   render?: (t: number) => void;
+  shots?: { id: string; start: number; end: number; render: (t: number) => void }[];
   images?: { complete: boolean; naturalWidth: number }[];
   videos?: { readyState: number; error?: object | null }[];
   toDataURL?: () => string;
@@ -48,6 +49,7 @@ function installDom(options: {
         renderCalls.push(t);
         options.render?.(t);
       },
+      ...(options.shots ? { shots: options.shots } : {}),
     },
     ReactNativeWebView: {
       postMessage: (data: string) => {
@@ -105,6 +107,25 @@ function doneWarnings(messages: Posted[]): string[] {
 }
 
 describe("VIDEO_PREVIEW_SCRIPT", () => {
+  it("runs the shot that owns each storyboard timestamp", async () => {
+    const first: number[] = [];
+    const second: number[] = [];
+    const api = installDom({
+      shots: [
+        { id: "a", start: 0, end: 1, render: (t) => first.push(t) },
+        { id: "b", start: 1, end: 2, render: (t) => second.push(t) },
+      ],
+    });
+
+    api.start([0.5, 1.5]);
+    await waitForDone(api.messages);
+
+    // Two passes per still, like the top-level render path.
+    expect(first).toEqual([0.5, 0.5]);
+    expect(second).toEqual([1.5, 1.5]);
+    expect(api.renderCalls).toEqual([]);
+  });
+
   it("captures one frame per timestamp with two render passes each", async () => {
     const api = installDom();
     api.start([0, 1.5]);

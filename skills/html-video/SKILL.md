@@ -73,7 +73,14 @@ Define this before the body finishes loading:
       // audio carries precomputed soundtrack features (see Audio-reactive
       // visuals) and speech carries the transcript (see Speech sync and
       // captions). Both are always objects; check .ready first.
+      // When `shots` is present, this render draws the GAPS between shots.
     },
+    shots: [           // optional: story beats, each independently reusable
+      // { id: "intro", start: 0, end: 4,
+      //   render: function (t, canvas, ctx, audio, speech) { ... } },
+      // { id: "orbit", start: 4, end: 10,
+      //   render: function (t, canvas, ctx, audio, speech) { ... } }
+    ],
     audio: {           // video edits: preserve source audio, or audio: false for intentional silence
       master: 0.9,
       tracks: []
@@ -87,6 +94,57 @@ Define this before the body finishes loading:
 
 The recorder picks `document.getElementById(canvasId)`, or the first visible
 `<canvas>` on the page when no id is given.
+
+### Shots: incremental re-rendering
+
+A video is often revised many times. Editing one scene element should not
+re-encode the whole timeline, so declare the timeline as **shots** — a handful
+of story beats with exact time windows — whenever it has two or more beats,
+**starting with the first render** (a scene without shots always re-renders in
+full). Shots sit alongside the top-level `render`:
+
+```js
+shots: [
+  { id: "intro", start: 0,  end: 4,  render: function (t, c, ctx, a, s) { ... } },
+  { id: "orbit", start: 4,  end: 10, render: function (t, c, ctx, a, s) { ... } }
+]
+```
+
+- Each shot **owns `[start, end)`**: for any `t` in that window the export,
+  `previewScene`, and the in-app player call that shot's `render`, not the
+  top-level one. The top-level `render` covers the gaps between shots (and
+  keeps the document valid for tooling that predates `shots`).
+- A shot's `render` has the same signature and the same rules as the top-level
+  `render` (deterministic, synchronous, draw at `t`).
+- Shots may be adjacent or leave gaps; they must not overlap. `id` is a short
+  stable name (`"intro"`, `"payoff"`) — it is part of the cache identity, so
+  don't renumber ids when only the visuals change.
+- Aim for **2–8 shots per video**, split at meaningful beats, not per object.
+  Each shot is the unit of reuse: editing one re-encodes only the segments
+  containing it. Do not declare dozens of tiny shots — every segment costs a
+  page boot, and a 1 s "shot" is rarely worth it.
+- Keep `duration` equal to the timeline end and leave the contract shape
+  otherwise unchanged.
+
+Under the hood each shot is fingerprinted from its `id`, exact `start`/`end`,
+and its own function source. Everything else — the top-level `render`, shared
+helpers, constants, CSS, images, clips, and the audio/speech schedule — is
+fingerprinted together as one shared hash:
+
+- Editing **one shot's drawing code** (keeping its `id` and window stable)
+  changes only that shot's fingerprint: its segments are re-encoded, every
+  other shot's footage is reused from cache. Changing a shot's `start`/`end`
+  also rewrites the document, so the shared hash changes and the next render is
+  a full one — retime only when you mean to.
+- Editing **shared code, an asset, a clip window, or the audio schedule**
+  changes the shared hash and correctly invalidates the whole video — shared
+  code can affect any frame.
+- A scene without `shots` keeps the old whole-document behavior; adding shots
+  is what opts into reuse.
+
+The 45 s per-page budget still applies: segments are cut at shot edges, never
+through a shot, and a single shot longer than 45 s is split into sub-windows no
+longer than 45 s.
 
 ### In-app playback (no debug UI in the scene)
 
@@ -160,9 +218,17 @@ When the user asks for changes to a video you already rendered:
    exact scene, and editing it preserves everything the user didn't complain
    about.
 2. Apply targeted edits to that HTML (timings, colors, copy, motion), keeping
-   `duration` and the contract shape intact.
+   `duration` and the contract shape intact. If the scene declares `shots`,
+   keep the shot windows and ids stable and edit the affected shot's `render`
+   in place — unchanged shots are reused and only the edited shot's segments
+   are re-encoded.
 3. Re-render with `renderVideo`, passing the same `duration` you promised.
+   The result's `incremental` field reports how many segments were re-encoded
+   vs reused; a one-shot edit should re-encode less than a full render.
 4. Never claim a change is applied without re-rendering — the MP4 is baked.
+5. If you add shots to an existing flat scene, split the old `render` body at
+   the same beats; the first render after that is a full render (new
+   fingerprints), and later revisions become incremental.
 
 ## Looking at a timestamp ("at 0:12 the logo clips")
 
@@ -749,6 +815,8 @@ inside one canvas scene.
       tool call (`analyzeAudio`, `renderVideo`, …) is in the SAME response as
       the words — a plan with no tool call delivers nothing and the run ends
 - [ ] `window.MOBILE_AGENT_VIDEO` defined with a `render` function
+      (plus a few non-overlapping `shots` if the scene is likely to be revised;
+      each shot owns `[start, end)` and the top-level render covers gaps)
 - [ ] no homemade preview/scrub/time-slider UI in the scene — the app's
       built-in player covers playback, and the file stays clean
 - [ ] render is deterministic: only `t` and constants (no `Math.random`,
@@ -800,7 +868,8 @@ inside one canvas scene.
 - [ ] if the scene is new or complex: reviewed a `previewScene` storyboard
       before spending render time (composition, framing, captions placed)
 - [ ] if revising a previous render: read its `sourceFileId` (`.source.html`)
-      and edited that file instead of writing a new scene from scratch
+      and edited that file instead of writing a new scene from scratch; kept
+      existing shot ids/windows and checked `incremental` showed reuse
 - [ ] if the user pointed at a timestamp: inspected it with `getVideoFrame`
       (or `ocr` on models without image input) before claiming what's there
 - [ ] complete scene: start state at t=0, motion clearly readable in 10 s

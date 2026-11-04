@@ -112,8 +112,14 @@ object SegmentConcat {
           val current = slots ?: throw IllegalStateException("Segment track layout differs; cannot concatenate.")
           val buffer = ByteBuffer.allocateDirect(BUFFER_SIZE)
           val info = android.media.MediaCodec.BufferInfo()
-          // Track the max end timestamp per slot for the next offset.
+          // Track the true end timestamp per slot for the next offset: the
+          // last sample's PTS plus one sample duration. Using the PTS alone
+          // makes the next segment start on top of the previous segment's
+          // final frame — duplicate timestamps make the muxer drop a frame at
+          // every seam and shorten the finished file.
           val ends = LongArray(current.size) { 0L }
+          val prevPts = LongArray(current.size) { Long.MIN_VALUE }
+          val lastDelta = LongArray(current.size) { 0L }
           var sawFrame = false
           while (true) {
             val trackIndex = extractor.sampleTrackIndex
@@ -126,11 +132,17 @@ object SegmentConcat {
             info.offset = 0
             info.size = extractor.readSampleData(buffer, 0)
             if (info.size < 0) break
-            info.presentationTimeUs = extractor.sampleTime + current[slotIdx].offsetUs
+            val pts = extractor.sampleTime + current[slotIdx].offsetUs
+            if (prevPts[slotIdx] != Long.MIN_VALUE && pts > prevPts[slotIdx]) {
+              lastDelta[slotIdx] = pts - prevPts[slotIdx]
+            }
+            prevPts[slotIdx] = pts
+            info.presentationTimeUs = pts
             info.flags = extractor.sampleFlags
             muxer.writeSampleData(current[slotIdx].muxIndex, buffer, info)
-            if (info.presentationTimeUs > ends[slotIdx]) {
-              ends[slotIdx] = info.presentationTimeUs
+            val end = pts + lastDelta[slotIdx]
+            if (end > ends[slotIdx]) {
+              ends[slotIdx] = end
             }
             sawFrame = true
             extractor.advance()
@@ -139,8 +151,10 @@ object SegmentConcat {
             throw IllegalStateException("Segment contained no frames.")
           }
           for (i in current.indices) {
-            // Next segment starts just after this one ends (+1 frame gap guard).
-            if (ends[i] > current[i].offsetUs) {
+            // Next segment starts just after this one ends. The +1 keeps PTS
+            // strictly increasing even for a single-sample segment, whose
+            // duration is still unknown.
+            if (ends[i] >= current[i].offsetUs) {
               current[i].offsetUs = ends[i] + 1
             }
           }

@@ -1,6 +1,9 @@
-import type { VideoExportTimings } from "@/modules/preview/video-export-messages";
+import type {
+  VideoExportShotPlan,
+  VideoExportTimings,
+} from "@/modules/preview/video-export-messages";
 
-export type { VideoExportTimings };
+export type { VideoExportShotPlan, VideoExportTimings };
 
 /**
  * Tool-driven video rendering queue.
@@ -34,7 +37,22 @@ export type VideoRenderResult = {
   perfWarnings?: string[];
 };
 
+/**
+ * The scene's timing plus per-shot fingerprints, read from the page before a
+ * render. `shots` is empty for legacy scenes; callers then keep the old
+ * whole-document resume behavior.
+ */
+export type VideoRenderPlan = {
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  sharedHash: string;
+  shots: VideoExportShotPlan[];
+};
+
 export type VideoRenderJob = {
+  kind: "render";
   id: string;
   html: string;
   signal?: AbortSignal;
@@ -59,7 +77,23 @@ export type VideoRenderJob = {
   reject: (error: Error) => void;
 };
 
-type VideoRenderListener = (job: VideoRenderJob) => void;
+/**
+ * Read-only job: loads the scene and asks the page for its plan. Runs through
+ * the same one-at-a-time queue as renders (one WebView), so a probe can never
+ * fight an export for the hidden host, and it captures no frames.
+ */
+export type VideoProbeJob = {
+  kind: "probe";
+  id: string;
+  html: string;
+  signal?: AbortSignal;
+  resolve: (plan: VideoRenderPlan) => void;
+  reject: (error: Error) => void;
+};
+
+export type VideoJob = VideoRenderJob | VideoProbeJob;
+
+type VideoRenderListener = (job: VideoJob) => void;
 
 const listeners = new Set<VideoRenderListener>();
 
@@ -113,6 +147,57 @@ export function hasVideoRenderHost(): boolean {
 }
 
 /**
+ * Validates a plan posted by the page. The page is trusted scene code, but a
+ * malformed plan must never reach the segmentation math (NaN windows, absurd
+ * shot counts) — a probe is an optimization, so a bad plan is a hard failure
+ * with a clear message rather than a silently wrong cache key.
+ */
+export function normalizeVideoPlan(value: unknown): VideoRenderPlan | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const finite = (input: unknown) =>
+    typeof input === "number" && Number.isFinite(input) ? input : null;
+  const duration = finite(raw.duration);
+  const fps = finite(raw.fps);
+  const width = finite(raw.width);
+  const height = finite(raw.height);
+  const sharedHash = typeof raw.sharedHash === "string" ? raw.sharedHash.trim() : "";
+  if (
+    duration == null ||
+    duration <= 0 ||
+    duration > 600 ||
+    fps == null ||
+    fps < 5 ||
+    fps > 60 ||
+    width == null ||
+    width < 16 ||
+    width > 1920 ||
+    height == null ||
+    height < 16 ||
+    height > 1920 ||
+    !sharedHash
+  ) {
+    return null;
+  }
+  const shots: VideoExportShotPlan[] = [];
+  if (Array.isArray(raw.shots)) {
+    for (const entry of raw.shots.slice(0, 200)) {
+      if (!entry || typeof entry !== "object") continue;
+      const shot = entry as Record<string, unknown>;
+      const start = finite(shot.start);
+      const end = finite(shot.end);
+      const hash = typeof shot.hash === "string" ? shot.hash.trim() : "";
+      if (start == null || end == null || end <= start || !hash) continue;
+      const id =
+        typeof shot.id === "string" && shot.id ? shot.id : `shot-${shots.length + 1}`;
+      shots.push({ id, start, end, hash });
+    }
+  }
+  shots.sort((a, b) => a.start - b.start || a.end - b.end);
+  return { duration, fps, width, height, sharedHash, shots };
+}
+
+/**
  * Requests an MP4 for a self-contained HTML document that implements the
  * `window.MOBILE_AGENT_VIDEO` contract. Resolves with the recorded file.
  */
@@ -155,6 +240,7 @@ export function requestVideoRender(
     }
 
     const job: VideoRenderJob = {
+      kind: "render",
       id: `video-render-${++jobCounter}`,
       html,
       onProgress: options.onProgress,
@@ -163,6 +249,58 @@ export function requestVideoRender(
       progressBase: options.progressBase,
       progressSpan: options.progressSpan,
       pinnedEncoder: options.pinnedEncoder,
+      resolve,
+      reject,
+    };
+
+    for (const listener of [...listeners]) {
+      listener(job);
+    }
+  });
+}
+
+/**
+ * Asks the page for its shot plan without recording anything. This is the
+ * planning step of incremental rendering: it costs one page boot and tells the
+ * renderer which segments the scene already has footage for, so an edit to one
+ * shot re-renders that shot (and its segment) instead of the whole timeline.
+ *
+ * Scenes without `shots` still answer (with an empty list); callers treat that
+ * as "no incremental plan" and keep the legacy path.
+ */
+export function probeVideoPlan(
+  html: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<VideoRenderPlan> {
+  return new Promise<VideoRenderPlan>((resolve, reject) => {
+    if (!html.includes("MOBILE_AGENT_VIDEO")) {
+      reject(
+        new Error(
+          "The HTML does not implement the window.MOBILE_AGENT_VIDEO contract, so it cannot be planned.",
+        ),
+      );
+      return;
+    }
+
+    if (!hasVideoRenderHost()) {
+      reject(
+        new Error(
+          "Video rendering is only available on Android builds that include the video export module.",
+        ),
+      );
+      return;
+    }
+
+    if (options.signal?.aborted) {
+      reject(new Error("Video render was cancelled."));
+      return;
+    }
+
+    const job: VideoProbeJob = {
+      kind: "probe",
+      id: `video-probe-${++jobCounter}`,
+      html,
+      signal: options.signal,
       resolve,
       reject,
     };

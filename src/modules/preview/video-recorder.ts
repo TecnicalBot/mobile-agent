@@ -6,8 +6,12 @@ import { VIDEO_CHROMA_KEY_SCRIPT } from "@/modules/preview/video-chroma-key";
  * Recorder injected into the HTML preview document.
  *
  * The page declares `window.MOBILE_AGENT_VIDEO = { duration, fps, width,
- * height, canvasId?, render(t, canvas, ctx, audio, speech), audio?, speech? }`.
- * The recorder drives `render` once per frame at the requested FPS. When file
+ * height, canvasId?, render(t, canvas, ctx, audio, speech), shots?, audio?,
+ * speech? }`. `shots` is an optional list of `{ id, start, end, render }`
+ * story beats: each owns `[start, end)`, the top-level render covers gaps, and
+ * a shot's own source text is fingerprinted separately from shared scene code
+ * so a one-shot edit can reuse every other shot's cached footage. The recorder
+ * drives the owning `render` once per frame at the requested FPS. When file
  * audio is present it is analyzed up front (see video-audio-analysis.ts) and the
  * resulting `audio` object is passed as the fourth argument and mirrored on
  * `window.MOBILE_AGENT_VIDEO_AUDIO`, so the visuals can react to the actual
@@ -335,8 +339,60 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
 
   function readContract() {
     var contract = window.MOBILE_AGENT_VIDEO;
-    if (!contract || typeof contract.render !== 'function') return null;
+    if (!contract) return null;
+    // A shot-only scene has no top-level render; shots cover the timeline.
+    var hasShots = Object.prototype.toString.call(contract.shots) === '[object Array]' && contract.shots.length > 0;
+    if (typeof contract.render !== 'function' && !hasShots) return null;
     return contract;
+  }
+
+  // FNV-1a over a string. Used only for cache identity (shot/segment reuse),
+  // never for security. Same algorithm as hashDocumentKey on the JS side.
+  function fnv1a(text) {
+    var hash = 0x811c9dc5;
+    for (var i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return 'h' + ('0000000' + (hash >>> 0).toString(16)).slice(-8);
+  }
+
+  // Declared shots, validated and sorted. A shot's own source text is kept on
+  // the entry so the plan can fingerprint it independently of the shared code.
+  // Invalid entries are skipped rather than failing a render: the top-level
+  // render still covers the timeline.
+  function contractShots(contract) {
+    var raw = contract && contract.shots;
+    if (Object.prototype.toString.call(raw) !== '[object Array]') return null;
+    var out = [];
+    for (var i = 0; i < raw.length; i += 1) {
+      var shot = raw[i];
+      if (!shot || typeof shot.render !== 'function') continue;
+      var start = Number(shot.start);
+      var end = Number(shot.end);
+      if (!isFinite(start) || !isFinite(end) || end <= start) continue;
+      var source = '';
+      try { source = shot.render.toString(); } catch (_) { source = ''; }
+      out.push({
+        id: typeof shot.id === 'string' && shot.id ? shot.id : 'shot-' + (i + 1),
+        start: start,
+        end: end,
+        render: shot.render,
+        source: source
+      });
+    }
+    if (!out.length) return null;
+    out.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+    return out;
+  }
+
+  // The shot owning a time, or null for a gap (the top-level render covers it).
+  function shotAt(shots, t) {
+    if (!shots) return null;
+    for (var i = 0; i < shots.length; i += 1) {
+      if (t >= shots[i].start && t < shots[i].end) return shots[i];
+    }
+    return null;
   }
 
   function resolveCanvas(contract) {
@@ -397,12 +453,22 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
     saved = null;
   }
 
-  function renderFrame(contract, canvas, ctx, t) {
+  function renderFrame(contract, canvas, ctx, t, shots) {
     try {
       var videos = document.querySelectorAll('video');
       var times = [];
       for (var i = 0; i < videos.length; i += 1) times.push(videos[i].currentTime);
-      contract.render(t, canvas, ctx || null, activeAudioApi || null, activeSpeechApi || null);
+      // Declared shots own their window: rendering the shot (not the top-level
+      // render) is what makes per-shot fingerprints match the footage. Gaps
+      // fall back to the top-level render.
+      var shot = shotAt(shots, t);
+      if (shot) {
+        shot.render(t, canvas, ctx || null, activeAudioApi || null, activeSpeechApi || null);
+      } else if (typeof contract.render === 'function') {
+        contract.render(t, canvas, ctx || null, activeAudioApi || null, activeSpeechApi || null);
+      } else {
+        throw new Error('No shot covers t=' + t.toFixed(3) + 's and the contract has no render() fallback.');
+      }
       for (var v = 0; v < videos.length; v += 1) {
         if (videos[v].seeking || Math.abs(videos[v].currentTime - times[v]) > 0.0001) {
           throw new Error('render() changed a source video frame at t=' + t.toFixed(3) + 's. Do not seek or play videos inside render(); declare MOBILE_AGENT_VIDEO.clips (one window per appearance, from: 0 to restart), or seek and await decoding in prepareFrame().');
@@ -1227,6 +1293,9 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
       : duration;
     segLen = Math.min(segLen, Math.max(1, duration - segOffset));
     var frameCount = Math.max(1, Math.round(segLen * fps));
+    // Shots are resolved once per page, not per frame: validation and
+    // Function#toString on every frame would be pure overhead.
+    var shots = contractShots(contract);
 
     var canvas = resolveCanvas(contract);
     if (!canvas) {
@@ -1279,7 +1348,7 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
         ? analysis.createSpeechApi(contract.speech, duration)
         : null;
       try { window.MOBILE_AGENT_VIDEO_SPEECH = activeSpeechApi; } catch (_) {}
-      runNativeFrames(contract, canvas, ctx, fps, frameCount, segOffset);
+      runNativeFrames(contract, canvas, ctx, fps, frameCount, segOffset, shots);
     }).catch(function (error) {
       // Rejections (decode failure, synth render failure) fail loud.
       // Never-settling promises still hang until the run aborts — no timer
@@ -1476,7 +1545,7 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
   // native order invariant, pacing, and failure behavior are unchanged —
   // the page-side wait just overlaps the native-side wait instead of
   // adding to it. At most one extra JPEG is ever held.
-  function runNativeFrames(contract, canvas, ctx, fps, frameCount, segOffset) {
+  function runNativeFrames(contract, canvas, ctx, fps, frameCount, segOffset, shots) {
     var index = 0; // next frame to prepare (page work: seek/render/capture)
     var sendIndex = 0; // next frame to submit (bridge work: postAndWait)
     var emitted = 0;
@@ -1580,7 +1649,7 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
       var prepareStart = clock();
       prepareSourceFrame(contract, t, fps).then(function () {
         if (cancelled) { preparing = false; return; }
-        if (!renderFrame(contract, canvas, ctx, t)) { preparing = false; return; }
+        if (!renderFrame(contract, canvas, ctx, t, shots)) { preparing = false; return; }
         track(timing.prepare, clock() - prepareStart);
         timing.frames += 1;
         // Legacy scenes may call play() inside render(). Export is clocked by
@@ -1618,6 +1687,65 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
     }
     return btoa(parts.join(''));
   }
+
+  // Scene plan for incremental rendering: timing plus a fingerprint per
+  // declared shot. The shared hash covers the document with each shot's own
+  // source removed, so editing one shot leaves it unchanged, while any shared
+  // helper, asset, clip, or audio-schedule edit invalidates every segment.
+  function describeContract() {
+    var contract = readContract();
+    if (!contract) return null;
+    var duration = clamp(Number(contract.duration) || 10, 1, 600);
+    var fps = clamp(Number(contract.fps) || 30, 5, 60);
+    var width = Math.round(clamp(Number(contract.width) || 1280, 160, 1920));
+    var height = Math.round(clamp(Number(contract.height) || 720, 160, 1920));
+    var shots = contractShots(contract);
+    var documentText = '';
+    try {
+      documentText = document.documentElement ? document.documentElement.outerHTML : '';
+    } catch (_) { documentText = ''; }
+    var planShots = [];
+    if (shots) {
+      for (var i = 0; i < shots.length; i += 1) {
+        var shot = shots[i];
+        // Remove this shot's own source so a single-shot edit leaves the
+        // shared hash untouched; the shot hash below carries the change.
+        if (shot.source) documentText = documentText.split(shot.source).join('');
+        planShots.push({
+          id: shot.id,
+          start: shot.start,
+          end: shot.end,
+          hash: fnv1a(shot.id + '\\u0000' + shot.start + '\\u0000' + shot.end + '\\u0000' + shot.source)
+        });
+      }
+    }
+    return {
+      duration: duration,
+      fps: fps,
+      width: width,
+      height: height,
+      sharedHash: fnv1a(documentText),
+      shots: planShots
+    };
+  }
+
+  window.__probeMobileAgentVideo = function () {
+    if (running) return;
+    var plan = describeContract();
+    if (!plan) {
+      post({ type: 'mobileAgentVideoUnsupported' });
+      return;
+    }
+    post({
+      type: 'mobileAgentVideoPlan',
+      duration: plan.duration,
+      fps: plan.fps,
+      width: plan.width,
+      height: plan.height,
+      sharedHash: plan.sharedHash,
+      shots: plan.shots
+    });
+  };
 
   window.__startMobileAgentVideoExport = start;
   window.__cancelMobileAgentVideoExport = cancel;

@@ -57,7 +57,9 @@ export function buildScenePlayerScript(): string {
   return `(function () {
   if (window.__mobileAgentPlayer) return;
   var v = window.MOBILE_AGENT_VIDEO;
-  if (!v || typeof v.render !== 'function') return;
+  var rawShots = v && v.shots;
+  var hasShots = Object.prototype.toString.call(rawShots) === '[object Array]' && rawShots.length > 0;
+  if (!v || (typeof v.render !== 'function' && !hasShots)) return;
   function num(x, d) { return (typeof x === 'number' && isFinite(x)) ? x : d; }
   var duration = num(v.duration, 0);
   var fps = num(v.fps, 30);
@@ -69,6 +71,25 @@ export function buildScenePlayerScript(): string {
   } catch (_) { canvas = null; }
   var ctx = null;
   try { ctx = canvas ? canvas.getContext('2d') : null; } catch (_) { ctx = null; }
+  // Declared shots own their window in preview too, so scrubbing shows the
+  // same frames the export will draw (and the top-level render covers gaps).
+  var shots = null;
+  if (hasShots) {
+    shots = [];
+    for (var si = 0; si < rawShots.length; si += 1) {
+      var raw = rawShots[si];
+      if (!raw || typeof raw.render !== 'function') continue;
+      var start = Number(raw.start);
+      var end = Number(raw.end);
+      if (!isFinite(start) || !isFinite(end) || end <= start) continue;
+      shots.push({ start: start, end: end, render: raw.render });
+    }
+    if (shots.length) {
+      shots.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+    } else {
+      shots = null;
+    }
+  }
   function zero() { return 0; }
   function emptyText() { return ''; }
   var stubAudio = {
@@ -294,7 +315,14 @@ export function buildScenePlayerScript(): string {
   }
   function paint(t) {
     try {
-      v.render(t, canvas, ctx, stubAudio, stubSpeech);
+      var shot = null;
+      if (shots) {
+        for (var i = 0; i < shots.length; i += 1) {
+          if (t >= shots[i].start && t < shots[i].end) { shot = shots[i]; break; }
+        }
+      }
+      if (shot) shot.render(t, canvas, ctx, stubAudio, stubSpeech);
+      else if (typeof v.render === 'function') v.render(t, canvas, ctx, stubAudio, stubSpeech);
     } catch (e) {
       frameFailed(e);
     }

@@ -11,6 +11,12 @@ const SCENE = `window.MOBILE_AGENT_VIDEO = { duration: 21, fps: 30 };`;
 
 function makeHarness(options?: {
   render?: (t: number, canvas: unknown, ctx: unknown, audio: never, speech: never) => void;
+  shots?: {
+    id: string;
+    start: number;
+    end: number;
+    render: (t: number, canvas: unknown, ctx: unknown, audio: never, speech: never) => void;
+  }[];
   duration?: number;
   prepareFrame?: (t: number) => void | Promise<void>;
 }) {
@@ -31,6 +37,7 @@ function makeHarness(options?: {
         canvasId: "scene",
         render,
         prepareFrame: options?.prepareFrame,
+        ...(options?.shots ? { shots: options.shots } : {}),
       },
       ReactNativeWebView: {
         postMessage: (payload: string) => {
@@ -121,6 +128,30 @@ describe("scene player script", () => {
     finish();
     await flushFrames();
     expect(harness.render.mock.calls[0][0]).toBe(12);
+  });
+
+  it("paints through the shot that owns the requested time", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const harness = makeHarness({
+      shots: [
+        { id: "a", start: 0, end: 10, render: first },
+        { id: "b", start: 10, end: 21, render: second },
+      ],
+    });
+    const player = harness.run(buildScenePlayerScript());
+    player.seek(3);
+    await flushFrames();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(first.mock.calls[0][0]).toBe(3);
+    expect(second).not.toHaveBeenCalled();
+    expect(harness.render).not.toHaveBeenCalled();
+
+    player.seek(15);
+    await flushFrames();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(second.mock.calls[0][0]).toBe(15);
+    expect(harness.render).not.toHaveBeenCalled();
   });
 
   it("serializes preparation and paints only the latest scrub request", async () => {

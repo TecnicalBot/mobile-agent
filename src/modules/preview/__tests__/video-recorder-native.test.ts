@@ -16,6 +16,8 @@ function installStubs(options: {
   clipApi?: object;
   image?: object;
   duration?: number;
+  shots?: object[];
+  documentHtml?: string;
 } = {}) {
   const messages: Posted[] = [];
   const createVideoEncoder = vi.fn(() => { throw new Error("Native export must not construct a WebCodecs encoder."); });
@@ -71,6 +73,7 @@ function installStubs(options: {
       render: options.render ?? (() => {}),
       audio: options.audio ?? false,
       ...(options.withAudio ? { audio: { tracks: [{ file: "data:audio/wav;base64,AAAA" }] } } : {}),
+      ...(options.shots ? { shots: options.shots } : {}),
     },
     ReactNativeWebView: {
       postMessage: (data: string) => {
@@ -86,6 +89,7 @@ function installStubs(options: {
     __mobileAgentClips: options.clipApi,
   };
   g.document = {
+    documentElement: { outerHTML: options.documentHtml ?? "" },
     getElementById: () => null,
     querySelectorAll: (selector: string) =>
       selector === "video"
@@ -111,6 +115,7 @@ function installStubs(options: {
     start: () => w.__startMobileAgentVideoExport(),
     startAt: (offset: number, length: number) =>
       (w.__startMobileAgentVideoExport as (o: number, l: number) => void)(offset, length),
+    probe: () => (w.__probeMobileAgentVideo as () => void)(),
     consume: (id: number) => (g.window as Record<string, (id: number) => void>).__mobileAgentExportConsumed(id),
     cancel: () => w.__cancelMobileAgentVideoExport(),
   };
@@ -431,5 +436,69 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     expect(messages.filter((m) => m.type === "mobileAgentVideoFrame").map((m) => m.index)).toEqual([0, 1]);
     cancel();
     finishSeek?.(); // Release any frame-2 seek started before cancellation.
+  });
+});
+
+describe("VIDEO_EXPORT_SCRIPT shots", () => {
+  it("renders the shot that owns each time and skips the top-level render", async () => {
+    const a: number[] = [];
+    const b: number[] = [];
+    const top: number[] = [];
+    const shotA = function shotA(t: number) { a.push(t); };
+    const shotB = function shotB(t: number) { b.push(t); };
+    const { messages, start } = installStubs({
+      shots: [
+        { id: "a", start: 0, end: 0.5, render: shotA },
+        { id: "b", start: 0.5, end: 1, render: shotB },
+      ],
+      render: () => { top.push(1); },
+      documentHtml: `<script>${shotA.toString()}${shotB.toString()}</script>`,
+    });
+
+    start();
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true),
+    );
+
+    expect(top).toHaveLength(0);
+    expect(a.length).toBeGreaterThan(0);
+    expect(b.length).toBeGreaterThan(0);
+    expect(a.every((t) => t < 0.5)).toBe(true);
+    expect(b.every((t) => t >= 0.5)).toBe(true);
+    expect(a.length + b.length).toBe(5);
+  });
+
+  it("fingerprints shots independently and shared code together", () => {
+    const a1 = function shotA(t: number) { void t; /* one */ };
+    const a2 = function shotA(t: number) { void t; /* two */ };
+    const b = function shotB(t: number) { void t; /* fixed */ };
+    const { messages, probe } = installStubs({
+      shots: [
+        { id: "a", start: 0, end: 0.5, render: a1 },
+        { id: "b", start: 0.5, end: 1, render: b },
+      ],
+      documentHtml: `<script>${a1.toString()}${b.toString()}</script>`,
+    });
+
+    probe();
+    const first = messages.find((m) => m.type === "mobileAgentVideoPlan")!;
+    const planShots = (message: Posted) =>
+      message.shots as { id: string; hash: string }[];
+    expect(planShots(first)).toHaveLength(2);
+
+    // Edit only shot A: its hash moves, the shared code and shot B do not.
+    const windowRef = (globalThis as unknown as {
+      window: { MOBILE_AGENT_VIDEO: { shots: { render: unknown }[] } };
+    }).window;
+    windowRef.MOBILE_AGENT_VIDEO.shots[0].render = a2;
+    (globalThis as unknown as { document: { documentElement: { outerHTML: string } } })
+      .document.documentElement.outerHTML = `<script>${a2.toString()}${b.toString()}</script>`;
+
+    probe();
+    const second = messages.filter((m) => m.type === "mobileAgentVideoPlan")[1];
+
+    expect(second.sharedHash).toBe(first.sharedHash);
+    expect(planShots(second)[0].hash).not.toBe(planShots(first)[0].hash);
+    expect(planShots(second)[1].hash).toBe(planShots(first)[1].hash);
   });
 });

@@ -151,10 +151,42 @@ export const VIDEO_PREVIEW_SCRIPT = `(function () {
     return Promise.resolve();
   }
 
+  // Declared shots own their window, exactly like export. The top-level render
+  // covers gaps, so a storyboard still shows the same frame the MP4 will.
+  function contractShots(contract) {
+    var raw = contract && contract.shots;
+    if (Object.prototype.toString.call(raw) !== '[object Array]') return null;
+    var out = [];
+    for (var i = 0; i < raw.length; i += 1) {
+      var shot = raw[i];
+      if (!shot || typeof shot.render !== 'function') continue;
+      var start = Number(shot.start);
+      var end = Number(shot.end);
+      if (!isFinite(start) || !isFinite(end) || end <= start) continue;
+      out.push({ start: start, end: end, render: shot.render });
+    }
+    if (!out.length) return null;
+    out.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+    return out;
+  }
+
+  function renderAt(contract, shots, t, canvas, ctx, audioApi, speechApi) {
+    var shot = null;
+    if (shots) {
+      for (var i = 0; i < shots.length; i += 1) {
+        if (t >= shots[i].start && t < shots[i].end) { shot = shots[i]; break; }
+      }
+    }
+    if (shot) shot.render(t, canvas, ctx, audioApi, speechApi);
+    else if (typeof contract.render === 'function') contract.render(t, canvas, ctx, audioApi, speechApi);
+    else throw new Error('No shot covers t=' + t + 's and the contract has no render() fallback.');
+  }
+
   function renderAndCapture(contract, canvas, ctx, audioApi, speechApi, t, settleMs) {
+    var shots = contractShots(contract);
     return new Promise(function (resolve) {
       try {
-        contract.render(t, canvas, ctx, audioApi, speechApi);
+        renderAt(contract, shots, t, canvas, ctx, audioApi, speechApi);
       } catch (error) {
         resolve({ error: 'render(' + t + ') threw: ' + String((error && error.message) || error) });
         return;
@@ -162,7 +194,7 @@ export const VIDEO_PREVIEW_SCRIPT = `(function () {
       timer = setTimeout(function () {
         if (cancelled) { resolve({ cancelled: true }); return; }
         try {
-          contract.render(t, canvas, ctx, audioApi, speechApi);
+          renderAt(contract, shots, t, canvas, ctx, audioApi, speechApi);
         } catch (error) {
           resolve({ error: 'render(' + t + ') threw: ' + String((error && error.message) || error) });
           return;
@@ -200,7 +232,11 @@ export const VIDEO_PREVIEW_SCRIPT = `(function () {
     post({ type: 'mobileAgentPreviewStarted' });
     var cfg = config();
     var contract = window.MOBILE_AGENT_VIDEO;
-    if (!contract || typeof contract.render !== 'function') {
+    var contractShotsList = contract && contract.shots;
+    var contractHasShots =
+      Object.prototype.toString.call(contractShotsList) === '[object Array]' &&
+      contractShotsList.length > 0;
+    if (!contract || (typeof contract.render !== 'function' && !contractHasShots)) {
       running = false;
       post({ type: 'mobileAgentPreviewError', message: 'The HTML does not implement the window.MOBILE_AGENT_VIDEO contract.' });
       return;

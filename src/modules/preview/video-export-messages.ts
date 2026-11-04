@@ -16,8 +16,42 @@ export type VideoExportConfigMessage = {
   duration: number;
 };
 
+/**
+ * One declared scene shot (see `MOBILE_AGENT_VIDEO.shots`). `hash` covers the
+ * shot's id, its exact time window, and its render source — never the shared
+ * scene code — so an edit to one shot invalidates only that shot's footage.
+ */
+export type VideoExportShotPlan = {
+  id: string;
+  start: number;
+  end: number;
+  hash: string;
+};
+
+/**
+ * Probe reply: the contract's timing plus the per-shot fingerprints used to
+ * decide which cached segments can be reused. Posted before any recording so
+ * the renderer can plan segments instead of re-encoding the whole timeline.
+ */
+export type VideoExportPlanMessage = {
+  type: "mobileAgentVideoPlan";
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  /**
+   * Fingerprint of the document with every shot's render source removed: the
+   * top-level render, helpers, inline assets, audio/clip references, and the
+   * audio schedule. Any change invalidates every cached segment (shared code
+   * may affect any frame).
+   */
+  sharedHash: string;
+  shots: VideoExportShotPlan[];
+};
+
 export type VideoExportMessage =
   | VideoExportConfigMessage
+  | VideoExportPlanMessage
   | { type: "mobileAgentVideoCsd"; spsHex: string; ppsHex: string }
   | {
       type: "mobileAgentVideoEncodedChunk";

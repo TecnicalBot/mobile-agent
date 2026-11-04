@@ -8,9 +8,13 @@ import { Platform, View } from "react-native";
 import WebView, { type WebViewMessageEvent } from "react-native-webview";
 
 import {
+  normalizeVideoPlan,
   setVideoRenderStatus,
   subscribeVideoRender,
+  type VideoJob,
+  type VideoProbeJob,
   type VideoRenderJob,
+  type VideoRenderPlan,
   type VideoRenderResult,
 } from "@/modules/preview/video-render";
 import { buildVideoExportDocument } from "@/modules/preview/video-recorder";
@@ -40,7 +44,7 @@ export function VideoRenderHost() {
   const canRender =
     Platform.OS === "android" && getHtmlVideoExportModule() !== null;
 
-  const [pending, setPending] = useState<VideoRenderJob[]>([]);
+  const [pending, setPending] = useState<VideoJob[]>([]);
   const [active, setActive] = useState(false);
   const [documentUri, setDocumentUri] = useState<string | null>(null);
 
@@ -48,8 +52,8 @@ export function VideoRenderHost() {
   const documentRef = useRef<ReturnType<typeof createSceneDocument> | null>(null);
   const controllerRef = useRef<VideoExportController | null>(null);
   const fileRef = useRef<File | null>(null);
-  const jobRef = useRef<VideoRenderJob | null>(null);
-  const settledRef = useRef<WeakSet<VideoRenderJob>>(new WeakSet());
+  const jobRef = useRef<VideoJob | null>(null);
+  const settledRef = useRef<WeakSet<VideoJob>>(new WeakSet());
   const abortCleanupRef = useRef<(() => void) | null>(null);
   const keepAwakeRef = useRef(false);
   const lastPercentRef = useRef(-1);
@@ -79,15 +83,21 @@ export function VideoRenderHost() {
 
   const settle = useCallback(
     (
-      job: VideoRenderJob,
+      job: VideoJob,
       outcome:
         | { type: "resolve"; result: VideoRenderResult }
+        | { type: "plan"; plan: VideoRenderPlan }
         | { type: "reject"; error: Error },
     ) => {
       if (settledRef.current.has(job)) return;
       settledRef.current.add(job);
-      if (outcome.type === "resolve") job.resolve(outcome.result);
-      else job.reject(outcome.error);
+      if (outcome.type === "reject") {
+        job.reject(outcome.error);
+      } else if (outcome.type === "plan") {
+        if (job.kind === "probe") job.resolve(outcome.plan);
+      } else if (job.kind === "render") {
+        job.resolve(outcome.result);
+      }
     },
     [],
   );
@@ -152,11 +162,11 @@ export function VideoRenderHost() {
   // The timer resets on every page message and every segment page load (see
   // handleLoadEnd), making this event-driven hang detection, not a deadline.
   const armPageSilenceWatch = useCallback(
-    (job: VideoRenderJob) => {
+    (job: VideoJob) => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         if (jobRef.current !== job) return;
-        const segment = job.segment;
+        const segment = job.kind === "render" ? job.segment : undefined;
         stopActive(
           renderPageInactivityError({
             progressPercent: Math.max(0, lastPercentRef.current),
@@ -188,6 +198,50 @@ export function VideoRenderHost() {
       },
     };
   }, []);
+
+  // Document + origin resolve before the single setDocumentUri: the WebView
+  // must load exactly once (a URI swap mid-flight would kill a started export).
+  // file:// fallback keeps the data-URI clip path alive. Shared by renders and
+  // probes so both surfaces open the scene the same way.
+  const openSceneDocument = useCallback(
+    (job: VideoJob) => {
+      void (async () => {
+        try {
+          const document = createSceneDocument(buildVideoExportDocument(job.html));
+          if (jobRef.current !== job) {
+            document.dispose();
+            return;
+          }
+          documentRef.current = document;
+          let uri = document.uri;
+          try {
+            const { ensureAssetServer, servedCacheUrl } = await import(
+              "@/modules/preview/asset-server"
+            );
+            const baseUrl = await ensureAssetServer();
+            if (jobRef.current !== job) {
+              document.dispose();
+              documentRef.current = null;
+              return;
+            }
+            if (baseUrl) uri = servedCacheUrl(baseUrl, document.uri);
+          } catch {
+            // Server unavailable: file:// document + data-URI clips.
+          }
+          if (jobRef.current !== job) {
+            document.dispose();
+            documentRef.current = null;
+            return;
+          }
+          setDocumentUri(uri);
+        } catch (error) {
+          if (jobRef.current !== job) return;
+          stopActive(error instanceof Error ? error : new Error(String(error)));
+        }
+      })();
+    },
+    [stopActive],
+  );
 
   const beginRender = useCallback(
     (job: VideoRenderJob) => {
@@ -285,43 +339,7 @@ export function VideoRenderHost() {
           job.signal?.removeEventListener("abort", onAbort);
       }
 
-      // Document + origin resolve before the single setDocumentUri: the
-      // WebView must load exactly once (a URI swap mid-flight would kill a
-      // started export). file:// fallback keeps the data-URI clip path alive.
-      void (async () => {
-        try {
-          const document = createSceneDocument(buildVideoExportDocument(job.html));
-          if (jobRef.current !== job) {
-            document.dispose();
-            return;
-          }
-          documentRef.current = document;
-          let uri = document.uri;
-          try {
-            const { ensureAssetServer, servedCacheUrl } = await import(
-              "@/modules/preview/asset-server"
-            );
-            const baseUrl = await ensureAssetServer();
-            if (jobRef.current !== job) {
-              document.dispose();
-              documentRef.current = null;
-              return;
-            }
-            if (baseUrl) uri = servedCacheUrl(baseUrl, document.uri);
-          } catch {
-            // Server unavailable: file:// document + data-URI clips.
-          }
-          if (jobRef.current !== job) {
-            document.dispose();
-            documentRef.current = null;
-            return;
-          }
-          setDocumentUri(uri);
-        } catch (error) {
-          if (jobRef.current !== job) return;
-          stopActive(error instanceof Error ? error : new Error(String(error)));
-        }
-      })();
+      openSceneDocument(job);
       setVideoRenderStatus({
         finishing: false,
         progress: job.progressBase ?? 0,
@@ -332,7 +350,57 @@ export function VideoRenderHost() {
         void activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
       }
     },
-    [abortCurrentFile, armPageSilenceWatch, attachHostTimings, clearRetries, finishJob, settle, stopActive],
+    [abortCurrentFile, armPageSilenceWatch, attachHostTimings, clearRetries, finishJob, openSceneDocument, settle, stopActive],
+  );
+
+  /**
+   * Plans a scene without recording: loads the same hidden page a render would,
+   * asks it for its shot fingerprint, then tears down. It shares the render
+   * queue so a probe can never run alongside an export.
+   */
+  const beginProbe = useCallback(
+    (job: VideoProbeJob) => {
+      const module = getHtmlVideoExportModule();
+      if (!module) {
+        settle(job, {
+          type: "reject",
+          error: new Error("The video export module is unavailable."),
+        });
+        return;
+      }
+
+      abortCurrentFile();
+      jobRef.current = job;
+      jobStartedAtRef.current = Date.now();
+      pageLoadMsRef.current = null;
+      firstFrameMsRef.current = null;
+      lastPercentRef.current = -1;
+      configReceivedRef.current = false;
+      clearRetries();
+      armPageSilenceWatch(job);
+
+      if (job.signal) {
+        const onAbort = () =>
+          stopActive(new Error("Video render was cancelled."));
+        job.signal.addEventListener("abort", onAbort);
+        abortCleanupRef.current = () =>
+          job.signal?.removeEventListener("abort", onAbort);
+      }
+
+      openSceneDocument(job);
+      // A probe is invisible in chat: no progress row, no keep-awake.
+      setVideoRenderStatus(null);
+      setActive(true);
+    },
+    [abortCurrentFile, armPageSilenceWatch, clearRetries, openSceneDocument, settle, stopActive],
+  );
+
+  const beginJob = useCallback(
+    (job: VideoJob) => {
+      if (job.kind === "probe") beginProbe(job);
+      else beginRender(job);
+    },
+    [beginProbe, beginRender],
   );
 
   // Drain the queue one render at a time.
@@ -347,8 +415,8 @@ export function VideoRenderHost() {
       });
       return;
     }
-    beginRender(next);
-  }, [active, beginRender, pending, settle]);
+    beginJob(next);
+  }, [active, beginJob, pending, settle]);
 
   // Collect render requests for as long as rendering is usable.
   useEffect(() => {
@@ -388,7 +456,7 @@ export function VideoRenderHost() {
       // Skip retries once the page is alive — repeated start() calls are
       // harmless (running guard) but waste bridge traffic.
       if (configReceivedRef.current) return;
-      const seg = job.segment;
+      const seg = job.kind === "render" ? job.segment : undefined;
       const args =
         seg && seg.length > 0 ? `${seg.offset}, ${seg.length}` : "";
       webViewRef.current?.injectJavaScript(
@@ -431,28 +499,77 @@ export function VideoRenderHost() {
   }, [stopActive]);
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
-    if (firstFrameMsRef.current === null) {
-      try {
-        const parsed = JSON.parse(event.nativeEvent.data) as { type?: unknown };
-        if (parsed && parsed.type === "mobileAgentVideoFrame") {
-          firstFrameMsRef.current = Date.now() - jobStartedAtRef.current;
+    let parsed: { type?: unknown; [key: string]: unknown } | null = null;
+    try {
+      parsed = JSON.parse(event.nativeEvent.data) as {
+        type?: unknown;
+        [key: string]: unknown;
+      };
+    } catch {
+      // Non-JSON posts cannot be frames or plans; keep listening.
+    }
+    const job = jobRef.current;
+    if (job?.kind === "probe") {
+      if (parsed && parsed.type === "mobileAgentVideoPlan") {
+        const plan = normalizeVideoPlan(parsed);
+        if (plan) {
+          settle(job, { type: "plan", plan });
+        } else {
+          settle(job, {
+            type: "reject",
+            error: new Error("The scene returned an invalid render plan."),
+          });
         }
-      } catch {
-        // Non-JSON posts cannot be frames; keep listening.
+        finishJob();
+        return;
       }
+      if (parsed && parsed.type === "mobileAgentVideoError") {
+        settle(job, {
+          type: "reject",
+          error: new Error(
+            typeof parsed.message === "string" && parsed.message
+              ? parsed.message
+              : "Video planning failed.",
+          ),
+        });
+        finishJob();
+        return;
+      }
+      if (parsed && parsed.type === "mobileAgentVideoUnsupported") {
+        settle(job, {
+          type: "reject",
+          error: new Error(
+            "This HTML cannot be exported as a video: it needs a canvas and a window.MOBILE_AGENT_VIDEO contract. Ask the agent to make a recordable video.",
+          ),
+        });
+        finishJob();
+        return;
+      }
+      // Any page post is proof of life; push the stall bound out again.
+      armPageSilenceWatch(job);
+      return;
+    }
+    if (firstFrameMsRef.current === null && parsed && parsed.type === "mobileAgentVideoFrame") {
+      firstFrameMsRef.current = Date.now() - jobStartedAtRef.current;
     }
     void controllerRef.current?.handleMessage(event);
     // Any page post is proof of life; push the stall bound out again.
-    const job = jobRef.current;
     if (job) armPageSilenceWatch(job);
-  }, [armPageSilenceWatch]);
+  }, [armPageSilenceWatch, finishJob, settle]);
 
   const handleLoadEnd = useCallback(() => {
     if (pageLoadMsRef.current === null) {
       pageLoadMsRef.current = Date.now() - jobStartedAtRef.current;
     }
-    attemptStart(8);
     const job = jobRef.current;
+    if (job?.kind === "probe") {
+      webViewRef.current?.injectJavaScript(
+        "window.__probeMobileAgentVideo ? (window.__probeMobileAgentVideo(), true) : false;",
+      );
+      armPageSilenceWatch(job);
+      return;
+    }
+    attemptStart(8);
     if (job) armPageSilenceWatch(job);
   }, [armPageSilenceWatch, attemptStart]);
 

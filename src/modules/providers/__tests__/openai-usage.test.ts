@@ -148,6 +148,19 @@ describe("formatUsagePlanLabel", () => {
 });
 
 describe("getProviderUsage", () => {
+  it("does not send ChatGPT token-sharing credentials to the Codex-only usage endpoint", async () => {
+    mockedFlavor.mockReturnValue("chatgpt");
+    mockedChatGptToken.mockClear();
+    mockedCodexToken.mockClear();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getProviderUsage("openai-chatgpt", null)).rejects.toThrow("not exposed to this sign-in");
+    await expect(getProviderUsage("openai-chatgpt", "selected-account", { force: true })).rejects.toThrow("View usage in ChatGPT settings");
+    expect(mockedChatGptToken).not.toHaveBeenCalled();
+    expect(mockedCodexToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects non-subscription providers without reading OAuth credentials", async () => {
     mockedFlavor.mockReturnValue(null);
     mockedChatGptToken.mockClear();
@@ -158,19 +171,19 @@ describe("getProviderUsage", () => {
   });
 
   it("refreshes cached plan limits when explicitly requested", async () => {
-    mockedFlavor.mockReturnValue("chatgpt");
-    mockedChatGptToken.mockResolvedValue({ accessToken: "tok" } as never);
+    mockedFlavor.mockReturnValue("codex");
+    mockedCodexToken.mockResolvedValue({ accessToken: "tok" } as never);
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal("fetch", fetchMock);
-    await getProviderUsage("openai-chatgpt", null);
-    await getProviderUsage("openai-chatgpt", null, { force: true });
+    await getProviderUsage("openai", null);
+    await getProviderUsage("openai", null, { force: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("fetches with the ChatGPT token and caches the result", async () => {
-    mockedFlavor.mockReturnValue("chatgpt");
-    mockedChatGptToken.mockResolvedValue({
-      accessToken: "chatgpt-token",
+  it("fetches with the Codex token and caches the result", async () => {
+    mockedFlavor.mockReturnValue("codex");
+    mockedCodexToken.mockResolvedValue({
+      accessToken: "codex-token",
     } as never);
 
     const fetchMock = vi.fn().mockResolvedValue({
@@ -179,8 +192,8 @@ describe("getProviderUsage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const first = await getProviderUsage("openai-chatgpt", null);
-    const second = await getProviderUsage("openai-chatgpt", null);
+    const first = await getProviderUsage("openai", null);
+    const second = await getProviderUsage("openai", null);
 
     expect(first.plan).toBe("plus");
     expect(second).toBe(first);
@@ -189,7 +202,7 @@ describe("getProviderUsage", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");
     expect((init.headers as Record<string, string>).authorization).toBe(
-      "Bearer chatgpt-token",
+      "Bearer codex-token",
     );
     expect(
       (init.headers as Record<string, string>)["chatgpt-account-id"],
@@ -218,15 +231,15 @@ describe("getProviderUsage", () => {
   });
 
   it("throws when the usage request fails", async () => {
-    mockedFlavor.mockReturnValue("chatgpt");
-    mockedChatGptToken.mockResolvedValue({ accessToken: "tok" } as never);
+    mockedFlavor.mockReturnValue("codex");
+    mockedCodexToken.mockResolvedValue({ accessToken: "tok" } as never);
 
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: false, status: 401 }),
     );
 
-    await expect(getProviderUsage("openai-chatgpt", null)).rejects.toThrow(
+    await expect(getProviderUsage("openai", null)).rejects.toThrow(
       "Usage request failed (HTTP 401).",
     );
   });

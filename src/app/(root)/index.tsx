@@ -127,7 +127,12 @@ import {
 } from "@/core/services/workspace-file-service";
 import { inferMimeType } from "@/core/services/file-names";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { isOpenAiSubscriptionProvider } from "@/modules/providers/openai";
+import {
+  isOpenAiChatGptProvider,
+  isOpenAiSubscriptionProvider,
+  OPENAI_CHATGPT_PROVIDER_ID,
+  OPENAI_CODEX_PROVIDER_ID,
+} from "@/modules/providers/openai";
 import type {
   AgentConfig,
   ExternalFolderSession,
@@ -162,7 +167,6 @@ import {
 import { appendQuote, formatQuotedText } from "@/modules/chat/quote-text";
 import { getAssistantResponseFooters } from "@/modules/chat/assistant-response";
 import {
-  formatUsagePlanLabel,
   formatUsageWindowLabel,
   getProviderUsage,
   type ProviderUsage,
@@ -286,10 +290,42 @@ export default function Screen() {
     currentModelSupportsTools,
     currentSelectedMcpServerIds,
     mcpServers,
+    providerAccounts,
     selectModel,
     setCurrentSelectedMcpServerIds,
   } = useConfig();
   const chatInfo = useChatInfo();
+  // ChatGPT-plan tokens cannot read plan limits. If the same account also has a
+  // Codex sign-in, use that token to show the shared plan windows instead.
+  const codexUsageAccountId = useMemo(() => {
+    if (chatInfo.currentModel?.providerId !== OPENAI_CHATGPT_PROVIDER_ID) {
+      return null;
+    }
+
+    const chatGptAccountId =
+      activeProviderAccountIds[OPENAI_CHATGPT_PROVIDER_ID] ?? null;
+    const chatGptAccount = chatGptAccountId
+      ? providerAccounts.find((account) => account.id === chatGptAccountId)
+      : null;
+    const codexAccounts = providerAccounts.filter(
+      (account) => account.providerId === OPENAI_CODEX_PROVIDER_ID,
+    );
+    const chatGptLabel = chatGptAccount?.label.trim().toLowerCase();
+
+    if (chatGptLabel) {
+      return (
+        codexAccounts.find(
+          (account) => account.label.trim().toLowerCase() === chatGptLabel,
+        )?.id ?? null
+      );
+    }
+
+    return activeProviderAccountIds[OPENAI_CODEX_PROVIDER_ID] ?? null;
+  }, [
+    activeProviderAccountIds,
+    chatInfo.currentModel?.providerId,
+    providerAccounts,
+  ]);
   const starterPrompts = useStarterPrompts();
   const {
     approvePendingToolApproval,
@@ -879,6 +915,7 @@ export default function Screen() {
                         chatInfo.currentModel.providerId
                       ] ?? null
                     }
+                    codexAccountId={codexUsageAccountId}
                     providerId={chatInfo.currentModel.providerId}
                   />
                 ) : null}
@@ -1193,27 +1230,81 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function UsageWindows({ usage }: { usage: ProviderUsage }) {
+  const windows = [usage.primary, usage.secondary].filter(
+    (window): window is NonNullable<ProviderUsage["primary"]> =>
+      window !== null,
+  );
+
+  if (windows.length === 0) {
+    return null;
+  }
+
+  return (
+    <View className="gap-sp-3">
+      {windows.map((window, index) => (
+        <View className="gap-sp-1" key={index}>
+          <View className="flex-row items-center justify-between gap-sp-3">
+            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+              {formatUsageWindowLabel(window.windowSeconds)}
+            </Text>
+            <Text className="font-sans text-xs text-foreground dark:text-foreground-dark">
+              {window.leftPercent}% left
+            </Text>
+          </View>
+          <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
+            <View
+              className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
+              style={{ width: `${window.leftPercent}%` }}
+            />
+          </View>
+          {window.resetAt ? (
+            <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
+              Resets {new Date(window.resetAt).toLocaleString()}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function ProviderUsageInfo({
   accountId,
+  codexAccountId,
   providerId,
 }: {
   accountId: string | null;
+  codexAccountId: string | null;
   providerId: string;
 }) {
   const theme = useTheme();
+  const isChatGptPlan = isOpenAiChatGptProvider(providerId);
+  // ChatGPT-plan tokens cannot read plan limits. When the same account also has
+  // a Codex sign-in, that token can read the shared plan windows.
+  const usageProviderId = isChatGptPlan
+    ? OPENAI_CODEX_PROVIDER_ID
+    : providerId;
+  const usageAccountId = isChatGptPlan ? codexAccountId : accountId;
+  const canReadLimits = !isChatGptPlan || Boolean(usageAccountId);
   const [usage, setUsage] = useState<ProviderUsage | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">(
     "loading",
   );
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    if (!canReadLimits) {
+      setUsage(null);
+      setStatus("unavailable");
+      return;
+    }
+
     let cancelled = false;
 
     setStatus("loading");
     setUsage(null);
 
-    getProviderUsage(providerId, accountId, { force: refreshKey > 0 })
+    getProviderUsage(usageProviderId, usageAccountId)
       .then((next) => {
         if (cancelled) {
           return;
@@ -1231,22 +1322,9 @@ function ProviderUsageInfo({
     return () => {
       cancelled = true;
     };
-  }, [accountId, providerId, refreshKey]);
+  }, [canReadLimits, usageAccountId, usageProviderId]);
 
-  if (status === "unavailable") {
-    return (
-      <InfoSection title="Plan usage" subtitle="Plan limits unavailable">
-        <InfoRow label="Billing" value="Covered by your plan" />
-        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-          Could not retrieve plan limits. This sign-in may not allow access to
-          usage data. Check usage in ChatGPT settings; chat token totals are shown below.
-        </Text>
-        <Button variant="outline" onPress={() => setRefreshKey((key) => key + 1)}>
-          Retry
-        </Button>
-      </InfoSection>
-    );
-  }
+  const hasWindows = Boolean(usage && (usage.primary || usage.secondary));
 
   if (status === "loading") {
     return (
@@ -1261,56 +1339,13 @@ function ProviderUsageInfo({
     );
   }
 
-  const windows = [
-    usage?.primary ? { window: usage.primary } : null,
-    usage?.secondary ? { window: usage.secondary } : null,
-  ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-
-  if (!usage || windows.length === 0) {
-    return (
-      <InfoSection title="Plan usage" subtitle={formatUsagePlanLabel(usage?.plan ?? null) ?? undefined}>
-        <InfoRow label="Billing" value="Covered by your plan" />
-        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-          This connection did not return plan limits. Check usage in ChatGPT settings.
-        </Text>
-        <Button variant="outline" onPress={() => setRefreshKey((key) => key + 1)}>
-          Refresh
-        </Button>
-      </InfoSection>
-    );
+  if (!usage || !hasWindows) {
+    return null;
   }
 
   return (
-    <InfoSection
-      subtitle={formatUsagePlanLabel(usage.plan) ?? undefined}
-      title="Plan usage"
-    >
-      <InfoRow label="Billing" value="Covered by your plan" />
-      <View className="gap-sp-3">
-        {windows.map(({ window }, index) => (
-          <View className="gap-sp-1" key={index}>
-            <View className="flex-row items-center justify-between gap-sp-3">
-              <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                {formatUsageWindowLabel(window.windowSeconds)}
-              </Text>
-              <Text className="font-sans text-xs text-foreground dark:text-foreground-dark">
-                {window.leftPercent}% left
-              </Text>
-            </View>
-            <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
-              <View
-                className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
-                style={{ width: `${window.leftPercent}%` }}
-              />
-            </View>
-            {window.resetAt ? (
-              <Text className="font-sans text-[11px] text-muted-foreground dark:text-muted-foreground-dark">
-                Resets {new Date(window.resetAt).toLocaleString()}
-              </Text>
-            ) : null}
-          </View>
-        ))}
-      </View>
+    <InfoSection title="Plan usage">
+      <UsageWindows usage={usage} />
     </InfoSection>
   );
 }

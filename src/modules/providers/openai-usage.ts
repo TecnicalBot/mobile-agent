@@ -1,21 +1,17 @@
 import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 import {
-  getValidOpenAiChatGptTokenInfo,
-  getValidOpenAiChatGptTokenInfoForAccount,
-} from "@/modules/providers/openai-chatgpt-oauth";
-import {
   getValidOpenAiTokenInfo,
   getValidOpenAiTokenInfoForAccount,
 } from "@/modules/providers/openai-oauth";
 
 /**
- * ChatGPT reports plan allowance (the same 5-hour / weekly windows the official
- * Codex client shows) from a private backend endpoint. The response is
- * best-effort: token-sharing credentials may not authorize this endpoint.
- * The UI must show an unavailable state, not silently hide plan usage.
+ * Codex sign-in can read allowance from this private backend endpoint.
+ * ChatGPT token-sharing credentials cannot: direct those users to settings.
+ * https://developers.openai.com/siwc/ui-ux-guidelines#link-to-chatgpt-usage
  */
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+export const CHATGPT_USAGE_SETTINGS_URL = "https://chatgpt.com/settings/usage";
 const CACHE_TTL_MS = 60_000;
 
 export type UsageWindow = {
@@ -245,8 +241,12 @@ export async function getProviderUsage(
   accountId: string | null,
   options: { force?: boolean; signal?: AbortSignal } = {},
 ): Promise<ProviderUsage> {
-  if (!getOpenAiOAuthFlavor(providerId)) {
+  const flavor = getOpenAiOAuthFlavor(providerId);
+  if (!flavor) {
     throw new Error("Plan usage is only available for OpenAI subscription providers.");
+  }
+  if (flavor === "chatgpt") {
+    throw new Error("ChatGPT plan limits are not exposed to this sign-in. View usage in ChatGPT settings.");
   }
   const key = cacheKey(providerId, accountId);
   const cached = memoryCache.get(key);
@@ -266,23 +266,6 @@ export async function getProviderUsage(
   }
 
   const request = (async () => {
-    const flavor = getOpenAiOAuthFlavor(providerId);
-
-    if (flavor === "chatgpt") {
-      const info = accountId
-        ? await getValidOpenAiChatGptTokenInfoForAccount(accountId)
-        : await getValidOpenAiChatGptTokenInfo();
-
-      if (!info.accessToken) {
-        throw new Error("ChatGPT plan is not connected.");
-      }
-
-      return fetchOpenAiUsage({
-        signal: options.signal,
-        token: info.accessToken,
-      });
-    }
-
     const info = accountId
       ? await getValidOpenAiTokenInfoForAccount(accountId)
       : await getValidOpenAiTokenInfo();

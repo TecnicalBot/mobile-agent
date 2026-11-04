@@ -91,10 +91,6 @@ export async function prepareLocalCallbackSession(input: {
     port: input.port ?? 1455,
   };
 
-  currentOnCallback = input.onCallback;
-  currentHandled = false;
-  currentConfig = config;
-
   if (
     activeServer &&
     activeConfig &&
@@ -102,6 +98,12 @@ export async function prepareLocalCallbackSession(input: {
   ) {
     stopLocalCallbackServer();
   }
+
+  // Replacing the old server clears its callback state, so install the new
+  // callback only after stopping it (e.g. switching ChatGPT to OpenRouter).
+  currentOnCallback = input.onCallback;
+  currentHandled = false;
+  currentConfig = config;
 
   await ensureLocalCallbackServer();
   activeConfig = config;
@@ -226,7 +228,13 @@ async function startLocalCallbackServer(config: CallbackConfig | null) {
     console.warn("Local callback server error:", error);
   });
 
-  server.listen({ port: effective.port, host: effective.host });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ port: effective.port, host: effective.host }, () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
 
   return server;
 }

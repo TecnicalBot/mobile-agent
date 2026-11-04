@@ -369,7 +369,7 @@ export default function SettingsProvidersScreen() {
   };
 
   const saveInlineApiKey = () => {
-    if (!selectedProvider) {
+    if (!selectedProvider || busyKey !== null) {
       return;
     }
 
@@ -389,6 +389,31 @@ export default function SettingsProvidersScreen() {
     }).catch((error) => {
       Alert.alert(
         "API key could not be saved",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    });
+  };
+
+  const connectOpenRouter = () => {
+    if (busyKey !== null) return;
+
+    void runAction("connect:openrouter", async () => {
+      const { handleOpenRouterLogin } = await import(
+        "@/modules/providers/openrouter-oauth"
+      );
+      const apiKey = await handleOpenRouterLogin();
+      await createProviderAccount({
+        apiKey,
+        label: newAccountLabel.trim() || "OpenRouter",
+        providerId: "openrouter",
+      });
+      setNewAccountLabel("");
+      setNewAccountApiKey("");
+      if (providerPage === 2) setProviderPage(1);
+    }).catch((error) => {
+      if (isOAuthCanceledError(error)) return;
+      Alert.alert(
+        "OpenRouter sign-in could not be completed",
         error instanceof Error ? error.message : "Please try again.",
       );
     });
@@ -887,8 +912,19 @@ export default function SettingsProvidersScreen() {
                     </View>
                   ) : (
                     <View className="gap-sp-2">
+                      {selectedProvider.id === "openrouter" &&
+                      Platform.OS !== "web" ? (
+                        <OpenRouterSignIn
+                          busy={busyKey !== null}
+                          loading={busyKey === "connect:openrouter"}
+                          onPress={connectOpenRouter}
+                        />
+                      ) : null}
                       <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                        API key
+                        {selectedProvider.id === "openrouter" &&
+                        Platform.OS !== "web"
+                          ? "Or paste an API key"
+                          : "API key"}
                       </Text>
                       <Input
                         autoCapitalize="none"
@@ -901,7 +937,7 @@ export default function SettingsProvidersScreen() {
                         value={newAccountApiKey}
                       />
                       <Button
-                        disabled={!newAccountApiKey.trim()}
+                        disabled={busyKey !== null || !newAccountApiKey.trim()}
                         loading={busyKey === `add-account:${selectedProvider.id}`}
                         onPress={saveInlineApiKey}
                         variant="secondary"
@@ -1538,6 +1574,14 @@ export default function SettingsProvidersScreen() {
                   <DrawerTitle>Add account</DrawerTitle>
                 </DrawerHeader>
                 <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+                  {selectedProvider.id === "openrouter" &&
+                  Platform.OS !== "web" ? (
+                    <OpenRouterSignIn
+                      busy={busyKey !== null}
+                      loading={busyKey === "connect:openrouter"}
+                      onPress={connectOpenRouter}
+                    />
+                  ) : null}
                   {selectedProvider.authType === "oauth" ? (
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                       Sign in with another{" "}
@@ -1568,11 +1612,12 @@ export default function SettingsProvidersScreen() {
                 <DrawerFooter>
                   <Button
                     disabled={
-                      selectedProvider.authType === "oauth"
+                      busyKey !== null ||
+                      (selectedProvider.authType === "oauth"
                         ? false
-                        : !newAccountLabel.trim() || !newAccountApiKey.trim()
+                        : !newAccountLabel.trim() || !newAccountApiKey.trim())
                     }
-                    loading={busyKey !== null}
+                    loading={busyKey === `add-account:${selectedProvider.id}`}
                     onPress={() => {
                       if (selectedProvider.authType === "oauth") {
                         void runAction(
@@ -1634,6 +1679,33 @@ export default function SettingsProvidersScreen() {
         </DrawerContent>
       </Drawer>
     </Container>
+  );
+}
+
+function OpenRouterSignIn({
+  busy,
+  loading,
+  onPress,
+}: {
+  busy: boolean;
+  loading: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <View className="gap-sp-3">
+      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+        Connect your OpenRouter account without copying an API key. Free models
+        have usage limits; paid models use your OpenRouter credits.
+      </Text>
+      <Button
+        disabled={busy}
+        loading={loading}
+        onPress={onPress}
+        variant="secondary"
+      >
+        Sign in with OpenRouter
+      </Button>
+    </View>
   );
 }
 

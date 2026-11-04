@@ -15,8 +15,8 @@ export function buildAssistantParts(content: string, metadata?: MessageMetadata 
     ...(metadata?.reasoning ?? [])
       // A completed block with no text is an empty step — not worth a row.
       .filter((block) => !(block.completedAt !== null && block.text.trim() === ""))
-      .map((block, index) => ({
-        part: { kind: "reasoning", key: `reasoning-${block.id}-${index}`, block } as AssistantPart,
+      .map((block) => ({
+        part: { kind: "reasoning", key: `reasoning-${block.id}`, block } as AssistantPart,
         offset: block.textOffset,
         order: block.traceOrder,
         time: Date.parse(block.startedAt) || 0,
@@ -38,11 +38,13 @@ export function buildAssistantParts(content: string, metadata?: MessageMetadata 
     const offset = Number.isInteger(event.offset) && event.offset! >= 0 && event.offset! <= content.length
       ? Math.max(cursor, event.offset!) : cursor;
     if (offset > cursor) {
-      parts.push({ kind: "text", key: `text-before-${event.part.key}`, text: content.slice(cursor, offset) });
+      // Trailing text becomes text before an event when a tool/thought arrives.
+      // Keep its identity so images, code blocks and open previews stay mounted.
+      parts.push({ kind: "text", key: `text-${cursor}`, text: content.slice(cursor, offset) });
     }
     parts.push(event.part);
     cursor = offset;
   }
-  if (cursor < content.length) parts.push({ kind: "text", key: "text-trailing", text: content.slice(cursor) });
+  if (cursor < content.length) parts.push({ kind: "text", key: `text-${cursor}`, text: content.slice(cursor) });
   return parts;
 }

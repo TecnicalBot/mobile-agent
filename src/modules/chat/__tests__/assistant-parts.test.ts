@@ -64,6 +64,50 @@ describe("assistant stream parts", () => {
     expect(first[0].key).toBe(second[0].key);
   });
 
+  it("does not remount existing media or code when a tool arrives after it", () => {
+    const content = "![Image](workspace://image)\n\n```html\n<h1>Preview</h1>\n```\n";
+    const before = buildAssistantParts(content);
+    const during = buildAssistantParts(content, {
+      toolExecutions: [{ ...tool("next", 0), status: "running" }],
+      toolRunAnchors: [{ executionId: "next", textOffset: content.length }],
+    });
+    const after = buildAssistantParts(`${content}Done`, {
+      toolExecutions: [tool("next", 0)],
+      toolRunAnchors: [{ executionId: "next", textOffset: content.length }],
+    });
+    expect(during[0]).toEqual(before[0]);
+    expect(after[0]).toEqual(before[0]);
+    expect(after.map((part) => part.kind)).toEqual(["text", "tool", "text"]);
+  });
+
+  it("keeps each completed text segment mounted across subsequent thinking and tools", () => {
+    const first = buildAssistantParts("BeforeAfter", {
+      toolExecutions: [tool("first", 0)],
+      toolRunAnchors: [{ executionId: "first", textOffset: 6 }],
+    });
+    const next = buildAssistantParts("BeforeAfterFinal", {
+      toolExecutions: [tool("first", 0), tool("second", 2)],
+      reasoning: [thought("thinking", 1, 11)],
+      toolRunAnchors: [
+        { executionId: "first", textOffset: 6 },
+        { executionId: "second", textOffset: 11 },
+      ],
+    });
+    expect(next[0]).toEqual(first[0]);
+    expect(next[2]).toEqual(first[2]);
+    expect(new Set(next.map((part) => part.key)).size).toBe(next.length);
+  });
+
+  it("keeps reasoning identity when an earlier empty step is filtered out", () => {
+    const empty = { ...thought("empty", 0), text: "", completedAt: null };
+    const visible = thought("visible", 1);
+    const before = buildAssistantParts("", { reasoning: [empty, visible] });
+    const after = buildAssistantParts("", {
+      reasoning: [{ ...empty, completedAt: visible.completedAt }, visible],
+    });
+    expect(after[0]).toEqual(before[1]);
+  });
+
   it("keeps distinct legacy calls without IDs or distinct timestamps", () => {
     const parts = buildAssistantParts("Done", { toolExecutions: [{ ...tool("a"), id: undefined }, { ...tool("b"), id: undefined }] });
     expect(new Set(parts.map((part) => part.key)).size).toBe(3);

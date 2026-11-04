@@ -242,11 +242,17 @@ function messageKeyExtractor(message: StoredMessage) {
 }
 
 function messageItemType(message: StoredMessage) {
-  // Streaming rows grow every token; keep them in a separate recycle pool so
-  // a mid-stream cell is never reused for a stable row (and vice versa),
-  // which previously surfaced as blank/incorrect-height rows on long chats.
-  return message.status === "streaming" ? `${message.role}:streaming` : message.role;
+  // Status is not a cell type. Changing it at completion recycles the visible
+  // reply, dropping expanded tools/previews and remeasuring all of its media.
+  return message.role;
 }
+
+const CHAT_VISIBLE_CONTENT_POSITION = {
+  disabled: false,
+  // Measure the newest rows first rather than jumping across estimated heights
+  // for the entire history after the first layout.
+  startRenderingFromBottom: true,
+} as const;
 
 function MessageListFooter() {
   return <View className="h-sp-1" />;
@@ -504,7 +510,7 @@ export default function Screen() {
         }
         message={message}
         showFooter={assistantResponseFooters.has(message.id)}
-        speechContent={assistantResponseFooters.get(message.id)}
+        speechContent={message.status === "streaming" ? undefined : assistantResponseFooters.get(message.id)}
         onEditMessage={handleEditMessage}
         onRegenerate={handleRegenerate}
         onSavePrompt={handleSavePrompt}
@@ -601,6 +607,8 @@ export default function Screen() {
                       data={messages}
                       drawDistance={800}
                       getItemType={messageItemType}
+                      maintainVisibleContentPosition={CHAT_VISIBLE_CONTENT_POSITION}
+                      removeClippedSubviews={false}
                       keyExtractor={messageKeyExtractor}
                       renderItem={renderMessage}
                       showsVerticalScrollIndicator={false}
@@ -2591,7 +2599,8 @@ const ChatInput = memo(function ChatInput({
             key={voiceActive ? "voice" : "text"}
             entering={FadeIn.duration(180)}
             exiting={FadeOut.duration(120)}
-            layout={LinearTransition.duration(220)}
+            // Animate voice/text switches only. Animating every input height
+            // update fights native text measurement and resizes the list again.
             style={{ width: "100%" }}
           >
             {voiceActive ? (
@@ -2643,8 +2652,9 @@ const ChatInput = memo(function ChatInput({
                     onChangeText={setPromptValue}
                     onFocus={() => setComposerActionsOpen(false)}
                     onContentSizeChange={(event) => {
-                      setComposerContentHeight(
-                        event.nativeEvent.contentSize.height,
+                      const height = Math.ceil(event.nativeEvent.contentSize.height);
+                      setComposerContentHeight((current) =>
+                        current === height ? current : height,
                       );
                     }}
                     placeholder={

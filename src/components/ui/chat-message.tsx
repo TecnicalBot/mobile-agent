@@ -366,6 +366,7 @@ export type ChatMediaPreviewTarget =
   | { kind: "svg"; alt: string; markup: string };
 
 const ChatMediaContext = createContext<{
+  messageId: string;
   onPreviewImage: (target: ChatMediaPreviewTarget) => void;
   onPreviewVideo: (video: {
     displayName: string;
@@ -373,7 +374,7 @@ const ChatMediaContext = createContext<{
     uri: string;
   }) => void;
   workspaceFiles: WorkspaceFile[];
-}>({ onPreviewImage: () => {}, onPreviewVideo: () => {}, workspaceFiles: [] });
+}>({ messageId: "", onPreviewImage: () => {}, onPreviewVideo: () => {}, workspaceFiles: [] });
 
 /**
  * Measured inner width of the assistant bubble's content column, reported by
@@ -1083,6 +1084,9 @@ function PreviewButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+// An open WebView must not participate in the message's streaming renders.
+const CodeBlockPreviewDialog = memo(CodePreviewDialog);
+
 function CopyableCodeBlock({
   code,
   language = "",
@@ -1091,17 +1095,25 @@ function CopyableCodeBlock({
   language?: string;
 }) {
   const theme = useTheme();
-  // Recycling, or a streaming delta that rewrites the fence, closes the viewer
-  // so it can never outlive the code it was built from.
-  const [viewer, setViewer] = useRecyclingState<null | "code" | "preview">(
+  const { messageId } = useContext(ChatMediaContext);
+  // A viewer owns the snapshot the reader opened. Streaming must not close or
+  // reload its WebView on every token. Only recycling to another message resets it.
+  const [viewer, setViewer] = useRecyclingState<null | {
+    code: string;
+    language: string;
+    mode: "code" | "preview";
+  }>(
     null,
-    [code],
+    [messageId],
   );
   const previewable = isPreviewableLanguage(language);
   const previewDocument = useMemo(
-    () => (previewable ? buildPreviewDocument(code, language) : null),
-    [code, language, previewable],
+    () => viewer?.mode === "preview"
+      ? buildPreviewDocument(viewer.code, viewer.language)
+      : "",
+    [viewer],
   );
+  const closeViewer = useCallback(() => setViewer(null), [setViewer]);
   const lines = useMemo(() => code.split("\n"), [code]);
   const collapsible = lines.length > COLLAPSED_CODE_LINES;
   // A long block never expands inline: the footer opens the full-screen
@@ -1118,7 +1130,7 @@ function CopyableCodeBlock({
         previewable ? (
           <PreviewButton
             onPress={() => {
-              setViewer("preview");
+              setViewer({ code, language, mode: "preview" });
             }}
           />
         ) : null
@@ -1154,7 +1166,7 @@ function CopyableCodeBlock({
           accessibilityRole="button"
           className="h-9 flex-row items-center justify-center gap-sp-1 border-t border-border dark:border-border-dark"
           onPress={() => {
-            setViewer("code");
+            setViewer({ code, language, mode: "code" });
           }}
           style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
         >
@@ -1165,16 +1177,12 @@ function CopyableCodeBlock({
         </Pressable>
       ) : null}
       {viewer ? (
-        <CodePreviewDialog
-          code={code}
-          html={
-            viewer === "preview" && previewDocument ? previewDocument : ""
-          }
-          initialMode={viewer}
-          language={language}
-          onDismiss={() => {
-            setViewer(null);
-          }}
+        <CodeBlockPreviewDialog
+          code={viewer.code}
+          html={previewDocument}
+          initialMode={viewer.mode}
+          language={viewer.language}
+          onDismiss={closeViewer}
         />
       ) : null}
     </CopyableMarkdownBlock>
@@ -1400,7 +1408,17 @@ function SpinningLoader({ color, size }: { color: string; size: number }) {
   );
 }
 
-export const ChatMessage = memo(function ChatMessage({
+export const ChatMessage = memo(function ChatMessage(props: ChatMessageProps) {
+  // Defer text AND its trace offsets together. Keep the expensive subtree behind
+  // a memo boundary so urgent token updates can yield to typing and scrolling.
+  const deferredMessage = useDeferredValue(props.message);
+  const message = props.message.status === "streaming" && deferredMessage.id === props.message.id
+    ? deferredMessage
+    : props.message;
+  return <ChatMessageContent {...props} message={message} />;
+});
+
+const ChatMessageContent = memo(function ChatMessageContent({
   canEditAndResend = false,
   showFooter = true,
   speechContent,
@@ -1455,13 +1473,6 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
-  // While streaming, tokens arrive at 20-60/s and a full MarkdownIt +
-  // refractor re-parse per token janks the JS thread. Deferring lets React
-  // batch tokens and re-parse at a lower priority; stable messages render
-  // the real content with zero behavior change.
-  const deferredContent = useDeferredValue(message.content);
-  const bodyContent =
-    message.status === "streaming" ? deferredContent : message.content;
   const align = isUser ? "end" : "start";
   const variant = isUser ? "default" : "ghost";
 
@@ -1670,6 +1681,7 @@ export const ChatMessage = memo(function ChatMessage({
   );
   const mediaContext = useMemo(
     () => ({
+      messageId: message.id,
       onPreviewImage: openImagePreview,
       onPreviewVideo: (video: {
         displayName: string;
@@ -1680,7 +1692,7 @@ export const ChatMessage = memo(function ChatMessage({
       },
       workspaceFiles,
     }),
-    [openImagePreview, openVideoFile, workspaceFiles],
+    [message.id, openImagePreview, openVideoFile, workspaceFiles],
   );
   const closePreview = () => {
     setImageAction(null);
@@ -1861,8 +1873,7 @@ export const ChatMessage = memo(function ChatMessage({
       stepGapLabels.set(record.id ?? record.createdAt, gap);
     }
   });
-  const hasActivity = Boolean(message.metadata?.toolExecutions?.length || message.metadata?.reasoning?.length);
-  const assistantParts = buildAssistantParts(hasActivity ? message.content : bodyContent, message.metadata);
+  const assistantParts = buildAssistantParts(message.content, message.metadata);
   const generatedImages = message.metadata?.generatedImages ?? [];
   const generatedVideos = message.metadata?.generatedVideos ?? [];
   // Videos the model already embedded inline with `![name](workspace://id)`
@@ -2921,7 +2932,7 @@ function ReasoningTraceRow({ block, streaming }: { block: ReasoningBlock; stream
  * The expanded detail of a tool trace row: media/thumbnails first, then the
  * captured content, then whatever summary fields could be recovered.
  */
-function ToolTraceDetail({ record }: { record: ToolExecutionRecord }) {
+const ToolTraceDetail = memo(function ToolTraceDetail({ record }: { record: ToolExecutionRecord }) {
   const { workspaceFiles } = useContext(ChatMediaContext);
   const input = parseToolSummary(record.inputSummary);
   const output = parseToolSummary(record.outputSummary);
@@ -2958,7 +2969,7 @@ function ToolTraceDetail({ record }: { record: ToolExecutionRecord }) {
       {preview?.truncated || (!preview && text) ? <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">Partial content captured for this step.</Text> : null}
     </View>
   );
-}
+});
 
 function toolTraceTitle(record: ToolExecutionRecord, streaming: boolean) {
   if (record.status === "failed") {

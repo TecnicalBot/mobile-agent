@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceFile } from "@/core/types/app-state";
 import {
   buildOpenCodePromptFiles,
@@ -39,7 +39,7 @@ describe("OpenCode prompt attachments", () => {
     ]);
   });
 
-  it("skips missing and oversized files instead of failing the prompt", async () => {
+  it("skips missing files and keeps oversized files for host upload", async () => {
     const result = await buildOpenCodePromptFiles({
       files: [
         file("missing", "missing.png", 3),
@@ -56,7 +56,57 @@ describe("OpenCode prompt attachments", () => {
     });
 
     expect(result.files).toEqual([]);
-    expect(result.skipped).toEqual(["missing.png", "large.png"]);
+    expect(result.uploads.map((upload) => upload.file.displayName)).toEqual([
+      "large.png",
+    ]);
+    expect(result.uploads[0]?.bytes).toEqual(bytes("abc"));
+    expect(result.skipped).toEqual(["missing.png"]);
+  });
+
+  it("leaves oversized files to the native upload handle when available", async () => {
+    const read = vi.fn(async () => bytes("abc"));
+    const upload = vi.fn(async () => ({ status: 200, body: "{}" }));
+    const result = await buildOpenCodePromptFiles({
+      files: [
+        file("large", "large.png", MAX_OPENCODE_ATTACHMENT_BYTES + 1),
+      ],
+      resolveFile: () => ({
+        exists: true,
+        size: MAX_OPENCODE_ATTACHMENT_BYTES + 1,
+        bytes: read,
+        upload,
+      }),
+    });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(result.uploads).toHaveLength(1);
+    expect(result.uploads[0]?.source?.upload).toBe(upload);
+    expect(result.uploads[0]?.bytes).toBeUndefined();
+    expect(result.uploads[0]?.size).toBe(MAX_OPENCODE_ATTACHMENT_BYTES + 1);
+  });
+
+  it("moves files over the shared inline budget to host uploads", async () => {
+    const firstBytes = new Uint8Array(11 * 1024 * 1024);
+    const result = await buildOpenCodePromptFiles({
+      files: [
+        file("first", "first.png", firstBytes.byteLength),
+        file("second", "second.png", 10 * 1024 * 1024),
+      ],
+      resolveFile: (path) => ({
+        exists: true,
+        size: path === "files/first" ? firstBytes.byteLength : 10 * 1024 * 1024,
+        bytes: async () =>
+          path === "files/first" ? firstBytes : bytes("abc"),
+      }),
+    });
+
+    expect(result.files.map((attachment) => attachment.name)).toEqual([
+      "first.png",
+    ]);
+    expect(result.uploads.map((upload) => upload.file.displayName)).toEqual([
+      "second.png",
+    ]);
+    expect(result.skipped).toEqual([]);
   });
 
   it("caps the number of attachments", async () => {

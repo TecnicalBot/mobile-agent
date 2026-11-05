@@ -2013,9 +2013,7 @@ const ChatInput = memo(function ChatInput({
       logComposerDebug("handle-generate-send-error", {
         message: errorMessage,
       });
-      if (__DEV__) {
-        Alert.alert("Send failed", errorMessage);
-      }
+      Alert.alert("Send failed", errorMessage);
       setPromptValue(previousPrompt);
       await setSelectedFileIds(previousSelectedFileIds);
     } finally {

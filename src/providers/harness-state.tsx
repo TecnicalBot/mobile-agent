@@ -20,6 +20,7 @@ import {
   useConfig as useDirectConfig,
 } from "@/providers/app-state";
 import { buildOpenCodePromptFiles } from "@/modules/harnesses/opencode-attachments";
+import { uploadOpenCodeHostFile } from "@/modules/harnesses/opencode-host-files";
 import {
   attachOpenCodePhoneTools,
   PhoneToolsConnectionError,
@@ -86,6 +87,12 @@ async function withTimeout<T>(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function useHarnessController() {
@@ -156,7 +163,13 @@ function useHarnessController() {
           setLinks(next);
         }
       })
-      .catch(() => {});
+      .catch((cause) => {
+        if (cancelled) return;
+        console.warn("Could not load harness conversation links.", cause);
+        setError(
+          "Could not load saved OpenCode chat links. Reconnect before switching models.",
+        );
+      });
     return () => {
       cancelled = true;
     };
@@ -534,6 +547,7 @@ function useHarnessController() {
   const mutate = useCallback(
     async (
       work: (api: OpenCodeClient, signal: AbortSignal) => Promise<void>,
+      timeoutMs = 20000,
     ) => {
       if (!client || mutation.current)
         throw new Error("OpenCode is not ready.");
@@ -541,7 +555,7 @@ function useHarnessController() {
       setMutating(true);
       setError(null);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         await work(client, controller.signal);
         refresh();
@@ -1011,7 +1025,14 @@ function useHarnessController() {
           setDefaultAgentID(catalog.defaultAgent?.id ?? null);
         }
       })
-      .catch(() => {})
+      .catch((cause) => {
+        if (!controller.signal.aborted) {
+          console.warn("Could not load OpenCode agents.", cause);
+          setError(
+            "OpenCode connected, but its agents could not be loaded. Reconnect before changing agents.",
+          );
+        }
+      })
       .finally(() => clearTimeout(timeout));
     return () => {
       clearTimeout(timeout);
@@ -1088,7 +1109,12 @@ function useHarnessController() {
       conversationId: link.conversationId,
       rawMessages: snapshot.messages,
       session: snapshot.session,
-    }).catch(() => {});
+    }).catch((cause) => {
+      console.warn("Could not update the local harness transcript.", cause);
+      setError(
+        "OpenCode replied, but the local chat copy could not be saved. The reply is still in OpenCode.",
+      );
+    });
   }, [conversationAdapter, links, sessionID, snapshot, syncSessionToLocal]);
 
   const ensurePhoneTools = async (
@@ -1197,8 +1223,15 @@ function useHarnessController() {
       await ensurePhoneToolsRef.current(client, directory, controller.signal);
       if (!disposed) setPhoneToolsEnabled(true);
     })()
-      .catch(() => {
-        if (!disposed) setPhoneToolsEnabled(false);
+      .catch((cause) => {
+        if (!disposed) {
+          setPhoneToolsEnabled(false);
+          setPhoneToolsError(
+            cause instanceof PhoneToolsConnectionError
+              ? cause.message
+              : "Could not register phone tools with OpenCode. Check the OpenCode connection and retry.",
+          );
+        }
       })
       .finally(() => clearTimeout(timeout));
     return () => {
@@ -1232,17 +1265,17 @@ function useHarnessController() {
           await saveOpenCodeConnection(connection.current);
         }
       }
-      if (phoneBridge.sharing) {
-        const session = await api.session.get({ sessionID: id }, { signal });
-        await ensurePhoneTools(api, session.location.directory, signal);
-      }
-
-      // The harness host cannot read phone paths, so selected files travel as
-      // self-contained data URLs. This keeps the same composer attachments the
-      // direct agent accepts usable with OpenCode.
+      // The harness host cannot read phone paths, so small selected files travel
+      // as self-contained data URLs. Large files are written to the harness
+      // host's temporary directory and referenced by path, matching OpenCode's
+      // own desktop attachment flow instead of being skipped.
       let text = input.content;
       let files: Awaited<ReturnType<typeof buildOpenCodePromptFiles>>["files"] =
         [];
+      let uploads: Awaited<
+        ReturnType<typeof buildOpenCodePromptFiles>
+      >["uploads"] = [];
+      let skipped: string[] = [];
       if (input.selectedFileIds?.length) {
         const selected = await repositories.workspaceRepository.getByIds(
           input.selectedFileIds,
@@ -1253,9 +1286,48 @@ function useHarnessController() {
           signal,
         });
         files = attachment.files;
-        if (attachment.skipped.length)
-          text += `\n\n[Not attached: ${attachment.skipped.join(", ")}. Files over 20 MB or missing from the workspace are skipped.]`;
+        uploads = attachment.uploads;
+        skipped = attachment.skipped;
       }
+
+      let sessionDirectory = connection.current?.directory.trim() || undefined;
+      if (phoneBridge.sharing || uploads.length) {
+        const session = await api.session.get({ sessionID: id }, { signal });
+        sessionDirectory = session.location.directory;
+        if (phoneBridge.sharing)
+          await ensurePhoneTools(api, sessionDirectory, signal);
+      }
+
+      if (uploads.length) {
+        const savedConnection = connection.current;
+        if (!savedConnection) throw new Error("OpenCode is not ready.");
+        const info = await api.server.info({ signal });
+        for (const upload of uploads) {
+          const path = await uploadOpenCodeHostFile({
+            connection: savedConnection,
+            transport: expoFetch as typeof globalThis.fetch,
+            directory: sessionDirectory,
+            temporaryRoot: info.paths.tmp,
+            uploadID: Crypto.randomUUID(),
+            fileName: upload.file.displayName,
+            bytes: upload.bytes,
+            source: upload.source,
+            signal,
+          }).catch((cause) => {
+            const detail =
+              cause instanceof Error && cause.message.trim()
+                ? `: ${cause.message.trim()}`
+                : "";
+            throw new Error(
+              `Could not send ${upload.file.displayName} to OpenCode${detail}`,
+            );
+          });
+          text += `\n\n[Attached file: \`${path}\` (${formatBytes(upload.size)}). It is too large to inline, so read it with your file tools.]`;
+        }
+      }
+
+      if (skipped.length)
+        text += `\n\n[Not attached: ${skipped.join(", ")}. The file is missing from the phone workspace.]`;
 
       const previousMessageID =
         snapshot?.session.id === id
@@ -1278,7 +1350,7 @@ function useHarnessController() {
         submittedAt: Date.now(),
       });
       setSelectedFileIdsState([]);
-    });
+    }, 120000);
   };
 
   const permission =

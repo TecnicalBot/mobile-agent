@@ -6,6 +6,8 @@ export type HarnessConversationLink = {
   conversationId: string;
   providerId: string;
   sessionID: string;
+  /** Working directory the remote session was created with, when it matters. */
+  cwd?: string;
   /**
    * Local message IDs whose text has already been injected into the remote
    * session as detached-context. They are not part of the remote transcript,
@@ -40,6 +42,9 @@ function parseLinks(raw: string | null): HarnessConversationLinks {
         conversationId,
         providerId: record.providerId,
         sessionID: record.sessionID,
+        ...(typeof record.cwd === "string" && record.cwd.trim()
+          ? { cwd: record.cwd }
+          : {}),
         ...(syncedMessageIDs.length ? { syncedMessageIDs } : {}),
       };
     }

@@ -39,6 +39,7 @@ import type {
   PendingQuestionnaireAnswer,
   SendMessageInput,
 } from "@/core/types/app-state";
+import { useAntigravityHarnessController } from "@/hooks/use-antigravity-harness";
 import { useOpenCode } from "@/hooks/use-opencode";
 import { makeOpenCodeClient } from "@/modules/harnesses/opencode";
 import { readOpenCodeAgents } from "@/modules/harnesses/opencode-agents";
@@ -56,6 +57,7 @@ import {
 import {
   openCodeFormAnswer,
   openCodeModelRef,
+  OPENCODE_PROVIDER_ID,
   presentOpenCodeConversation,
   presentOpenCodeAgent,
   presentOpenCodeMessages,
@@ -95,7 +97,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function useHarnessController() {
+function useOpenCodeHarnessController() {
   const database = useSQLiteContext();
   const repositories = useMemo(() => createRepositories(database), [database]);
   const directConfig = useDirectConfig();
@@ -853,14 +855,19 @@ function useHarnessController() {
   };
 
   const forgetConversation = async (conversationId: string): Promise<void> => {
-    const link = linksRef.current[conversationId];
-    if (
-      link &&
-      conversationAdapter &&
-      link.providerId === conversationAdapter.providerId
-    ) {
+    // Read the stored link, not our cached copy: another harness may have
+    // linked this chat while this controller was idle.
+    const currentLinks = await loadHarnessConversationLinks(repositories).catch(
+      () => linksRef.current,
+    );
+    const link = currentLinks[conversationId];
+    linksRef.current = currentLinks;
+    setLinks(currentLinks);
+    // Another harness owns this chat; leave its link for that controller.
+    if (link && link.providerId !== OPENCODE_PROVIDER_ID) return;
+    if (link) {
       await withTimeout(async (signal) => {
-        await conversationAdapter.archiveSession?.(link.sessionID, signal);
+        await conversationAdapter?.archiveSession?.(link.sessionID, signal);
       }).catch(() => {});
       setSessions((old) =>
         old.filter((session) => session.id !== link.sessionID),
@@ -1512,6 +1519,225 @@ function useHarnessController() {
           { signal },
         );
       });
+    },
+  };
+}
+
+/**
+ * Multi-harness facade. Each harness owns its own transport and state; the
+ * shared app surfaces see one active controller plus a per-harness record for
+ * settings and connection management.
+ */
+function useHarnessController() {
+  const opencode = useOpenCodeHarnessController();
+  const antigravity = useAntigravityHarnessController();
+  const harnesses = useMemo(
+    () => ({ opencode, antigravity }),
+    [opencode, antigravity],
+  );
+  const activeController = opencode.active
+    ? opencode
+    : antigravity.active
+      ? antigravity
+      : null;
+  const activeHarnessID = opencode.active
+    ? ("opencode" as const)
+    : antigravity.active
+      ? ("antigravity" as const)
+      : null;
+  const connected = activeController
+    ? activeController.connected
+    : opencode.connected || antigravity.connected;
+  const status =
+    activeController?.status ??
+    (opencode.status === "connecting" || antigravity.status === "connecting"
+      ? "connecting"
+      : connected
+        ? "connected"
+        : "disconnected");
+
+  const otherController = (target: typeof opencode | typeof antigravity) =>
+    target === opencode ? antigravity : opencode;
+
+  const deactivateOther = async (target: typeof opencode | typeof antigravity) => {
+    const other = otherController(target);
+    if (!other.active) return null;
+    const conversationId = await other.detachConversation().catch((error) => {
+      console.error("Could not copy the harness transcript locally", error);
+      return null;
+    });
+    other.deactivate();
+    return conversationId;
+  };
+
+  /**
+   * Close and unlink a remote session owned by the other harness before this
+   * one claims the local chat. Both controllers guard on the stored provider,
+   * so this is also safe to call when the chat is not linked yet.
+   */
+  const releaseOtherLink = async (
+    target: typeof opencode | typeof antigravity,
+    conversationId: string,
+  ) => {
+    await otherController(target)
+      .forgetConversation(conversationId)
+      .catch((error) => {
+        console.error("Could not release the other harness session", error);
+      });
+  };
+
+  const selectModel = async (ref: ModelRef) => {
+    const target = ref.startsWith("harness:antigravity/")
+      ? antigravity
+      : opencode;
+    const conversationId = await deactivateOther(target);
+    if (conversationId) {
+      await releaseOtherLink(target, conversationId);
+      await target.attachConversation(conversationId, ref);
+      return;
+    }
+    await target.selectModel(ref);
+  };
+
+  const attachConversation = async (conversationId: string, ref: ModelRef) => {
+    const target = ref.startsWith("harness:antigravity/")
+      ? antigravity
+      : opencode;
+    await deactivateOther(target);
+    await releaseOtherLink(target, conversationId);
+    await target.attachConversation(conversationId, ref);
+  };
+
+  // The sidebar refreshes sessions when it opens. Keep this identity stable so
+  // that effect does not fire on every provider render.
+  const opencodeRefreshSessions = opencode.refreshSessions;
+  const antigravityRefreshSessions = antigravity.refreshSessions;
+  const refreshSessions = useCallback(async () => {
+    await Promise.allSettled([
+      opencodeRefreshSessions(),
+      antigravityRefreshSessions(),
+    ]);
+  }, [opencodeRefreshSessions, antigravityRefreshSessions]);
+
+  return {
+    active: opencode.active || antigravity.active,
+    activeHarnessID,
+    connected,
+    status,
+    error: activeController?.error ?? null,
+    authRequired:
+      activeHarnessID === "antigravity" ? antigravity.authRequired : false,
+    models: [...opencode.models, ...antigravity.models],
+    availableModels: [
+      ...opencode.availableModels,
+      ...antigravity.availableModels,
+    ],
+    sessions: activeController?.sessions ?? opencode.sessions,
+    linkedConversationId: activeController?.linkedConversationId ?? null,
+    sessionID: activeController?.sessionID ?? null,
+    agents: activeController?.agents ?? [],
+    currentAgentID: activeController?.currentAgentID ?? null,
+    currentAgentName: activeController?.currentAgentName ?? "Select agent",
+    selectAgent: async (idOrName: string | null) => {
+      await activeController?.selectAgent(idOrName);
+    },
+    currentModel: activeController?.currentModel ?? null,
+    currentConversation: activeController?.currentConversation ?? null,
+    messages: activeController?.messages ?? [],
+    snapshot: activeController?.snapshot ?? null,
+    selectedFileIds: activeController?.selectedFileIds ?? [],
+    setSelectedFileIds: async (fileIds: string[]) => {
+      await activeController?.setSelectedFileIds(fileIds);
+    },
+    pendingToolApproval: activeController?.pendingToolApproval ?? null,
+    pendingQuestionnaire: activeController?.pendingQuestionnaire ?? null,
+    mutating: activeController?.mutating ?? false,
+    awaitingPrompt: activeController?.awaitingPrompt ?? false,
+    loading: activeController?.loading ?? false,
+    connectPhoneTools: opencode.connectPhoneTools,
+    phoneToolsError: opencode.phoneToolsError,
+    phoneToolsEnabled: opencode.phoneToolsEnabled,
+    harnesses,
+    connect: async () => {
+      await Promise.allSettled([opencode.connect(), antigravity.connect()]);
+    },
+    disconnect: () => {
+      opencode.disconnect();
+      antigravity.disconnect();
+    },
+    selectModel,
+    attachConversation,
+    detachConversation: async () =>
+      (await activeController?.detachConversation()) ?? null,
+    forgetConversation: async (conversationId: string) => {
+      await opencode.forgetConversation(conversationId).catch((error) => {
+        console.error("Could not archive the OpenCode session", error);
+      });
+      await antigravity.forgetConversation(conversationId).catch((error) => {
+        console.error("Could not archive the Antigravity session", error);
+      });
+    },
+    renameLinkedConversation: async (conversationId: string, title: string) => {
+      await opencode
+        .renameLinkedConversation(conversationId, title)
+        .catch((error) => {
+          console.error("Could not rename the OpenCode session", error);
+        });
+      await antigravity
+        .renameLinkedConversation(conversationId, title)
+        .catch((error) => {
+          console.error("Could not rename the Antigravity session", error);
+        });
+    },
+    selectSession: async (id: string) => {
+      if (opencode.sessions.some((session) => session.id === id)) {
+        // An OpenCode remote session can be selected while Antigravity owns
+        // the active chat. Release it first so only one harness is active.
+        await deactivateOther(opencode);
+        await opencode.selectSession(id);
+        return;
+      }
+      if (activeController) {
+        await activeController.selectSession(id);
+        return;
+      }
+      await opencode.selectSession(id);
+    },
+    sendMessage: async (input: SendMessageInput) => {
+      if (!activeController)
+        throw new Error("Select a harness model before sending a message.");
+      await activeController.sendMessage(input);
+    },
+    refresh: async () => {
+      if (activeController) {
+        await activeController.refresh();
+        return;
+      }
+      await Promise.allSettled([opencode.refresh(), antigravity.refresh()]);
+    },
+    refreshSessions,
+    mutate: activeController?.mutate ?? opencode.mutate,
+    approvalMode: activeController?.approvalMode ?? "ask",
+    deactivate: () => {
+      opencode.deactivate();
+      antigravity.deactivate();
+    },
+    newChat: async () => {
+      await deactivateOther(activeController ?? opencode);
+      await activeController?.newChat();
+      return null;
+    },
+    stop: async () => {
+      await activeController?.stop();
+    },
+    replyPermission: async (decision: "once" | "always" | "reject") => {
+      await activeController?.replyPermission(decision);
+    },
+    submitQuestionnaire: async (answers: PendingQuestionnaireAnswer[]) => {
+      await activeController?.submitQuestionnaire(answers);
+    },
+    dismissQuestionnaire: async () => {
+      await activeController?.dismissQuestionnaire();
     },
   };
 }

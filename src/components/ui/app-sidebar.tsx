@@ -85,6 +85,7 @@ function SessionSectionChevron({
 
 export function AppSidebar() {
   const harness = useHarness();
+  const opencode = harness.harnesses.opencode;
   const [openCodeSessionsOpen, setOpenCodeSessionsOpen] = useState(true);
   const theme = useTheme();
   const pathname = usePathname();
@@ -142,13 +143,19 @@ export function AppSidebar() {
 
   const handleSelectConversation = useCallback(
     (conversationId: string) => {
+      // Re-selecting the active chat should only close the sidebar. Detaching
+      // here would drop a live harness session for no reason.
+      if (conversationId === currentConversationId) {
+        router.dismissTo("/");
+        return;
+      }
       selectConversation(conversationId)
         .then(() => {
           router.dismissTo("/");
         })
         .catch(console.error);
     },
-    [router, selectConversation],
+    [currentConversationId, router, selectConversation],
   );
 
   const handleTogglePin = useCallback(
@@ -336,7 +343,7 @@ export function AppSidebar() {
               </SidebarMenu>
             </SidebarGroup>
           ) : null}
-          {harness.connected ? (
+          {opencode.connected ? (
             <SidebarGroup>
               <Pressable
                 accessibilityRole="button"
@@ -358,12 +365,12 @@ export function AppSidebar() {
               </Pressable>
               {openCodeSessionsOpen ? (
                 <SidebarMenu>
-                  {harness.sessions.map((session) => (
+                  {opencode.sessions.map((session) => (
                     <SidebarMenuItem key={session.id}>
                       <SidebarClose asChild>
                         <SidebarMenuButton
                           isActive={
-                            harness.active && harness.sessionID === session.id
+                            opencode.active && opencode.sessionID === session.id
                           }
                           onPress={() => {
                             void harness
@@ -375,7 +382,7 @@ export function AppSidebar() {
                             numberOfLines={1}
                             className={cn(
                               "flex-1 font-sans text-sm",
-                              harness.active && harness.sessionID === session.id
+                              opencode.active && opencode.sessionID === session.id
                                 ? "text-background dark:text-background-dark"
                                 : "text-foreground dark:text-foreground-dark",
                             )}
@@ -386,7 +393,7 @@ export function AppSidebar() {
                       </SidebarClose>
                     </SidebarMenuItem>
                   ))}
-                  {harness.sessions.length === 0 ? (
+                  {opencode.sessions.length === 0 ? (
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                       No sessions yet
                     </Text>

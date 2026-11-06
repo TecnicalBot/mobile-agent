@@ -92,7 +92,7 @@ export function useChat() {
         ? "running"
         : null;
   const unsupported = async () => {
-    throw new Error("This action is not supported for OpenCode sessions.");
+    throw new Error("This action is not supported for harness sessions.");
   };
   return {
     ...direct,
@@ -145,9 +145,13 @@ export function useChat() {
       const toolName = harness.pendingToolApproval?.toolName;
       if (!toolName) return;
       const approvalIDs = new Set(
-        [harness.linkedConversationId, harness.sessionID].filter(
-          (id): id is string => Boolean(id),
-        ),
+        [
+          harness.linkedConversationId,
+          harness.sessionID,
+          // A permission can belong to a chat the user switched away from.
+          harness.pendingToolApproval?.conversationId,
+          harness.pendingToolApproval?.runId,
+        ].filter((id): id is string => Boolean(id)),
       );
       for (const id of approvalIDs) {
         direct.approveToolForChat(id, toolName);
@@ -190,7 +194,7 @@ export function useChat() {
       agentIdOrName: string | null,
     ) => {
       if (conversationId && conversationId !== harness.sessionID)
-        throw new Error("Select the OpenCode chat before changing its agent.");
+        throw new Error("Select the harness chat before changing its agent.");
       await harness.selectAgent(agentIdOrName);
     },
     skills: [],

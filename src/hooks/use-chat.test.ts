@@ -152,7 +152,7 @@ describe("shared chat agent selection", () => {
   it("rejects switches targeting a different session", async () => {
     await expect(
       useChat().setConversationAgent("other-session", "plan"),
-    ).rejects.toThrow("Select the OpenCode chat");
+    ).rejects.toThrow("Select the harness chat before changing its agent");
     expect(state.harness.selectAgent).not.toHaveBeenCalled();
   });
 

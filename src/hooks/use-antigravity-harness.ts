@@ -12,7 +12,10 @@ import type {
   SendMessageInput,
 } from "@/core/types/app-state";
 import { useChat as useDirectChat, useConfig as useDirectConfig } from "@/providers/app-state";
+import { usePhoneBridge } from "@/providers/phone-bridge-state";
 import { buildOpenCodePromptFiles } from "@/modules/harnesses/opencode-attachments";
+import { resolveAntigravityMcpServers } from "@/modules/harnesses/antigravity-mcp-credentials";
+import type { AntigravityPhoneTools } from "@/modules/harnesses/antigravity-mcp";
 import {
   applyAntigravityUpdate,
   antigravityModeForState,
@@ -38,6 +41,7 @@ import {
   type AcpContentBlock,
   type AcpInitializeResult,
   type AcpMessage,
+  type AcpMcpServer,
   type AcpModel,
   type AcpNewSessionResult,
   type AcpPermissionRequest,
@@ -184,6 +188,7 @@ export function useAntigravityHarnessController() {
   const repositories = useMemo(() => createRepositories(database), [database]);
   const directConfig = useDirectConfig();
   const directChat = useDirectChat();
+  const phoneBridge = usePhoneBridge();
   const syncConversationMessages = directChat.syncConversationMessages;
 
   const connectionRef = useRef<SavedAntigravityConnection | null>(null);
@@ -200,6 +205,12 @@ export function useAntigravityHarnessController() {
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const [selectedModeID, setSelectedModeID] = useState<string | null>(null);
   const [selectedFileIds, setSelectedFileIdsState] = useState<string[]>([]);
+  const [selectedMcpServerIds, setSelectedMcpServerIdsState] = useState<
+    string[] | null
+  >(null);
+  const selectedMcpServerIdsRef = useRef<string[] | null>(null);
+  const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
+  const [phoneToolsError, setPhoneToolsError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
@@ -234,6 +245,7 @@ export function useAntigravityHarnessController() {
   const lastSync = useRef<string | null>(null);
   const syncQueues = useRef<Map<string, Promise<void>>>(new Map());
   const promptInFlight = useRef<Map<string, Promise<void>>>(new Map());
+  const pendingMcpRefresh = useRef(false);
   const catalogSessionID = useRef<string | null>(null);
   const catalogCwd = useRef<string | null>(null);
   const handleMessageRef = useRef<(message: AcpMessage) => void>(() => {});
@@ -274,6 +286,41 @@ export function useAntigravityHarnessController() {
   useEffect(() => {
     sessionIDRef.current = sessionID;
   }, [sessionID]);
+
+  useEffect(() => {
+    selectedMcpServerIdsRef.current = selectedMcpServerIds;
+  }, [selectedMcpServerIds]);
+
+  const commitSelectedMcpServerIds = useCallback(
+    (next: string[] | null) => {
+      selectedMcpServerIdsRef.current = next;
+      setSelectedMcpServerIdsState(next);
+    },
+    [],
+  );
+
+  const phoneToolsForSession = useCallback((): AntigravityPhoneTools | null => {
+    const shared = phoneBridge.sharing;
+    return shared ? { url: shared.url, token: shared.token } : null;
+  }, [phoneBridge.sharing]);
+
+  const buildSessionMcpServers = useCallback(
+    (ids: string[] | null) =>
+      resolveAntigravityMcpServers({
+        servers: directConfig.mcpServers,
+        selectedServerIds: ids,
+        phoneTools: phoneToolsForSession(),
+      }),
+    [directConfig.mcpServers, phoneToolsForSession],
+  );
+
+  // The composer's MCP drawer is backed by the direct provider's current
+  // selection. Mirror it until a harness session exists, then keep the
+  // session-scoped copy in sync below.
+  useEffect(() => {
+    if (sessionIDRef.current) return;
+    commitSelectedMcpServerIds(directConfig.currentSelectedMcpServerIds);
+  }, [commitSelectedMcpServerIds, directConfig.currentSelectedMcpServerIds]);
 
   useEffect(() => {
     cwdRef.current = cwd;
@@ -433,6 +480,8 @@ export function useAntigravityHarnessController() {
     setStatus("connecting");
     setError(null);
     setAuthRequired(false);
+    setPhoneToolsError(null);
+    pendingMcpRefresh.current = false;
     catalogModelsRef.current = [];
     catalogModesRef.current = null;
     catalogConfigsRef.current = [];
@@ -563,6 +612,9 @@ export function useAntigravityHarnessController() {
     setAuthRequired(false);
     setWaitingPrompts(0);
     setCwd("");
+    setPhoneToolsEnabled(false);
+    setPhoneToolsError(null);
+    pendingMcpRefresh.current = false;
     commitPermission(null);
   }, [commitPermission]);
 
@@ -688,6 +740,18 @@ export function useAntigravityHarnessController() {
     return next;
   };
 
+  const persistSelectedMcpServerIds = async (conversationId: string) => {
+    const ids = selectedMcpServerIdsRef.current;
+    await repositories.conversationRepository
+      .updateMetadata(conversationId, { selectedMcpServerIds: ids })
+      .catch((cause) => {
+        console.warn(
+          "Could not save the Antigravity MCP selection for this chat.",
+          cause,
+        );
+      });
+  };
+
   const syncStateToLocal = useCallback(
     (state: AntigravitySessionState, conversationId: string) => {
       // Serialize writes per conversation. A queued user message and a later
@@ -721,12 +785,30 @@ export function useAntigravityHarnessController() {
   const createRemoteSession = async (
     api: AntigravityClient,
     sessionCwd: string,
+    mcpServers: AcpMcpServer[],
+    signal?: AbortSignal,
+  ) => {
+    const result = await api.request<AcpNewSessionResult>(
+      "session/new",
+      { cwd: sessionCwd, mcpServers },
+      { timeoutMs: 30000, signal },
+    );
+    setPhoneToolsEnabled(Boolean(phoneToolsForSession()));
+    setPhoneToolsError(null);
+    return result;
+  };
+
+  const createRemoteSessionFor = async (
+    api: AntigravityClient,
+    sessionCwd: string,
+    selectedServerIds: string[] | null,
     signal?: AbortSignal,
   ) =>
-    api.request<AcpNewSessionResult>(
-      "session/new",
-      { cwd: sessionCwd, mcpServers: [] },
-      { timeoutMs: 30000, signal },
+    createRemoteSession(
+      api,
+      sessionCwd,
+      await buildSessionMcpServers(selectedServerIds),
+      signal,
     );
 
   const applyModelConfig = async (
@@ -830,6 +912,107 @@ export function useAntigravityHarnessController() {
     };
   };
 
+  const resumeSessionMcp = async (
+    selectedServerIds?: string[] | null,
+  ): Promise<boolean> => {
+    const api = clientRef.current;
+    const id = sessionIDRef.current;
+    if (!api || !id) return false;
+    const state = sessionsRef.current[id];
+    if (!state) return false;
+    if (state.running || promptInFlight.current.has(id)) {
+      // ACP only allows one active prompt and resume during a turn can race
+      // the prompt. Apply the new MCP list when the turn settles.
+      pendingMcpRefresh.current = true;
+      return false;
+    }
+    const mcpServers = await buildSessionMcpServers(
+      selectedServerIds !== undefined
+        ? selectedServerIds
+        : selectedMcpServerIdsRef.current,
+    );
+    await api.request<AcpResumeSessionResult>(
+      "session/resume",
+      { sessionId: id, cwd: state.cwd, mcpServers },
+      { timeoutMs: 30000 },
+    );
+    // Resuming can reset the model/mode selection, so put the user's choices
+    // back before the next prompt.
+    let next = sessionsRef.current[id] ?? state;
+    const modelRef =
+      selectedRef ??
+      (next.modelId ? antigravityModelRef(next.modelId) : null);
+    const model = modelRef ? findModel(modelRef) : null;
+    if (model) next = await applyModelConfig(api, next, model);
+    if (next.modeId) next = await applyModeConfig(api, next, next.modeId);
+    commitSession(next);
+    setPhoneToolsEnabled(Boolean(phoneToolsForSession()));
+    setPhoneToolsError(null);
+    pendingMcpRefresh.current = false;
+    return true;
+  };
+
+  const setSelectedMcpServerIds = async (
+    selectedServerIds: string[] | null,
+  ) => {
+    commitSelectedMcpServerIds(selectedServerIds);
+    await directChat
+      .setCurrentSelectedMcpServerIds(selectedServerIds)
+      .catch(() => {});
+    if (!sessionIDRef.current) return;
+    try {
+      await resumeSessionMcp(selectedServerIds);
+    } catch (cause) {
+      console.warn("Could not apply the Antigravity MCP selection.", cause);
+      setPhoneToolsError(
+        "The MCP selection was saved, but this chat could not reconnect to it. Start a new chat or reconnect.",
+      );
+    }
+  };
+
+  const refreshMcpServers = async () => {
+    if (!sessionIDRef.current) return;
+    try {
+      await resumeSessionMcp();
+    } catch (cause) {
+      console.warn("Could not refresh Antigravity MCP servers.", cause);
+      setPhoneToolsError(
+        "Could not reconnect this chat to the selected MCP servers. Start a new chat or reconnect.",
+      );
+    }
+  };
+
+  const connectPhoneTools = async () => {
+    if (!phoneBridge.sharing)
+      throw new Error("Start device sharing before connecting phone tools.");
+    if (!clientRef.current) throw new Error("Connect Antigravity first.");
+    setPhoneToolsError(null);
+    try {
+      await resumeSessionMcp();
+    } catch (cause) {
+      setPhoneToolsError(
+        "Could not attach phone tools to this Antigravity chat. Start a new chat and try again.",
+      );
+      throw cause;
+    }
+    setPhoneToolsEnabled(true);
+  };
+
+  const refreshMcpServersRef = useRef(refreshMcpServers);
+  refreshMcpServersRef.current = refreshMcpServers;
+  const sharingID = phoneBridge.sharing?.id ?? null;
+  const lastSharingID = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastSharingID.current === sharingID) return;
+    lastSharingID.current = sharingID;
+    if (!sharingID) setPhoneToolsEnabled(false);
+    if (!sessionIDRef.current) return;
+    // Start/stop sharing changes the phone MCP entry, so reconnect the active
+    // session with the new server list. If a prompt is running this is queued
+    // until the turn settles.
+    void refreshMcpServersRef.current();
+  }, [sharingID]);
+
   const attachConversation = async (
     conversationId: string,
     ref: string,
@@ -848,6 +1031,9 @@ export function useAntigravityHarnessController() {
       existing?.cwd?.trim() ||
       connectionRef.current?.cwd.trim() ||
       cwdRef.current;
+    const selectedServerIds = conversation.selectedMcpServerIds ?? null;
+    const mcpServers = await buildSessionMcpServers(selectedServerIds);
+    commitSelectedMcpServerIds(selectedServerIds);
     let result: AcpNewSessionResult | null = null;
     let resumed = false;
 
@@ -858,7 +1044,7 @@ export function useAntigravityHarnessController() {
           {
             sessionId: existing.sessionID,
             cwd: existing.cwd?.trim() || sessionCwd,
-            mcpServers: [],
+            mcpServers,
           },
           { timeoutMs: 30000 },
         );
@@ -879,8 +1065,11 @@ export function useAntigravityHarnessController() {
           )
           .catch(() => {});
       }
-      result = await createRemoteSession(api, sessionCwd);
+      result = await createRemoteSession(api, sessionCwd, mcpServers);
     }
+    setPhoneToolsEnabled(Boolean(phoneToolsForSession()));
+    setPhoneToolsError(null);
+    pendingMcpRefresh.current = false;
 
     let state = createAntigravitySessionState({
       result,
@@ -990,6 +1179,8 @@ export function useAntigravityHarnessController() {
         setSelectedModeID(null);
         setSelectedFileIdsState([]);
         setWaitingPrompts(0);
+        setPhoneToolsEnabled(false);
+        pendingMcpRefresh.current = false;
       }
     }
     const next = await removeHarnessConversationLink(
@@ -1142,7 +1333,11 @@ export function useAntigravityHarnessController() {
     const title = titleFromContent(input.content) || "Antigravity chat";
 
     if (!id) {
-      const result = await createRemoteSession(api, sessionCwd);
+      const result = await createRemoteSessionFor(
+        api,
+        sessionCwd,
+        selectedMcpServerIdsRef.current,
+      );
       state = {
         ...createAntigravitySessionState({ result, cwd: sessionCwd }),
         title,
@@ -1158,6 +1353,7 @@ export function useAntigravityHarnessController() {
         agentMode: conversationMode(state.modeId),
         messages: [],
       });
+      await persistSelectedMcpServerIds(conversationId);
       link = {
         conversationId,
         providerId: ANTIGRAVITY_PROVIDER_ID,
@@ -1184,6 +1380,7 @@ export function useAntigravityHarnessController() {
         agentMode: conversationMode(state.modeId),
         messages: state.messages,
       });
+      await persistSelectedMcpServerIds(conversationId);
       link = {
         conversationId,
         providerId: ANTIGRAVITY_PROVIDER_ID,
@@ -1411,6 +1608,18 @@ export function useAntigravityHarnessController() {
         setWaitingPrompts((count) => Math.max(0, count - 1));
         if (promptInFlight.current.get(id) === promptPromise)
           promptInFlight.current.delete(id);
+        if (pendingMcpRefresh.current && id === sessionIDRef.current) {
+          pendingMcpRefresh.current = false;
+          await resumeSessionMcp().catch((cause) => {
+            console.warn(
+              "Could not apply the Antigravity MCP selection after the turn.",
+              cause,
+            );
+            setPhoneToolsError(
+              "The MCP selection changed during this turn, but the chat could not reconnect to it. Start a new chat or reconnect.",
+            );
+          });
+        }
       }
     })();
     promptInFlight.current.set(id, promptPromise);
@@ -1656,18 +1865,17 @@ export function useAntigravityHarnessController() {
     selectedFileIds,
     setSelectedFileIds: async (fileIds: string[]) =>
       setSelectedFileIdsState(fileIds),
+    selectedMcpServerIds,
+    setSelectedMcpServerIds,
     pendingToolApproval,
     pendingQuestionnaire: null,
     mutating,
     awaitingPrompt: waitingPrompts > 0,
     loading: Boolean(active && sessionID && !currentSession),
-    connectPhoneTools: async () => {
-      throw new Error(
-        "Antigravity runs on its host. Device sharing is not required.",
-      );
-    },
-    phoneToolsError: null,
-    phoneToolsEnabled: false,
+    connectPhoneTools,
+    phoneToolsError,
+    phoneToolsEnabled,
+    refreshMcpServers,
     connect,
     disconnect,
     selectModel,
@@ -1690,6 +1898,9 @@ export function useAntigravityHarnessController() {
       setSelectedFileIdsState([]);
       setWaitingPrompts(0);
       setError(null);
+      setPhoneToolsEnabled(false);
+      setPhoneToolsError(null);
+      pendingMcpRefresh.current = false;
       commitPermission(null);
     },
     newChat: async () => {
@@ -1703,6 +1914,10 @@ export function useAntigravityHarnessController() {
       setSelectedFileIdsState([]);
       setWaitingPrompts(0);
       setError(null);
+      setPhoneToolsEnabled(Boolean(phoneBridge.sharing));
+      setPhoneToolsError(null);
+      pendingMcpRefresh.current = false;
+      commitSelectedMcpServerIds(null);
       commitPermission(null);
       return null;
     },

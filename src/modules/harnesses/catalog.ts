@@ -9,5 +9,5 @@ export type HarnessDefinition = {
 
 export const SUPPORTED_HARNESSES = [
   { id: "opencode", label: "OpenCode", phoneTools: true },
-  { id: "antigravity", label: "Antigravity", phoneTools: false },
+  { id: "antigravity", label: "Antigravity", phoneTools: true },
 ] as const satisfies readonly HarnessDefinition[];

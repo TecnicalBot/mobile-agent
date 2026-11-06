@@ -130,12 +130,53 @@ The bridge returns `202 Accepted` immediately. The response arrives on
 - `session/set_config_option` is used for `model`, `thought_level`, and `mode`.
   Some models omit `thought_level`; switch models first, then read the returned
   `configOptions`.
-- `session/resume` works after `session/close`, so a linked chat can reattach
-  without losing the remote session.
+- `session/resume` works after `session/close`, and also on an active session.
+  The app uses it to reconnect MCP servers without losing the remote session;
+  it reapplies the model and mode afterward because a resume can reset them.
 - Permission prompts arrive as server-initiated
   `session/request_permission` requests. Reply with
   `{"outcome":{"outcome":"selected","optionId":"allow"}}` or
   `{"outcome":{"outcome":"cancelled"}}`.
+
+## MCP servers and phone tools
+
+The app passes its selected MCP servers to Antigravity in every
+`session/new` and `session/resume` request (`session/new` omits `sessionId`):
+
+```json
+{
+  "sessionId": "…",
+  "cwd": "/home/me/project",
+  "mcpServers": [
+    {
+      "type": "http",
+      "name": "GitHub",
+      "url": "https://mcp.example.com/mcp",
+      "headers": [{ "name": "Authorization", "value": "Bearer …" }]
+    }
+  ]
+}
+```
+
+- App MCP servers are remote-only (`http` or `sse`), which maps directly to ACP
+  remote MCP entries. Disabled and unselected servers are omitted.
+- Header-auth servers use the values saved in the app's secure store.
+- OAuth servers use a refreshed access token as a bearer header. A missing
+  token still leaves the server available so Antigravity can surface its own
+  authorization error.
+- Antigravity does not advertise `mcpCapabilities`, but it accepts HTTP MCP
+  entries today. SSE entries are passed through for servers configured that
+  way. No bridge change is needed: the bridge forwards the `mcpServers`
+  parameter unchanged.
+- Antigravity prefixes MCP tool names with the server name
+  (`mcp_<server>_<tool>`), so server names must match
+  `^[a-zA-Z0-9_-]{1,64}$`. The app sanitizes display labels and keeps names
+  unique before sending them.
+- When device sharing is active, the phone bridge is added as another HTTP MCP
+  server (`http://<phone-ip>:<port>/mcp`) with its bearer token. Turning sharing
+  on or off reconnects the active Antigravity session so the tool list changes
+  immediately. The bridge host must be able to reach the phone's advertised
+  address (same LAN or a tunnel such as Tailscale).
 
 ## Security notes
 

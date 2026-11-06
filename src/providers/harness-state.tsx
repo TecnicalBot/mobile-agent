@@ -1453,6 +1453,11 @@ function useOpenCodeHarnessController() {
     selectedFileIds,
     setSelectedFileIds: async (fileIds: string[]) =>
       setSelectedFileIdsState(fileIds),
+    selectedMcpServerIds: [],
+    // OpenCode configures MCP servers on its host, so the app selection is
+    // intentionally not forwarded through the harness.
+    setSelectedMcpServerIds: async () => {},
+    refreshMcpServers: async () => {},
     pendingToolApproval,
     pendingQuestionnaire,
     mutating,
@@ -1648,6 +1653,17 @@ function useHarnessController() {
     selectedFileIds: activeController?.selectedFileIds ?? [],
     setSelectedFileIds: async (fileIds: string[]) => {
       await activeController?.setSelectedFileIds(fileIds);
+    },
+    selectedMcpServerIds: activeController
+      ? activeController.selectedMcpServerIds
+      : (opencode.selectedMcpServerIds ?? null),
+    setSelectedMcpServerIds: async (selectedMcpServerIds: string[] | null) => {
+      await (activeController ?? opencode).setSelectedMcpServerIds(
+        selectedMcpServerIds,
+      );
+    },
+    refreshMcpServers: async () => {
+      await (activeController ?? opencode).refreshMcpServers();
     },
     pendingToolApproval: activeController?.pendingToolApproval ?? null,
     pendingQuestionnaire: activeController?.pendingQuestionnaire ?? null,

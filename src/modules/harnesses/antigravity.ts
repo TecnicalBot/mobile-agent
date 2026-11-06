@@ -34,6 +34,30 @@ export type AcpAuthMethod = {
   description?: string | null;
 };
 
+export type AcpMcpHeader = {
+  name: string;
+  value: string;
+};
+
+/**
+ * ACP's remote MCP server entries. Antigravity currently accepts HTTP even
+ * though it does not advertise `mcpCapabilities`; SSE is passed through for
+ * servers that are configured that way.
+ */
+export type AcpMcpServer =
+  | {
+      type: "http";
+      name: string;
+      url: string;
+      headers: AcpMcpHeader[];
+    }
+  | {
+      type: "sse";
+      name: string;
+      url: string;
+      headers: AcpMcpHeader[];
+    };
+
 export type AcpInitializeResult = {
   protocolVersion: number;
   agentCapabilities?: {
@@ -43,6 +67,10 @@ export type AcpInitializeResult = {
       image?: boolean;
       audio?: boolean;
       embeddedContext?: boolean;
+    };
+    mcpCapabilities?: {
+      http?: boolean;
+      sse?: boolean;
     };
     sessionCapabilities?: {
       resume?: unknown;

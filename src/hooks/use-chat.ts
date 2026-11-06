@@ -125,11 +125,14 @@ export function useChat() {
       phoneBridge.sharing?.grant.folder ?? phoneBridge.folder,
     currentSelectedFileIds: harness.selectedFileIds,
     setCurrentSelectedFileIds: harness.setSelectedFileIds,
-    // Skills and MCP servers are configured inside OpenCode, not in this app.
+    // Skills are configured on the harness host. MCP servers are passed into
+    // Antigravity sessions; OpenCode keeps its own host-side configuration.
     currentSelectedSkillIds: [],
     setCurrentSelectedSkillIds: async () => {},
-    currentSelectedMcpServerIds: [],
-    setCurrentSelectedMcpServerIds: async () => {},
+    currentSelectedMcpServerIds: harness.selectedMcpServerIds,
+    setCurrentSelectedMcpServerIds: async (ids: string[] | null) => {
+      await harness.setSelectedMcpServerIds(ids);
+    },
     pendingInputs: [],
     pendingSecretRequest: null,
     pendingQuestionnaire: harness.pendingQuestionnaire,

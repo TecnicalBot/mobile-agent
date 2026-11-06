@@ -33,7 +33,11 @@ const state = vi.hoisted(() => ({
     folder: null,
     sharing: null as {
       id: string;
-      grant: { folder: { uri: string } | null };
+      grant: {
+        folder: { uri: string } | null;
+        workspace?: boolean;
+        skills?: boolean;
+      };
     } | null,
     approvalMode: "ask" as "ask" | "auto",
     setApprovalMode: vi.fn(),
@@ -161,6 +165,39 @@ describe("shared chat agent selection", () => {
     const chat = useChat();
     expect(chat.conversationAgentName).toBe("build");
     expect(chat.setConversationAgent).toBe(state.direct.setConversationAgent);
+  });
+});
+
+describe("harness device folder sharing", () => {
+  it("shares the picked folder while preserving the existing grant", async () => {
+    state.bridge.sharing = {
+      id: "sharing-session",
+      grant: { folder: null, workspace: true, skills: true },
+    };
+    const picked = { uri: "content://picked", displayName: "Notes" };
+    state.bridge.pickFolder.mockResolvedValue(picked);
+
+    await expect(useChat().pickConversationFolder()).resolves.toBe(picked);
+    expect(state.bridge.start).toHaveBeenCalledWith({
+      folder: picked,
+      workspace: true,
+      skills: true,
+    });
+  });
+
+  it("clears only the folder when app files or skills stay shared", async () => {
+    state.bridge.sharing = {
+      id: "sharing-session",
+      grant: { folder: { uri: "content://old" }, workspace: true, skills: false },
+    };
+
+    await useChat().clearConversationFolder();
+    expect(state.bridge.start).toHaveBeenCalledWith({
+      folder: null,
+      workspace: true,
+      skills: false,
+    });
+    expect(state.bridge.clearFolder).not.toHaveBeenCalled();
   });
 });
 

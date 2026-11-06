@@ -13,7 +13,11 @@ import type {
 } from "@/core/types/app-state";
 import { useChat as useDirectChat, useConfig as useDirectConfig } from "@/providers/app-state";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
-import { buildOpenCodePromptFiles } from "@/modules/harnesses/opencode-attachments";
+import {
+  bytesToBase64,
+  buildOpenCodePromptFiles,
+} from "@/modules/harnesses/opencode-attachments";
+import { uploadAntigravityHostFile } from "@/modules/harnesses/antigravity-host-files";
 import { resolveAntigravityMcpServers } from "@/modules/harnesses/antigravity-mcp-credentials";
 import type { AntigravityPhoneTools } from "@/modules/harnesses/antigravity-mcp";
 import {
@@ -77,6 +81,16 @@ type SetConfigResult = {
 };
 
 const EMPTY_LINKS: HarnessConversationLinks = {};
+
+/** Leave room for the prompt itself inside the bridge's 40 MiB JSON body. */
+const MAX_INLINE_FALLBACK_BYTES = 24 * 1024 * 1024;
+
+function formatAttachmentSize(bytes: number) {
+  if (bytes >= 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
 
 function nowISO() {
   return new Date().toISOString();
@@ -1417,10 +1431,44 @@ export function useAntigravityHarnessController() {
         const block = dataURLToBlock(file.uri, file.name ?? "file");
         if (block) attachmentBlocks.push(block);
       }
-      if (attachment.uploads.length) {
-        text += `\n\n[Not attached: ${attachment.uploads
-          .map((item) => item.file.displayName)
-          .join(", ")}. The file is too large to inline.]`;
+      for (const upload of attachment.uploads) {
+        const connection = connectionRef.current;
+        if (connection) {
+          try {
+            const path = await uploadAntigravityHostFile({
+              connection,
+              transport: expoFetch as typeof globalThis.fetch,
+              directory: state.cwd,
+              fileName: upload.file.displayName,
+              bytes: upload.bytes,
+              source: upload.source,
+            });
+            text += `\n\n[Attached file: \`${path}\` (${formatAttachmentSize(
+              upload.size,
+            )}). It is too large to inline, so read it with your file tools.]`;
+            continue;
+          } catch (cause) {
+            console.warn(
+              `Could not upload ${upload.file.displayName} to the Antigravity bridge.`,
+              cause,
+            );
+          }
+        }
+        // An older bridge without /files can still receive a large attachment
+        // when no native streaming handle forced it out of the inline path.
+        if (upload.bytes && upload.bytes.byteLength <= MAX_INLINE_FALLBACK_BYTES) {
+          const block = dataURLToBlock(
+            `data:${upload.file.mimeType ?? "application/octet-stream"};base64,${bytesToBase64(
+              upload.bytes,
+            )}`,
+            upload.file.displayName,
+          );
+          if (block) {
+            attachmentBlocks.push(block);
+            continue;
+          }
+        }
+        text += `\n\n[Not attached: ${upload.file.displayName}. The bridge could not receive this file. Update the bridge and try again.]`;
       }
       if (attachment.skipped.length) {
         text += `\n\n[Not attached: ${attachment.skipped.join(

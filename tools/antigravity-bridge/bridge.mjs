@@ -9,6 +9,7 @@
  *
  *   POST /rpc     -> write one JSON-RPC message to `agy acp`
  *   GET  /events  -> SSE stream of every JSON-RPC message from `agy acp`
+ *   POST /files   -> stream a large attachment into the session directory
  *   GET  /health  -> bridge and agent metadata
  *
  * No npm dependencies. Run it on the same machine as the Antigravity CLI:
@@ -19,13 +20,19 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { mkdir, unlink } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 function usage() {
   return `Antigravity ACP bridge ${VERSION}
@@ -258,6 +265,44 @@ function readJsonBody(request, limit = 40 * 1024 * 1024) {
   });
 }
 
+function sanitizeUploadName(value) {
+  const name = basename(String(value || "attachment"))
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[^A-Za-z0-9._ -]+/g, "-")
+    .slice(0, 160)
+    .trim();
+  return name && name !== "." && name !== ".." ? name : "attachment";
+}
+
+function uploadDirectory(value) {
+  const requested = String(value || "").trim();
+  return resolve(requested || options.cwd);
+}
+
+/**
+ * Stream a raw request body into a session-scoped upload folder. Large files
+ * never enter the bridge's JS heap, so phone attachments can be much larger
+ * than the ACP prompt body limit.
+ */
+async function writeUpload(request, path) {
+  let size = 0;
+  await pipeline(
+    request,
+    new Transform({
+      transform(chunk, _encoding, callback) {
+        size += chunk.length;
+        if (size > MAX_UPLOAD_BYTES) {
+          callback(new Error("Upload is too large."));
+          return;
+        }
+        callback(null, chunk);
+      },
+    }),
+    createWriteStream(path),
+  );
+  return size;
+}
+
 function commonHeaders() {
   return {
     // Without a token the bridge only listens on loopback. Do not advertise
@@ -384,6 +429,35 @@ const server = createServer(async (request, response) => {
       "Content-Type": "application/json",
     });
     response.end(JSON.stringify({ accepted: true }));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/files") {
+    const name = sanitizeUploadName(url.searchParams.get("name"));
+    const directory = uploadDirectory(url.searchParams.get("directory"));
+    const folder = join(directory, ".mobile-agent", "uploads", randomUUID());
+    const path = join(folder, name);
+    try {
+      await mkdir(folder, { recursive: true });
+      const size = await writeUpload(request, path);
+      response.writeHead(201, {
+        ...commonHeaders(),
+        "Content-Type": "application/json",
+      });
+      response.end(JSON.stringify({ path, size, name }));
+    } catch (error) {
+      await unlink(path).catch(() => {});
+      if (response.headersSent) {
+        response.destroy();
+        return;
+      }
+      const tooLarge = /too large/i.test(error.message);
+      response.writeHead(tooLarge ? 413 : 400, {
+        ...commonHeaders(),
+        "Content-Type": "application/json",
+      });
+      response.end(JSON.stringify({ error: error.message }));
+    }
     return;
   }
 

@@ -87,7 +87,7 @@ The bridge is intentionally thin. The app speaks ACP JSON-RPC directly.
 {
   "ok": true,
   "service": "antigravity-bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "agent": "agy",
   "agentVersion": "1.5.1",
   "cwd": "/home/me/project",
@@ -119,6 +119,34 @@ curl -s http://127.0.0.1:7801/rpc \
 
 The bridge returns `202 Accepted` immediately. The response arrives on
 `/events`.
+
+### `POST /files`
+
+Upload one large phone attachment as a raw binary body. The bridge streams it
+into a session-scoped folder on the host and returns the absolute path:
+
+```bash
+curl -sS -X POST \
+  'http://127.0.0.1:7801/files?name=report.pdf&directory=%2Fhome%2Fme%2Fproject' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary @report.pdf
+```
+
+```json
+{
+  "path": "/home/me/project/.mobile-agent/uploads/<id>/report.pdf",
+  "size": 24738291,
+  "name": "report.pdf"
+}
+```
+
+- `name` is sanitized; path separators cannot escape the upload folder.
+- `directory` is the session working directory. It defaults to `--cwd`.
+- The default limit is 200 MiB per file. The response is `413` above that.
+- The app only uses this endpoint for files too large to inline in an ACP
+  prompt. If the bridge is older and returns `404`, the app falls back to
+  embedding the file when it fits, or reports that it was not attached.
 
 ## Protocol notes
 
@@ -177,6 +205,13 @@ The app passes its selected MCP servers to Antigravity in every
   on or off reconnects the active Antigravity session so the tool list changes
   immediately. The bridge host must be able to reach the phone's advertised
   address (same LAN or a tunnel such as Tailscale).
+- The Device Sharing drawer controls what that MCP server exposes:
+  - **Folder** adds `phoneFolder*` read/write tools for the selected Android
+    document tree.
+  - **Workspace** adds the app workspace file, media, and document tools.
+  - **Skills** adds `listSkills`, `skill`, and `skillReadFile` for enabled app
+    skills.
+  Antigravity sees these as normal MCP tools, just like OpenCode does.
 
 ## Security notes
 

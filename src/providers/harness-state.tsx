@@ -1670,9 +1670,9 @@ function useHarnessController() {
     mutating: activeController?.mutating ?? false,
     awaitingPrompt: activeController?.awaitingPrompt ?? false,
     loading: activeController?.loading ?? false,
-    connectPhoneTools: opencode.connectPhoneTools,
-    phoneToolsError: opencode.phoneToolsError,
-    phoneToolsEnabled: opencode.phoneToolsEnabled,
+    connectPhoneTools: (activeController ?? opencode).connectPhoneTools,
+    phoneToolsError: (activeController ?? opencode).phoneToolsError,
+    phoneToolsEnabled: (activeController ?? opencode).phoneToolsEnabled,
     harnesses,
     connect: async () => {
       await Promise.allSettled([opencode.connect(), antigravity.connect()]);

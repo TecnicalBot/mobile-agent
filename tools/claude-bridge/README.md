@@ -46,7 +46,7 @@ To keep separate accounts, give each one its own config directory:
 ```bash
 mkdir -p ~/.claude_personal
 CLAUDE_CONFIG_DIR=~/.claude_personal claude auth login
-CLAUDE_CONFIG_DIR=~/.claude_personal node tools/claude-bridge/bridge.mjs --port 7802 --token change-me
+CLAUDE_CONFIG_DIR=~/.claude_personal node tools/claude-bridge/bridge.mjs --port 7802
 ```
 
 ### Sign in with an Anthropic API key
@@ -54,7 +54,7 @@ CLAUDE_CONFIG_DIR=~/.claude_personal node tools/claude-bridge/bridge.mjs --port 
 Set `ANTHROPIC_API_KEY` when starting the bridge:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... node tools/claude-bridge/bridge.mjs --port 7802 --token change-me
+ANTHROPIC_API_KEY=sk-ant-... node tools/claude-bridge/bridge.mjs --port 7802
 ```
 
 This uses Anthropic Console/API billing instead of a subscription. It is the
@@ -62,6 +62,29 @@ right default for a shared or distributed deployment. Anthropic's Agent SDK
 terms say third-party products must not offer claude.ai login or subscription
 rate limits without prior approval, so distributed use should use API-key or
 Console authentication.
+
+## Run both harnesses
+
+If Antigravity and Claude are both installed on the same computer, start every
+bridge with one command:
+
+```bash
+node tools/start-bridges.mjs --lan
+# or from the repo root:
+npm run bridges -- --lan
+```
+
+This starts:
+
+- Antigravity on `http://<LAN-IP>:7801`
+- Claude on `http://<LAN-IP>:7802`
+
+Both share the same stable token file, so you only paste one token into the app.
+Each harness still runs in its own process, so restarting or crashing one does
+not stop the other.
+
+Use `--only claude` (or `--only antigravity`) to start one, and
+`--antigravity-port` / `--claude-port` to change ports.
 
 ## Run
 
@@ -74,20 +97,25 @@ The default is `http://127.0.0.1:7802`, which only accepts local connections.
 To connect from a phone on the same Wi-Fi:
 
 ```bash
-node tools/claude-bridge/bridge.mjs --host 0.0.0.0 --port 7802 --token change-me
+node tools/claude-bridge/bridge.mjs --host 0.0.0.0 --port 7802
 ```
+
+On the first run the bridge creates a stable token at
+`~/.config/mobile-agent/bridge-token` (or `%APPDATA%\mobile-agent\bridge-token`
+on Windows), prints it once, and reuses it on every restart. The Antigravity and
+Claude bridges share the same file, so you only need one token for both.
 
 Then enter this in **Settings → Harnesses → Claude**:
 
 - **Bridge URL:** `http://<computer-LAN-IP>:7802`
-- **Token:** `change-me`
+- **Token:** the token printed on the bridge's first run. You can also read it
+  from the token file.
 - **Working directory:** optional. Leave blank to use the bridge's default
   directory, or enter an absolute path on the bridge host.
 
-The token is required when binding to a non-loopback address. Use a long random
-value, and only run the bridge on a trusted network. For internet access, put it
-behind HTTPS (Caddy, Tailscale, Cloudflare Tunnel, WireGuard, etc.) rather than
-exposing plain HTTP.
+A token is required when binding to a non-loopback address. Only run the bridge
+on a trusted network. For internet access, put it behind HTTPS (Caddy,
+Tailscale, Cloudflare Tunnel, WireGuard, etc.) rather than exposing plain HTTP.
 
 ### Useful flags
 
@@ -95,7 +123,6 @@ exposing plain HTTP.
 node tools/claude-bridge/bridge.mjs \
   --host 0.0.0.0 \
   --port 7802 \
-  --token "$(openssl rand -hex 24)" \
   --cwd ~/code/my-project \
   --claude-agent-acp /usr/local/bin/claude-agent-acp
 ```
@@ -104,7 +131,8 @@ node tools/claude-bridge/bridge.mjs \
 | --- | --- |
 | `--host` | Bind address. Default `127.0.0.1`. |
 | `--port` | Bind port. Default `7802`. |
-| `--token` | Bearer token. Also `CLAUDE_BRIDGE_TOKEN`. |
+| `--token-file` | Stable token file. Created on first use. Default `~/.config/mobile-agent/bridge-token`. |
+| `--token` | Advanced: one-off token override. Not saved. Prefer `--token-file`. |
 | `--claude-agent-acp` | Path to the adapter. Alias: `--agent`. |
 | `--cwd` | Default working directory for new sessions. |
 | `--agent-arg` | Extra adapter argument. Repeatable. |
@@ -114,7 +142,6 @@ Environment variables work too:
 ```bash
 CLAUDE_BRIDGE_HOST=0.0.0.0 \
 CLAUDE_BRIDGE_PORT=7802 \
-CLAUDE_BRIDGE_TOKEN=change-me \
 node tools/claude-bridge/bridge.mjs
 ```
 
@@ -133,7 +160,7 @@ harnesses share the implementation in [`tools/acp-bridge/bridge.mjs`](../acp-bri
 {
   "ok": true,
   "service": "claude-bridge",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "agent": "claude-agent-acp",
   "agentVersion": "0.101.0",
   "cwd": "/home/me/project",
@@ -243,6 +270,9 @@ The app passes its selected MCP servers in `session/new` and `session/resume`:
   the bridge token like a shell password.
 - Bind to `127.0.0.1` and use an SSH/Tailscale tunnel if you do not need LAN
   access.
+- The stable token is stored in `~/.config/mobile-agent/bridge-token` with
+  owner-only permissions. The bridge never prints it again after the first run;
+  read the file if you need to copy it.
 - When no token is configured, the bridge does not send permissive CORS
   headers, so a random web page cannot drive a loopback-only bridge. Set a
   token if you need a browser client.

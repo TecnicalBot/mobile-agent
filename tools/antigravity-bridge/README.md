@@ -21,6 +21,29 @@ agy acp --login
 # or launch `agy` interactively and sign in with Google
 ```
 
+## Run both harnesses
+
+If Antigravity and Claude are both installed on the same computer, start every
+bridge with one command:
+
+```bash
+node tools/start-bridges.mjs --lan
+# or from the repo root:
+npm run bridges -- --lan
+```
+
+This starts:
+
+- Antigravity on `http://<LAN-IP>:7801`
+- Claude on `http://<LAN-IP>:7802`
+
+Both share the same stable token file, so you only paste one token into the app.
+Each harness still runs in its own process, so restarting or crashing one does
+not stop the other.
+
+Use `--only claude` (or `--only antigravity`) to start one, and
+`--antigravity-port` / `--claude-port` to change ports.
+
 ## Run
 
 ```bash
@@ -32,20 +55,25 @@ The default is `http://127.0.0.1:7801`, which only accepts local connections.
 To connect from a phone on the same Wi-Fi:
 
 ```bash
-node bridge.mjs --host 0.0.0.0 --port 7801 --token change-me
+node bridge.mjs --host 0.0.0.0 --port 7801
 ```
+
+On the first run the bridge creates a stable token at
+`~/.config/mobile-agent/bridge-token` (or `%APPDATA%\mobile-agent\bridge-token`
+on Windows), prints it once, and reuses it on every restart. The Antigravity and
+Claude bridges share the same file, so you only need one token for both.
 
 Then enter this in **Settings → Harnesses → Antigravity**:
 
 - **Bridge URL:** `http://<computer-LAN-IP>:7801`
-- **Token:** `change-me`
+- **Token:** the token printed on the bridge's first run. You can also read it
+  from the token file.
 - **Working directory:** optional. Leave blank to use the bridge's default
   directory, or enter an absolute path on the bridge host.
 
-The token is required when binding to a non-loopback address. Use a long random
-value, and only run the bridge on a trusted network. For internet access, put it
-behind HTTPS (Caddy, Tailscale, Cloudflare Tunnel, WireGuard, etc.) rather than
-exposing plain HTTP.
+A token is required when binding to a non-loopback address. Only run the bridge
+on a trusted network. For internet access, put it behind HTTPS (Caddy,
+Tailscale, Cloudflare Tunnel, WireGuard, etc.) rather than exposing plain HTTP.
 
 ### Useful flags
 
@@ -53,7 +81,6 @@ exposing plain HTTP.
 node bridge.mjs \
   --host 0.0.0.0 \
   --port 7801 \
-  --token "$(openssl rand -hex 24)" \
   --cwd ~/code/my-project \
   --agy /usr/local/bin/agy
 ```
@@ -62,7 +89,8 @@ node bridge.mjs \
 | --- | --- |
 | `--host` | Bind address. Default `127.0.0.1`. |
 | `--port` | Bind port. Default `7801`. |
-| `--token` | Bearer token. Also `ANTIGRAVITY_BRIDGE_TOKEN`. |
+| `--token-file` | Stable token file. Created on first use. Default `~/.config/mobile-agent/bridge-token`. |
+| `--token` | Advanced: one-off token override. Not saved. Prefer `--token-file`. |
 | `--agy` | Path to the Antigravity CLI. |
 | `--cwd` | Default working directory for new sessions. |
 | `--add-dir` | Additional workspace root. Repeatable. |
@@ -74,7 +102,6 @@ Environment variables work too:
 ```bash
 ANTIGRAVITY_BRIDGE_HOST=0.0.0.0 \
 ANTIGRAVITY_BRIDGE_PORT=7801 \
-ANTIGRAVITY_BRIDGE_TOKEN=change-me \
 node bridge.mjs
 ```
 
@@ -88,7 +115,7 @@ The bridge is intentionally thin. The app speaks ACP JSON-RPC directly.
 {
   "ok": true,
   "service": "antigravity-bridge",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "agent": "agy",
   "agentVersion": "1.5.1",
   "cwd": "/home/me/project",
@@ -220,6 +247,9 @@ The app passes its selected MCP servers to Antigravity in every
   bridge token like a shell password.
 - Bind to `127.0.0.1` and use an SSH/Tailscale tunnel if you do not need LAN
   access.
+- The stable token is stored in `~/.config/mobile-agent/bridge-token` with
+  owner-only permissions. The bridge never prints it again after the first run;
+  read the file if you need to copy it.
 - When no token is configured, the bridge does not send permissive CORS
   headers, so a random web page cannot drive a loopback-only bridge. Set a
   token if you need a browser client.

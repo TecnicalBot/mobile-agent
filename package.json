@@ -129,6 +129,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "expo lint",
+    "bridges": "node tools/start-bridges.mjs",
     "postinstall": "node ./scripts/patch-ai-sdk-react-native.js"
   },
   "private": true,

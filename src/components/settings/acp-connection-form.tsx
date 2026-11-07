@@ -15,6 +15,7 @@ import {
 } from "@/modules/harnesses/acp-profile";
 import {
   loadAcpConnection,
+  loadSharedAcpToken,
   saveAcpConnection,
   type SavedAcpConnection,
 } from "@/modules/harnesses/acp-storage";
@@ -49,9 +50,12 @@ export function AcpConnectionForm({
   useEffect(() => {
     mounted.current = true;
     setConnection(initialConnection(profile));
-    loadAcpConnection(profile)
-      .then((value) => {
-        if (mounted.current && value) setConnection(value);
+    Promise.all([loadAcpConnection(profile), loadSharedAcpToken()])
+      .then(([value, shared]) => {
+        if (!mounted.current) return;
+        if (value) setConnection(value);
+        else if (shared)
+          setConnection((current) => ({ ...current, token: shared }));
       })
       .catch(() => {
         if (mounted.current) setError("Could not load the saved connection.");
@@ -108,7 +112,7 @@ export function AcpConnectionForm({
         );
       else if (/401|unauthor/i.test(detail))
         setError(
-          "The bridge rejected this token. Use the same token you passed to bridge.mjs.",
+          "The bridge rejected this token. Paste the token printed on the bridge's first run, or read it from ~/.config/mobile-agent/bridge-token.",
         );
       else if (ACP_AUTH_ERROR_PATTERN.test(detail))
         setError(profile.signInHint);
@@ -152,12 +156,17 @@ export function AcpConnectionForm({
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
-          placeholder="The token passed to bridge.mjs"
+          placeholder="The token printed by the bridge on first run"
           onChangeText={(token) => {
             setConnection((current) => ({ ...current, token }));
             setError(null);
           }}
         />
+        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          One stable token is shared by every harness bridge. On the bridge host
+          it lives in ~/.config/mobile-agent/bridge-token (or
+          %APPDATA%\mobile-agent\bridge-token on Windows). Paste it here once.
+        </Text>
         <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
           Working directory
         </Text>
@@ -184,7 +193,16 @@ export function AcpConnectionForm({
             className="font-sans text-xs text-foreground dark:text-foreground-dark"
           >
             node tools/{profile.bridgeDirectory}/bridge.mjs --host 0.0.0.0
-            --port {profile.defaultPort} --token YOUR_TOKEN
+            --port {profile.defaultPort}
+          </Text>
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            The bridge creates one stable token on first run and reuses it after
+            every restart. Both harnesses share the same token file, so you only
+            need to paste the token once.
+          </Text>
+          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+            Starting both harnesses? Run <Text className="font-mono">node
+            tools/start-bridges.mjs --lan</Text> once instead.
           </Text>
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
             Use the computer&apos;s LAN address here. For internet access, put

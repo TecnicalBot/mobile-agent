@@ -22,19 +22,105 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  chmodSync,
+  createWriteStream,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-export const BRIDGE_VERSION = "1.2.0";
+export const BRIDGE_VERSION = "1.3.0";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+/**
+ * One token file is shared by every harness bridge. Restarting a bridge (or
+ * switching between Antigravity and Claude) reuses the same token instead of
+ * forcing the app to reconnect.
+ */
+export function defaultTokenFile() {
+  if (process.env.MOBILE_AGENT_BRIDGE_TOKEN_FILE)
+    return process.env.MOBILE_AGENT_BRIDGE_TOKEN_FILE;
+  const root =
+    process.platform === "win32"
+      ? process.env.APPDATA || homedir()
+      : process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(root, "mobile-agent", "bridge-token");
+}
+
+function readTokenFile(path) {
+  try {
+    return readFileSync(path, "utf8").trim() || null;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw new Error(
+      `Could not read the bridge token file at ${path}: ${error.message}`,
+    );
+  }
+}
+
+function createTokenFile(path) {
+  const token = randomBytes(32).toString("hex");
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(path, `${token}\n`, { flag: "wx", mode: 0o600 });
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      // Windows does not use POSIX permissions.
+    }
+    return { token, created: true };
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      const existing = readTokenFile(path);
+      if (existing) return { token: existing, created: false };
+      // A previous run left an empty token file. Fill it instead of failing.
+      writeFileSync(path, `${token}\n`, { mode: 0o600 });
+      try {
+        chmodSync(path, 0o600);
+      } catch {
+        // Windows does not use POSIX permissions.
+      }
+      return { token, created: true };
+    }
+    throw new Error(
+      `Could not create the bridge token file at ${path}: ${error.message}`,
+    );
+  }
+}
+
+/**
+ * Resolve the token without surprising existing loopback users:
+ * - `--token` always wins and is never persisted.
+ * - an explicit `--token-file` is read or created.
+ * - the shared default file is reused when it exists.
+ * - outside loopback, the shared file is created automatically.
+ */
+export function resolveBridgeToken({ host, token, tokenFile }) {
+  if (token.trim()) return { token, source: "flag", created: false };
+
+  const path = (tokenFile || defaultTokenFile()).replace(
+    /^~(?=$|\/|\\)/,
+    homedir(),
+  );
+  const existing = readTokenFile(path);
+  if (existing) return { token: existing, source: path, created: false };
+
+  if (!tokenFile && LOOPBACK_HOSTS.has(host))
+    return { token: "", source: null, created: false };
+
+  const created = createTokenFile(path);
+  return { token: created.token, source: path, created: created.created };
+}
 
 /**
  * @typedef {object} BridgeProfile
@@ -105,8 +191,9 @@ Usage:
 Options:
   --host <address>       Bind address (default: 127.0.0.1)
   --port <number>        Bind port (default: ${profile.defaultPort})
-  --token <secret>       Bearer token. Also ${profile.envPrefix}_TOKEN.
-                         Required when binding outside loopback.
+  --token-file <path>    Stable bridge token. Read on restart, created on
+                         first use. Default: ${defaultTokenFile()}
+                         Also ${profile.envPrefix}_TOKEN_FILE.
   ${profile.commandFlag} <path>
                          ${profile.label} agent binary (default: ${profile.defaultCommand})
   --agent <path>         Alias for ${profile.commandFlag}.
@@ -117,12 +204,23 @@ ${addDirLine}
 ${skipLine}
   --help                 Show this help.
 
+Advanced:
+  --token <secret>       One-off token override. Not saved. Prefer --token-file.
+                         Also ${profile.envPrefix}_TOKEN.
+
 Setup:
   ${profile.signInHint}
 
+Token:
+  You only need one token for every harness bridge. Omit --token and
+  --token-file to use the shared default above. The first bridge creates
+  the file and prints the token; every restart and every other harness
+  reuses it automatically. Copy that token into the app once.
+
 Examples:
   node bridge.mjs
-  node bridge.mjs --host 0.0.0.0 --port ${profile.defaultPort} --token change-me
+  node bridge.mjs --host 0.0.0.0 --port ${profile.defaultPort}
+  node bridge.mjs --host 0.0.0.0 --port ${profile.defaultPort} --token-file ~/.config/mobile-agent/bridge-token
   node bridge.mjs ${profile.commandFlag} /usr/local/bin/${commandName} --cwd ~/code/project
 `;
 }
@@ -133,12 +231,15 @@ function parseArgs(profile, argv) {
     host: env("HOST") || "127.0.0.1",
     port: Number(env("PORT") || profile.defaultPort),
     token: env("TOKEN") || "",
+    tokenFile: env("TOKEN_FILE") || "",
     agent:
       process.env[profile.commandEnv] || env("AGENT") || profile.defaultCommand,
     cwd: env("CWD") || process.cwd(),
     addDirs: [],
     agentArgs: [],
     skipPermissions: false,
+    tokenSource: null,
+    tokenCreated: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -159,6 +260,9 @@ function parseArgs(profile, argv) {
         break;
       case "--token":
         options.token = next();
+        break;
+      case "--token-file":
+        options.tokenFile = next();
         break;
       case "--agent":
         options.agent = next();
@@ -199,9 +303,15 @@ function parseArgs(profile, argv) {
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
     throw new Error("--port must be an integer between 1 and 65535.");
   }
+
+  const resolvedToken = resolveBridgeToken(options);
+  options.token = resolvedToken.token;
+  options.tokenSource = resolvedToken.source;
+  options.tokenCreated = resolvedToken.created;
+
   if (!LOOPBACK_HOSTS.has(options.host) && !options.token.trim()) {
     throw new Error(
-      `Refusing to listen on a non-loopback address without --token (or ${profile.envPrefix}_TOKEN).`,
+      `Refusing to listen on a non-loopback address without a token (use --token, --token-file, or ${profile.envPrefix}_TOKEN).`,
     );
   }
 
@@ -568,7 +678,25 @@ export function runBridge(profile) {
     console.log(
       `[bridge] agent: ${options.agent}${agentVersion ? ` (${agentVersion})` : ""}`,
     );
-    if (!options.token) {
+    if (options.tokenSource === "flag") {
+      console.log(
+        "[bridge] Using --token. Omit --token to reuse the stable shared token file.",
+      );
+    } else if (options.tokenSource) {
+      if (options.tokenCreated) {
+        console.log(
+          `[bridge] Created a stable shared bridge token at ${options.tokenSource}`,
+        );
+        console.log(`[bridge] Token: ${options.token}`);
+        console.log(
+          "[bridge] Copy this token into every harness. The other bridge will reuse it automatically.",
+        );
+      } else {
+        console.log(
+          `[bridge] Using the stable shared bridge token from ${options.tokenSource}`,
+        );
+      }
+    } else if (!options.token) {
       console.log("[bridge] No token configured; loopback clients only.");
     }
   });

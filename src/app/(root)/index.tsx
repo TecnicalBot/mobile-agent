@@ -3432,9 +3432,7 @@ const ChatInput = memo(function ChatInput({
                   })
                   .catch(console.error);
               }}
-              selected={
-                toolApprovalMode === "ask" && deviceSharingApprovalMode !== "auto"
-              }
+              selected={toolApprovalMode === "ask"}
               subtitle="Ask before every tool action"
               title="Always ask"
             />
@@ -3446,9 +3444,7 @@ const ChatInput = memo(function ChatInput({
                   })
                   .catch(console.error);
               }}
-              selected={
-                toolApprovalMode === "auto" && deviceSharingApprovalMode !== "ask"
-              }
+              selected={toolApprovalMode === "auto"}
               subtitle="Run chat and shared device tools without asking"
               title="Always allow"
             />

@@ -8,6 +8,7 @@ Mobile Agent is an open-source AI agent built specifically for mobile devices th
 
 ## Features
 
+- Connects with Antigravity, Claude, Opencode.
 - Generate/Edit videos without any video generate model.
 - On-device models that can run completely offline
 - Runs completely on-device

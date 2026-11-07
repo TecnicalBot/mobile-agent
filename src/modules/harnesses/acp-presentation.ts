@@ -9,6 +9,7 @@ import type {
 import type { ToolPreviewContentPart } from "@/modules/tools/tool-preview";
 import { presentHarnessToolExecution } from "@/modules/harnesses/tool-execution";
 import type {
+  AcpAvailableCommand,
   AcpContentBlock,
   AcpModel,
   AcpNewSessionResult,
@@ -35,6 +36,7 @@ export type AcpSessionState = {
   models: AcpModel[];
   modes: AcpSessionModeState | null;
   configOptions: AcpSessionConfigOption[];
+  commands: AcpAvailableCommand[];
   running: boolean;
   currentAssistantId: string | null;
   currentAssistantMessageID: string | null;
@@ -317,12 +319,54 @@ function updateToolExecution(
   return phase === "update" ? next : { ...next, running: true };
 }
 
+/**
+ * Sanitize an `available_commands_update` payload. The adapter already filters
+ * some names, but another ACP agent may send duplicates, whitespace, or junk.
+ */
+export function normalizeAcpAvailableCommands(
+  value: unknown,
+): AcpAvailableCommand[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const commands: AcpAvailableCommand[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const name =
+      typeof record.name === "string" ? record.name.trim() : "";
+    if (!name || /\s/.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    const description =
+      typeof record.description === "string" ? record.description : null;
+    const input =
+      record.input && typeof record.input === "object"
+        ? (record.input as Record<string, unknown>)
+        : null;
+    const hint =
+      typeof input?.hint === "string" && input.hint.trim()
+        ? input.hint.trim()
+        : null;
+    const meta =
+      record._meta && typeof record._meta === "object"
+        ? (record._meta as Record<string, unknown>)
+        : null;
+    commands.push({
+      name,
+      description,
+      input: hint ? { hint } : null,
+      _meta: meta,
+    });
+  }
+  return commands;
+}
+
 export function createAcpSessionState(
   profile: AcpHarnessProfile,
   input: {
   result: AcpNewSessionResult;
   cwd: string;
   messages?: StoredMessage[];
+  commands?: AcpAvailableCommand[];
   createdAt?: string;
 }): AcpSessionState {
   const createdAt = input.createdAt ?? nowISO();
@@ -348,6 +392,7 @@ export function createAcpSessionState(
     models: input.result.models?.availableModels ?? [],
     modes: input.result.modes ?? null,
     configOptions: input.result.configOptions ?? [],
+    commands: input.commands ?? [],
     running: false,
     currentAssistantId: null,
     currentAssistantMessageID: null,
@@ -561,6 +606,18 @@ export function applyAcpUpdate(
       return options
         ? { ...state, configOptions: options, updatedAt: at }
         : state;
+    }
+    case "available_commands_update": {
+      const commands = normalizeAcpAvailableCommands(
+        update.availableCommands,
+      );
+      if (JSON.stringify(state.commands) === JSON.stringify(commands)) {
+        return state;
+      }
+      return {
+        ...state,
+        commands,
+      };
     }
     case "usage_update": {
       return state;

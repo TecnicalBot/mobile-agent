@@ -1660,6 +1660,16 @@ function useHarnessController() {
         : activeHarnessID === "claude"
           ? claude.authRequired
           : false,
+    authStatus:
+      activeHarnessID === "antigravity"
+        ? antigravity.authStatus
+        : activeHarnessID === "claude"
+          ? claude.authStatus
+          : null,
+    commands:
+      activeController && "commands" in activeController
+        ? activeController.commands
+        : [],
     models: [...opencode.models, ...antigravity.models, ...claude.models],
     availableModels: [
       ...opencode.availableModels,

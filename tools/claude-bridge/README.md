@@ -197,6 +197,10 @@ curl -sS -X POST \
   preview; this bridge does not force `CLAUDE_AGENT_ACP_EXPERIMENTAL_V2`.
 - The adapter exposes models, permission modes, reasoning effort, MCP servers,
   permissions, session resume/close, and auth status over ACP.
+- Claude Code slash commands and `.claude/skills` are pushed as
+  `available_commands_update`; the app lists them in the composer's `/` menu.
+- `_auth/status_update` is shown in Claude settings so you can confirm whether
+  the bridge is using a subscription, an API key, or another backend.
 - Claude permission modes include `default`, `acceptEdits`, `plan`, `auto`, and
   `bypassPermissions`. The app maps `plan` to its Plan toggle and leaves the
   rest to the adapter.

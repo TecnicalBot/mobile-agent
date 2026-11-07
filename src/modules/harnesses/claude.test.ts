@@ -12,6 +12,12 @@ import {
   claudeModelRef,
   presentClaudeModel,
 } from "./claude-presentation";
+import {
+  applyAcpUpdate,
+  createAcpSessionState,
+  normalizeAcpAvailableCommands,
+} from "./acp-presentation";
+import { summarizeAcpAuthStatus } from "./acp-auth-status";
 
 vi.mock("expo-constants", () => ({
   default: { expoConfig: { version: "test" } },
@@ -79,5 +85,82 @@ describe("Claude bridge URLs", () => {
         allowInsecureLan: true,
       }),
     ).toBe("http://192.168.1.20:7802");
+  });
+});
+
+describe("ACP host commands and auth status", () => {
+  it("replaces the session command list with the adapter payload", () => {
+    const state = createAcpSessionState(CLAUDE_PROFILE, {
+      result: { sessionId: "session-1" },
+      cwd: "/tmp/project",
+    });
+    const next = applyAcpUpdate(CLAUDE_PROFILE, state, {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        {
+          name: "review",
+          description: "Review the current changes",
+          input: { hint: "[path]" },
+        },
+        { name: "review", description: "Duplicate" },
+        { name: "bad name" },
+        { name: "skill:deploy", _meta: { kind: "skill" } },
+        null,
+      ],
+    });
+
+    expect(next.commands.map((command) => command.name)).toEqual([
+      "review",
+      "skill:deploy",
+    ]);
+    expect(next.commands[0]).toMatchObject({
+      description: "Review the current changes",
+      input: { hint: "[path]" },
+    });
+    expect(next.commands[1]).toMatchObject({
+      description: null,
+      input: null,
+      _meta: { kind: "skill" },
+    });
+  });
+
+  it("drops malformed command payloads instead of crashing", () => {
+    expect(normalizeAcpAvailableCommands(null)).toEqual([]);
+    expect(normalizeAcpAvailableCommands({ name: "review" })).toEqual([]);
+  });
+
+  it("summarizes subscription and API-key identities", () => {
+    expect(
+      summarizeAcpAuthStatus({
+        kind: "account",
+        label: "Claude Max",
+        account: { plan: "max", email: "person@example.com" },
+      }),
+    ).toMatchObject({
+      label: "Plan",
+      value: "Claude Max",
+      detailLabel: "Signed in as",
+      detail: "person@example.com",
+      signedIn: true,
+    });
+
+    expect(
+      summarizeAcpAuthStatus({
+        kind: "api_key",
+        label: "Anthropic API key",
+        detail: "ANTHROPIC_API_KEY",
+      }),
+    ).toMatchObject({
+      label: "Authentication",
+      value: "Anthropic API key",
+      detailLabel: "Source",
+      detail: "ANTHROPIC_API_KEY",
+      signedIn: true,
+    });
+
+    expect(
+      summarizeAcpAuthStatus({ kind: "none", label: "Not logged in" }),
+    ).toMatchObject({ signedIn: false });
+    expect(summarizeAcpAuthStatus(null)).toBeNull();
   });
 });

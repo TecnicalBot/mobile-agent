@@ -34,6 +34,31 @@ export type AcpAuthMethod = {
   description?: string | null;
 };
 
+/**
+ * Connection-scoped authentication identity pushed by agents such as
+ * `claude-agent-acp` through `_auth/status_update`. This is informational: the
+ * app never receives or stores the underlying credential.
+ */
+export type AcpAuthStatus = {
+  kind: "account" | "api_key" | "external" | "gateway" | "none" | string;
+  label: string;
+  detail?: string | null;
+  account?: {
+    plan?: string | null;
+    email?: string | null;
+    organization?: string | null;
+  } | null;
+  vendor?: unknown;
+};
+
+/** One slash command or skill advertised by the active ACP session. */
+export type AcpAvailableCommand = {
+  name: string;
+  description?: string | null;
+  input?: { hint?: string | null } | null;
+  _meta?: Record<string, unknown> | null;
+};
+
 export type AcpMcpHeader = {
   name: string;
   value: string;

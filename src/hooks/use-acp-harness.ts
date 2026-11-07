@@ -31,6 +31,7 @@ import {
   createAcpSessionState,
   detachAcpTurn,
   finishAcpTurn,
+  normalizeAcpAvailableCommands,
   presentAcpAgent,
   presentAcpConversation,
   presentAcpModel,
@@ -45,6 +46,8 @@ import {
 } from "@/modules/harnesses/acp-profile";
 import {
   makeAcpClient,
+  type AcpAuthStatus,
+  type AcpAvailableCommand,
   type AcpContentBlock,
   type AcpInitializeResult,
   type AcpMessage,
@@ -232,6 +235,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [authStatus, setAuthStatus] = useState<AcpAuthStatus | null>(null);
   const [catalogModels, setCatalogModels] = useState<AcpModel[]>([]);
   const catalogModelsRef = useRef<AcpModel[]>([]);
   const [catalogModes, setCatalogModes] = useState<AcpSessionModeState | null>(
@@ -242,6 +246,12 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     AcpSessionConfigOption[]
   >([]);
   const catalogConfigsRef = useRef<AcpSessionConfigOption[]>([]);
+  const commandsBySessionRef = useRef<Record<string, AcpAvailableCommand[]>>(
+    {},
+  );
+  const [catalogCommands, setCatalogCommands] = useState<
+    AcpAvailableCommand[]
+  >([]);
   const [cwd, setCwd] = useState("");
   const cwdRef = useRef("");
   const [mutating, setMutating] = useState(false);
@@ -283,6 +293,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
   const removeSession = useCallback((id: string) => {
     const next = { ...sessionsRef.current };
     delete next[id];
+    delete commandsBySessionRef.current[id];
     sessionsRef.current = next;
     setSessionsByID(next);
   }, []);
@@ -416,6 +427,9 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
           ...resumed,
           sessionId: catalogSessionID.current,
         };
+        setCatalogCommands(
+          commandsBySessionRef.current[result.sessionId] ?? [],
+        );
         await close(result.sessionId);
         return result;
       } catch {
@@ -430,11 +444,28 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     );
     catalogSessionID.current = result.sessionId;
     catalogCwd.current = sessionCwd;
+    setCatalogCommands(commandsBySessionRef.current[result.sessionId] ?? []);
     await close(result.sessionId);
     return result;
   };
 
   const handleMessage = (message: AcpMessage) => {
+    if (message.method === "_auth/status_update") {
+      const params =
+        message.params && typeof message.params === "object"
+          ? (message.params as { authStatus?: unknown })
+          : null;
+      const value = params?.authStatus;
+      if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as Record<string, unknown>).label === "string"
+      ) {
+        setAuthStatus(value as AcpAuthStatus);
+      }
+      return;
+    }
+
     if (message.method === "session/request_permission") {
       if (message.id === undefined) return;
       const params = message.params as
@@ -472,6 +503,15 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     ) {
       const params = message.params as AcpSessionNotification;
       const current = sessionsRef.current[params.sessionId];
+      if (params.update?.sessionUpdate === "available_commands_update") {
+        const commands = normalizeAcpAvailableCommands(
+          params.update.availableCommands,
+        );
+        commandsBySessionRef.current[params.sessionId] = commands;
+        if (params.sessionId === catalogSessionID.current) {
+          setCatalogCommands(commands);
+        }
+      }
       if (!current || !params.update) return;
       const next = applyAcpUpdate(profile, current, params.update);
       if (next !== current) commitSession(next);
@@ -498,6 +538,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     setStatus("connecting");
     setError(null);
     setAuthRequired(false);
+    setAuthStatus(null);
     setPhoneToolsError(null);
     pendingMcpRefresh.current = false;
     catalogModelsRef.current = [];
@@ -506,6 +547,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     setCatalogModels([]);
     setCatalogModes(null);
     setCatalogConfigs([]);
+    setCatalogCommands([]);
     try {
       const saved = await loadAcpConnection(profile);
       if (epoch !== generation.current) return;
@@ -530,6 +572,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
           if (epoch !== generation.current) return;
           if (event.type === "exit" || event.type === "error") {
             setStatus("disconnected");
+            setAuthStatus(null);
             setError(
               typeof event.message === "string"
                 ? event.message
@@ -619,6 +662,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     setCatalogModels([]);
     setCatalogConfigs([]);
     setCatalogModes(null);
+    setCatalogCommands([]);
     sessionsRef.current = {};
     setSessionsByID({});
     setStatus("disconnected");
@@ -629,6 +673,8 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     setSelectedFileIdsState([]);
     setError(null);
     setAuthRequired(false);
+    setAuthStatus(null);
+    commandsBySessionRef.current = {};
     setWaitingPrompts(0);
     setCwd("");
     setPhoneToolsEnabled(false);
@@ -1094,6 +1140,7 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
       result,
       cwd: sessionCwd,
       messages: localMessages,
+      commands: commandsBySessionRef.current[result.sessionId] ?? [],
     });
     state = { ...state, title: conversation.title || `${profile.label} chat` };
     try {
@@ -1358,7 +1405,11 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
         selectedMcpServerIdsRef.current,
       );
       state = {
-        ...createAcpSessionState(profile, { result, cwd: sessionCwd }),
+        ...createAcpSessionState(profile, {
+          result,
+          cwd: sessionCwd,
+          commands: commandsBySessionRef.current[result.sessionId] ?? [],
+        }),
         title,
       };
       id = state.id;
@@ -1862,6 +1913,15 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
       : null;
 
   const messages = currentSession?.messages ?? [];
+  const cachedCommands = sessionID
+    ? commandsBySessionRef.current[sessionID]
+    : undefined;
+  const commands =
+    currentSession?.commands.length
+      ? currentSession.commands
+      : cachedCommands?.length
+        ? cachedCommands
+        : catalogCommands;
   const snapshot = currentSession
     ? {
         session: currentConversation,
@@ -1908,6 +1968,8 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     status,
     error,
     authRequired,
+    authStatus,
+    commands,
     models: allModels,
     availableModels:
       status === "connected"

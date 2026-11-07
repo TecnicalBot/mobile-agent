@@ -29,6 +29,7 @@ import {
   SUPPORTED_HARNESSES,
   type HarnessID,
 } from "@/modules/harnesses/catalog";
+import { summarizeAcpAuthStatus } from "@/modules/harnesses/acp-auth-status";
 import { useHarness } from "@/providers/harness-state";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
 
@@ -52,6 +53,10 @@ export default function SettingsHarnessesScreen() {
   const authRequiredFor = (id: HarnessID) =>
     id === "opencode" ? false : harness.harnesses[id].authRequired;
   const authRequired = authRequiredFor(selectedID);
+  const authStatusFor = (id: HarnessID) =>
+    id === "opencode" ? null : harness.harnesses[id].authStatus;
+  const authStatus = authStatusFor(selectedID);
+  const authSummary = summarizeAcpAuthStatus(authStatus);
   const query = modelQuery.trim().toLowerCase();
   const displayModels = controller.availableModels.filter(
     (model) =>
@@ -161,6 +166,24 @@ export default function SettingsHarnessesScreen() {
                       />
                     </>
                   ) : null}
+                  {controller.connected && authSummary ? (
+                    <>
+                      <Separator />
+                      <StatusRow
+                        label={authSummary.label}
+                        value={authSummary.value}
+                      />
+                      {authSummary.detail && authSummary.detailLabel ? (
+                        <>
+                          <Separator />
+                          <StatusRow
+                            label={authSummary.detailLabel}
+                            value={authSummary.detail}
+                          />
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
                   {authRequired ? (
                     <>
                       <Separator />
@@ -251,6 +274,11 @@ export default function SettingsHarnessesScreen() {
                       </Text>
                       <ChevronRight color={theme.textSecondary} size={18} />
                     </Pressable>
+                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                      Host files, tools, and agent skills run on the bridge
+                      computer. Phone workspace, folders, and app skills are
+                      available only while device sharing is connected.
+                    </Text>
                     {controller.connected && bridge.sharing ? (
                       <Button
                         variant="outline"

@@ -147,6 +147,7 @@ import type {
   StoredMessage,
   WorkspaceFile,
 } from "@/core/types/app-state";
+import type { AcpAvailableCommand } from "@/modules/harnesses/acp-client";
 import { cn } from "@/core/utils";
 import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
@@ -772,6 +773,7 @@ export default function Screen() {
                 workspaceFiles={workspaceFiles}
                 agents={agents}
                 harnessAgents={harness.active}
+                harnessCommands={harness.commands}
                 currentSelectedAgentId={currentSelectedAgentId}
                 conversationAgentName={conversationAgentName}
                 setConversationAgent={setConversationAgent}
@@ -1398,6 +1400,7 @@ const ChatInput = memo(function ChatInput({
   workspaceFiles,
   agents,
   harnessAgents = false,
+  harnessCommands,
   currentSelectedAgentId,
   conversationAgentName,
   setConversationAgent,
@@ -1468,6 +1471,7 @@ const ChatInput = memo(function ChatInput({
   workspaceFiles: WorkspaceFile[];
   agents: AgentConfig[];
   harnessAgents?: boolean;
+  harnessCommands?: AcpAvailableCommand[];
   currentSelectedAgentId: string | null;
   conversationAgentName: string;
   setConversationAgent: (
@@ -2327,111 +2331,131 @@ const ChatInput = memo(function ChatInput({
     ],
   );
   const slashMenuItems = useMemo(
-    () => [
-      {
-        disabled: savedPrompts.length === 0,
-        id: "saved-prompts",
-        icon: <Bookmark color={theme.text} size={16} />,
-        label: "Saved prompts",
+    () => {
+      const items = [
+        {
+          disabled: savedPrompts.length === 0,
+          id: "saved-prompts",
+          icon: <Bookmark color={theme.text} size={16} />,
+          label: "Saved prompts",
+          onPress: () => {
+            setPromptValue((current) => {
+              const withoutTrigger = clearComposerTrigger(current);
+              return withoutTrigger ? `${withoutTrigger} /` : "/";
+            });
+            setSlashMenuView("saved-prompts");
+          },
+          subtitle:
+            savedPrompts.length > 0
+              ? `${savedPrompts.length} saved prompt${savedPrompts.length === 1 ? "" : "s"}`
+              : "No saved prompts",
+        },
+        {
+          id: "compact",
+          icon: <Brain color={theme.text} size={16} />,
+          label: "Compact conversation",
+          disabled: loading || !canSend || harnessAgents,
+          onPress: () => {
+            clearTriggerText();
+            onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" })
+              .catch((error: unknown) => Alert.alert("Could not compact", error instanceof Error ? error.message : String(error)));
+          },
+          subtitle: harnessAgents
+            ? "Manage compaction in OpenCode"
+            : "Summarize context now · /compact",
+        },
+        {
+          id: "tool-permissions",
+          icon: <Check color={theme.text} size={16} />,
+          label: "Tool permissions",
+          onPress: () => {
+            clearTriggerText();
+            setApprovalModeDrawerOpen(true);
+          },
+          subtitle:
+            toolApprovalMode === "ask"
+              ? "Ask before running tools"
+              : "Allow tools automatically",
+        },
+        {
+          id: "select-agent",
+          icon: <ClipboardList color={theme.text} size={16} />,
+          label: "Select agent",
+          onPress: () => {
+            clearTriggerText();
+            setAgentsDrawerOpen(true);
+          },
+          subtitle:
+            conversationAgentName === "build"
+              ? "Build agent for this chat"
+              : `${conversationAgentName} for this chat`,
+        },
+        {
+          id: "reasoning-level",
+          icon: <Brain color={theme.text} size={16} />,
+          label: "Reasoning level",
+          onPress: () => {
+            clearTriggerText();
+            setReasoningDrawerOpen(true);
+          },
+          subtitle: getReasoningEffortLabel(reasoningEffort) + " for this chat",
+        },
+        {
+          id: "select-skills",
+          icon: <Brain color={theme.text} size={16} />,
+          label: "Select skills",
+          onPress: () => {
+            clearTriggerText();
+            setSkillsDrawerOpen(true);
+          },
+          subtitle:
+            selectedSkills.length > 0
+              ? `${selectedSkills.length} selected`
+              : "Choose chat skills",
+        },
+        {
+          id: "select-mcp-servers",
+          icon: <Server color={theme.text} size={16} />,
+          label: "Select MCP servers",
+          onPress: () => {
+            clearTriggerText();
+            setMcpServersDrawerOpen(true);
+          },
+          subtitle:
+            enabledMcpServers.length > 0
+              ? `${activeMcpServerIds.size} of ${enabledMcpServers.length} servers for this chat`
+              : "No enabled MCP servers",
+        },
+        {
+          id: "select-model",
+          icon: <Check color={theme.text} size={16} />,
+          label: "Select model",
+          onPress: () => {
+            clearTriggerText();
+            setModelsDrawerOpen(true);
+          },
+          subtitle: currentModelLabel ?? "Choose the current chat model",
+        },
+      ];
+      const hostItems = (harnessCommands ?? []).map((command) => ({
+        id: `harness-command:${command.name}`,
+        icon: <Zap color={theme.text} size={16} />,
+        label: `/${command.name}`,
         onPress: () => {
           setPromptValue((current) => {
             const withoutTrigger = clearComposerTrigger(current);
-            return withoutTrigger ? `${withoutTrigger} /` : "/";
+            return `${withoutTrigger ? `${withoutTrigger} ` : ""}/${command.name} `;
           });
-          setSlashMenuView("saved-prompts");
         },
         subtitle:
-          savedPrompts.length > 0
-            ? `${savedPrompts.length} saved prompt${savedPrompts.length === 1 ? "" : "s"}`
-            : "No saved prompts",
-      },
-      {
-        id: "compact",
-        icon: <Brain color={theme.text} size={16} />,
-        label: "Compact conversation",
-        disabled: loading || !canSend || harnessAgents,
-        onPress: () => {
-          clearTriggerText();
-          onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" })
-            .catch((error: unknown) => Alert.alert("Could not compact", error instanceof Error ? error.message : String(error)));
-        },
-        subtitle: harnessAgents
-          ? "Manage compaction in OpenCode"
-          : "Summarize context now · /compact",
-      },
-      {
-        id: "tool-permissions",
-        icon: <Check color={theme.text} size={16} />,
-        label: "Tool permissions",
-        onPress: () => {
-          clearTriggerText();
-          setApprovalModeDrawerOpen(true);
-        },
-        subtitle:
-          toolApprovalMode === "ask"
-            ? "Ask before running tools"
-            : "Allow tools automatically",
-      },
-      {
-        id: "select-agent",
-        icon: <ClipboardList color={theme.text} size={16} />,
-        label: "Select agent",
-        onPress: () => {
-          clearTriggerText();
-          setAgentsDrawerOpen(true);
-        },
-        subtitle:
-          conversationAgentName === "build"
-            ? "Build agent for this chat"
-            : `${conversationAgentName} for this chat`,
-      },
-      {
-        id: "reasoning-level",
-        icon: <Brain color={theme.text} size={16} />,
-        label: "Reasoning level",
-        onPress: () => {
-          clearTriggerText();
-          setReasoningDrawerOpen(true);
-        },
-        subtitle: getReasoningEffortLabel(reasoningEffort) + " for this chat",
-      },
-      {
-        id: "select-skills",
-        icon: <Brain color={theme.text} size={16} />,
-        label: "Select skills",
-        onPress: () => {
-          clearTriggerText();
-          setSkillsDrawerOpen(true);
-        },
-        subtitle:
-          selectedSkills.length > 0
-            ? `${selectedSkills.length} selected`
-            : "Choose chat skills",
-      },
-      {
-        id: "select-mcp-servers",
-        icon: <Server color={theme.text} size={16} />,
-        label: "Select MCP servers",
-        onPress: () => {
-          clearTriggerText();
-          setMcpServersDrawerOpen(true);
-        },
-        subtitle:
-          enabledMcpServers.length > 0
-            ? `${activeMcpServerIds.size} of ${enabledMcpServers.length} servers for this chat`
-            : "No enabled MCP servers",
-      },
-      {
-        id: "select-model",
-        icon: <Check color={theme.text} size={16} />,
-        label: "Select model",
-        onPress: () => {
-          clearTriggerText();
-          setModelsDrawerOpen(true);
-        },
-        subtitle: currentModelLabel ?? "Choose the current chat model",
-      },
-    ],
+          command.description?.trim() ||
+          (command.input?.hint
+            ? `${command.name} ${command.input.hint}`
+            : "Host command"),
+      }));
+      // Saved prompts stay first; host slash commands follow before the rest.
+      return [...items.slice(0, 1), ...hostItems, ...items.slice(1)];
+    },
     [
       activeMcpServerIds.size,
       canSend,
@@ -2440,6 +2464,7 @@ const ChatInput = memo(function ChatInput({
       currentModelLabel,
       enabledMcpServers.length,
       harnessAgents,
+      harnessCommands,
       loading,
       onSend,
       reasoningEffort,

@@ -21,6 +21,25 @@ agy acp --login
 # or launch `agy` interactively and sign in with Google
 ```
 
+## Download without cloning
+
+The bridge is one dependency-free file. You do not need the repository on the
+machine that runs Antigravity:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tecnicalbot/mobile-agent/main/tools/acp-bridge/bridge.mjs \
+  -o mobile-agent-bridge.mjs
+
+# Both harnesses:
+node mobile-agent-bridge.mjs --harness all --lan
+
+# Only Antigravity:
+node mobile-agent-bridge.mjs --harness antigravity --lan
+```
+
+The downloaded file contains both harness profiles, the shared token logic, and
+the upload endpoint. Repo contributors can keep using the launchers below.
+
 ## Run both harnesses
 
 If Antigravity and Claude are both installed on the same computer, start every

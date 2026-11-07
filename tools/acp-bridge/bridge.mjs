@@ -12,11 +12,14 @@
  *   POST /files   -> stream a large attachment into the session directory
  *   GET  /health  -> bridge and agent metadata
  *
- * No npm dependencies. Each harness has a small launcher in its own directory
- * that supplies the agent command defaults. For example:
+ * No npm dependencies. Run this file directly for any harness:
  *
- *   node tools/antigravity-bridge/bridge.mjs --host 0.0.0.0 --port 7801 --token <secret>
- *   node tools/claude-bridge/bridge.mjs --host 0.0.0.0 --port 7802 --token <secret>
+ *   node bridge.mjs --harness antigravity --host 0.0.0.0 --port 7801
+ *   node bridge.mjs --harness claude --host 0.0.0.0 --port 7802
+ *   node bridge.mjs --harness all --lan
+ *
+ * The repo also has thin launchers in `antigravity-bridge/` and
+ * `claude-bridge/`. The single file is the portable download.
  *
  * The token is required whenever the bridge listens on a non-loopback address.
  */
@@ -28,6 +31,7 @@ import {
   createWriteStream,
   mkdirSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
@@ -37,6 +41,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const BRIDGE_VERSION = "1.3.0";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -349,8 +354,8 @@ function isAuthorized(request, url, token, profile) {
 }
 
 /** Start a bridge for one ACP harness. Never returns unless the process exits. */
-export function runBridge(profile) {
-  const options = parseArgs(profile, process.argv.slice(2));
+export function runBridge(profile, argv = process.argv.slice(2)) {
+  const options = parseArgs(profile, argv);
   const agentVersion = readAgentVersion(options.agent);
   const startedAt = Date.now();
   const clients = new Set();
@@ -737,3 +742,253 @@ export function runBridge(profile) {
   process.on("SIGINT", () => shutdown(0));
   process.on("SIGTERM", () => shutdown(0));
 }
+
+const BRIDGE_PROFILES = {
+  antigravity: ANTIGRAVITY_PROFILE,
+  claude: CLAUDE_PROFILE,
+};
+
+function displayBridgeHost(host) {
+  if (host === "0.0.0.0" || host === "::") return "<this-computer-LAN-IP>";
+  return host;
+}
+
+function allBridgesUsage() {
+  return `Mobile Agent ACP bridges ${BRIDGE_VERSION}
+
+Usage:
+  node bridge.mjs --harness <antigravity|claude> [options]
+  node bridge.mjs --harness all [options]
+  node bridge.mjs [options]                 (same as --harness all)
+
+Single-harness options:
+  node bridge.mjs --harness antigravity --help
+  node bridge.mjs --harness claude --help
+
+All-harness options:
+  --host <address>          Bind address for both bridges (default 127.0.0.1)
+  --lan                     Shortcut for --host 0.0.0.0
+  --antigravity-port <n>    Antigravity port (default 7801)
+  --claude-port <n>         Claude port (default 7802)
+  --token-file <path>       Shared stable token file
+                            (default ${defaultTokenFile()})
+  --cwd <path>              Default session working directory for both
+  --only <harness>          Start only "antigravity" or "claude"
+  --help                    Show this help
+
+Both harnesses keep their own process, so one agent crashing does not stop the
+other. Each restart reuses the same stable token file.
+`;
+}
+
+function parseAllBridgesArgs(argv) {
+  const options = {
+    host: "127.0.0.1",
+    ports: {
+      antigravity: ANTIGRAVITY_PROFILE.defaultPort,
+      claude: CLAUDE_PROFILE.defaultPort,
+    },
+    tokenFile: "",
+    cwd: "",
+    only: null,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    const next = () => {
+      const value = argv[index + 1];
+      if (value === undefined) throw new Error(`${arg} requires a value.`);
+      index += 1;
+      return value;
+    };
+
+    switch (arg) {
+      case "--host":
+        options.host = next();
+        break;
+      case "--lan":
+        options.host = "0.0.0.0";
+        break;
+      case "--antigravity-port":
+        options.ports.antigravity = Number(next());
+        break;
+      case "--claude-port":
+        options.ports.claude = Number(next());
+        break;
+      case "--token-file":
+        options.tokenFile = next();
+        break;
+      case "--cwd":
+        options.cwd = next();
+        break;
+      case "--only":
+        options.only = next();
+        break;
+      case "--help":
+      case "-h":
+        process.stdout.write(allBridgesUsage());
+        process.exit(0);
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (options.only && !BRIDGE_PROFILES[options.only])
+    throw new Error(`--only must be "antigravity" or "claude".`);
+  for (const [id, port] of Object.entries(options.ports)) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      throw new Error(`The ${id} port must be between 1 and 65535.`);
+  }
+  return options;
+}
+
+/** Start every harness bridge in its own child process. */
+export function runAllBridges(argv = process.argv.slice(2)) {
+  const options = parseAllBridgesArgs(argv);
+  const selected = Object.entries(BRIDGE_PROFILES).filter(
+    ([id]) => !options.only || id === options.only,
+  );
+  const tokenFile = (options.tokenFile || defaultTokenFile()).replace(
+    /^~(?=$|\/|\\)/,
+    homedir(),
+  );
+  const script = fileURLToPath(import.meta.url);
+  const children = new Map();
+  let shuttingDown = false;
+
+  function finish(id, code) {
+    if (!children.has(id)) return;
+    children.delete(id);
+    const label = BRIDGE_PROFILES[id]?.label ?? id;
+    if (shuttingDown) {
+      if (children.size === 0) process.exit(0);
+      return;
+    }
+    if (children.size > 0) {
+      console.error(
+        `[start] ${label} stopped. ${[...children.keys()]
+          .map((childID) => BRIDGE_PROFILES[childID]?.label ?? childID)
+          .join(", ")} still running.`,
+      );
+      return;
+    }
+    process.exit(code ?? 1);
+  }
+
+  for (const [id, profile] of selected) {
+    const port = options.ports[id];
+    const args = [
+      script,
+      "--harness",
+      id,
+      "--host",
+      options.host,
+      "--port",
+      String(port),
+      "--token-file",
+      tokenFile,
+    ];
+    if (options.cwd) args.push("--cwd", options.cwd);
+    console.log(
+      `[start] ${profile.label} bridge -> http://${displayBridgeHost(options.host)}:${port}`,
+    );
+    const child = spawn(process.execPath, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: "inherit",
+    });
+    children.set(id, child);
+    child.on("error", (error) => {
+      console.error(
+        `[start] Could not start the ${profile.label} bridge: ${error.message}`,
+      );
+      finish(id, 1);
+    });
+    child.on("exit", (code, signal) => {
+      if (!shuttingDown)
+        console.error(
+          `[start] ${profile.label} bridge exited (${signal ? `signal ${signal}` : `code ${code}`}).`,
+        );
+      finish(id, code);
+    });
+  }
+
+  console.log(`[start] Shared token file: ${tokenFile}`);
+  console.log(
+    "[start] Copy the token from that file into each harness once. Restarts reuse it.",
+  );
+
+  function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[start] Stopping bridges (${signal}).`);
+    if (children.size === 0) process.exit(0);
+    for (const child of children.values()) {
+      try {
+        child.kill(signal);
+      } catch {
+        // The process may have already exited.
+      }
+    }
+    const timer = setTimeout(() => {
+      for (const child of children.values()) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The process may have already exited.
+        }
+      }
+      process.exit(0);
+    }, 3000);
+    timer.unref();
+  }
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+}
+
+function directHarnessArgv(argv) {
+  let harness = null;
+  const rest = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg !== "--harness") {
+      rest.push(arg);
+      continue;
+    }
+    harness = argv[index + 1];
+    if (harness === undefined)
+      throw new Error("--harness requires antigravity, claude, or all.");
+    index += 1;
+  }
+  return { harness, rest };
+}
+
+function runDirect(argv) {
+  const { harness, rest } = directHarnessArgv(argv);
+  if (!harness || harness === "all") {
+    runAllBridges(rest);
+    return;
+  }
+  const profile = BRIDGE_PROFILES[harness];
+  if (!profile) {
+    console.error(
+      `Unknown harness "${harness}". Use "antigravity", "claude", or "all".`,
+    );
+    process.exit(1);
+  }
+  runBridge(profile, rest);
+}
+
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    return pathToFileURL(resolve(entry)).href === import.meta.url;
+  }
+}
+
+if (isMainModule()) runDirect(process.argv.slice(2));

@@ -188,11 +188,22 @@ export function AcpConnectionForm({
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
             {profile.bridgeHint}
           </Text>
+          <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+            Download the single-file bridge once, then run it:
+          </Text>
           <Text
             selectable
             className="font-sans text-xs text-foreground dark:text-foreground-dark"
           >
-            node tools/{profile.bridgeDirectory}/bridge.mjs --host 0.0.0.0
+            curl -fsSL
+            https://raw.githubusercontent.com/tecnicalbot/mobile-agent/main/tools/acp-bridge/bridge.mjs
+            -o mobile-agent-bridge.mjs
+          </Text>
+          <Text
+            selectable
+            className="font-sans text-xs text-foreground dark:text-foreground-dark"
+          >
+            node mobile-agent-bridge.mjs --harness {profile.id} --host 0.0.0.0
             --port {profile.defaultPort}
           </Text>
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
@@ -201,8 +212,15 @@ export function AcpConnectionForm({
             need to paste the token once.
           </Text>
           <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-            Starting both harnesses? Run <Text className="font-mono">node
-            tools/start-bridges.mjs --lan</Text> once instead.
+            Starting both harnesses? Run{" "}
+            <Text className="font-mono">
+              node mobile-agent-bridge.mjs --harness all --lan
+            </Text>{" "}
+            once instead. Repo contributors can use{" "}
+            <Text className="font-mono">
+              node tools/{profile.bridgeDirectory}/bridge.mjs
+            </Text>
+            .
           </Text>
           <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
             Use the computer&apos;s LAN address here. For internet access, put

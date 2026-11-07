@@ -324,6 +324,44 @@ describe("OpenCode shared chat presentation", () => {
     ]);
   });
 
+  it("moves the loader below a prompt that has no assistant step yet", () => {
+    const messages = [
+      { id: "msg_user_1", type: "user", text: "First", time: { created: 1 } },
+      {
+        id: "msg_step_1",
+        type: "assistant",
+        agent: "build",
+        time: { created: 2, completed: 3 },
+        content: [{ type: "text", text: "Done." }],
+      },
+      { id: "msg_user_2", type: "user", text: "Second", time: { created: 4 } },
+    ] as SessionMessageInfo[];
+
+    const whileRunning = presentOpenCodeMessages(messages, "ses_1", true);
+    expect(whileRunning.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(whileRunning.map((message) => message.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+      "streaming",
+    ]);
+    expect(whileRunning[3].id).toBe(
+      "opencode-pending-assistant:ses_1:msg_user_2",
+    );
+
+    const afterStop = presentOpenCodeMessages(messages, "ses_1", false);
+    expect(afterStop.map((message) => message.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+    ]);
+  });
+
   it("keeps session IDs and message IDs stable across snapshot reconciliation", () => {
     const messages = [
       { id: "msg_user", type: "user", text: "Hello", time: { created: 1 } },

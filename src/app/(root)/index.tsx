@@ -279,6 +279,9 @@ export default function Screen() {
   const theme = useTheme();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const { error } = useAppState();
+  // An empty harness error still renders the destructive border, leaving a thin
+  // red line at the bottom of the chat. Only mount the banner for real text.
+  const visibleError = error?.trim() ?? "";
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
   const {
     activeModels,
@@ -695,10 +698,10 @@ export default function Screen() {
                 )}
               </MessageScroller>
 
-              {error ? (
+              {visibleError ? (
                 <CodeBlock className="mb-10" size="sm" variant="destructive">
                   <CodeBlockContent wrap accessibilityLabel="Send error">
-                    {error}
+                    {visibleError}
                   </CodeBlockContent>
                 </CodeBlock>
               ) : null}
@@ -1484,6 +1487,11 @@ const ChatInput = memo(function ChatInput({
   const theme = useTheme();
   const colorScheme = useColorScheme();
   const { height: screenHeight } = useWindowDimensions();
+  // Keep the trigger menu inside the area the keyboard leaves visible. Some
+  // platforms keep the last keyboard height after dismissal, so gate on
+  // visibility instead of subtracting a stale value.
+  const keyboardVisible = useKeyboardState((state) => state.isVisible);
+  const keyboardHeight = useKeyboardState((state) => state.height);
   const { scrollToEnd } = useMessageScrollerActions();
   const router = useRouter();
   const sendingRef = useRef(false);
@@ -1676,6 +1684,18 @@ const ChatInput = memo(function ChatInput({
     : 56;
   const composerScrollEnabled =
     hasComposerText && composerContentHeight > maxComposerInputHeight;
+  // Trigger menus used to render every row at once, so long slash/mention
+  // lists ran past the top of the screen with no way to reach them. Size the
+  // menu against the space that is actually visible above the keyboard.
+  const composerMenuMaxHeight = Math.min(
+    480,
+    Math.max(
+      240,
+      Math.round(
+        (screenHeight - (keyboardVisible ? keyboardHeight : 0)) * 0.55,
+      ),
+    ),
+  );
 
   useEffect(() => {
     if (!hasComposerText) {
@@ -2651,8 +2671,9 @@ const ChatInput = memo(function ChatInput({
         {composerActionsOpen ? (
           <View className="overflow-hidden rounded-card border border-border bg-card dark:border-border-dark dark:bg-card-dark">
             <ScrollView
-              style={{ maxHeight: 320 }}
+              style={{ maxHeight: composerMenuMaxHeight }}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
               {[
                 {
@@ -2703,26 +2724,32 @@ const ChatInput = memo(function ChatInput({
 
         {composerTrigger && !composerActionsOpen ? (
           <View className="overflow-hidden rounded-card border border-border bg-card dark:border-border-dark dark:bg-card-dark">
-            {triggerMenuItems.length > 0 ? (
-              triggerMenuItems.map((item, index) => (
-                <View key={item.id}>
-                  {index > 0 ? <Separator /> : null}
-                  <ComposerMenuRow
-                    icon={item.icon}
-                    disabled={"disabled" in item && item.disabled === true}
-                    label={item.label}
-                    onPress={item.onPress}
-                    subtitle={item.subtitle}
-                  />
+            <ScrollView
+              style={{ maxHeight: composerMenuMaxHeight }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {triggerMenuItems.length > 0 ? (
+                triggerMenuItems.map((item, index) => (
+                  <View key={item.id}>
+                    {index > 0 ? <Separator /> : null}
+                    <ComposerMenuRow
+                      icon={item.icon}
+                      disabled={"disabled" in item && item.disabled === true}
+                      label={item.label}
+                      onPress={item.onPress}
+                      subtitle={item.subtitle}
+                    />
+                  </View>
+                ))
+              ) : (
+                <View className="px-sp-4 py-sp-3">
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    No matches
+                  </Text>
                 </View>
-              ))
-            ) : (
-              <View className="px-sp-4 py-sp-3">
-                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                  No matches
-                </Text>
-              </View>
-            )}
+              )}
+            </ScrollView>
           </View>
         ) : null}
 

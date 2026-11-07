@@ -16,6 +16,7 @@ import type {
   PendingQuestionnaire,
   PendingQuestionnaireAnswer,
 } from "@/core/types/app-state";
+import { openCodeLastConversationMessage } from "@/modules/harnesses/opencode-recovery";
 import { presentHarnessToolExecution } from "@/modules/harnesses/tool-execution";
 
 export const OPENCODE_PROVIDER_ID = "harness:opencode";
@@ -138,8 +139,14 @@ export function presentOpenCodeMessages(
   const lastAssistantID = [...messages]
     .reverse()
     .find((message) => message.type === "assistant")?.id;
+  // A new prompt can land before the server creates its assistant step. Until
+  // that step arrives the previous assistant is still the last one, but it is
+  // not streaming anymore: marking it would put the "Thinking" row above the
+  // prompt the user just sent.
+  const lastConversationMessage = openCodeLastConversationMessage(messages);
+  const waitingForAssistant = lastConversationMessage?.type === "user";
 
-  return messages.flatMap((message, sequence): StoredMessage[] => {
+  const presented = messages.flatMap((message, sequence): StoredMessage[] => {
     if (message.type === "system") {
       if (!includeSystem) return [];
       const createdAt = new Date(message.time.created).toISOString();
@@ -269,6 +276,7 @@ export function presentOpenCodeMessages(
             ? "failed"
             : message.type === "assistant" &&
                 running &&
+                !waitingForAssistant &&
                 message.id === lastAssistantID
               ? "streaming"
               : "completed",
@@ -282,6 +290,37 @@ export function presentOpenCodeMessages(
       },
     ];
   });
+
+  if (!running || !waitingForAssistant) {
+    return presented;
+  }
+
+  // Keep the loader attached to the turn the user just submitted. The row is
+  // presentation-only: the real assistant step replaces it as soon as the
+  // harness reports one.
+  const createdAt = new Date(
+    lastConversationMessage.time.created + 1,
+  ).toISOString();
+
+  presented.push({
+    id: `opencode-pending-assistant:${sessionID}:${lastConversationMessage.id}`,
+    conversationId,
+    role: "assistant",
+    content: "",
+    metadata: {
+      agentName: "OpenCode",
+      reasoning: [],
+      toolExecutions: [],
+      toolRunAnchors: [],
+    },
+    status: "streaming",
+    error: null,
+    sequence: messages.length,
+    createdAt,
+    updatedAt: createdAt,
+  });
+
+  return presented;
 }
 
 export function presentOpenCodeQuestionnaire(

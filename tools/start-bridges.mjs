@@ -5,8 +5,8 @@
  * This is a thin wrapper around the single-file bridge so the repo and a
  * downloaded copy behave the same:
  *
- *   node tools/start-bridges.mjs --lan
- *   npm run bridges -- --lan
+ *   node tools/start-bridges.mjs --lan --pair
+ *   npm run bridges -- --lan --pair
  */
 
 import { runAllBridges } from "./acp-bridge/bridge.mjs";

@@ -11,12 +11,14 @@
  *   GET  /events  -> SSE stream of every JSON-RPC message from the agent
  *   POST /files   -> stream a large attachment into the session directory
  *   GET  /health  -> bridge and agent metadata
+ *   POST /pair/request -> create a one-time pairing code (authenticated)
+ *   POST /pair/redeem  -> exchange a pairing code for the stable token
  *
- * No npm dependencies. Run this file directly for any harness:
+ * No required npm dependencies. Run this file directly for any harness:
  *
- *   node bridge.mjs --harness antigravity --host 0.0.0.0 --port 7801
- *   node bridge.mjs --harness claude --host 0.0.0.0 --port 7802
- *   node bridge.mjs --harness all --lan
+ *   node bridge.mjs --harness antigravity --host 0.0.0.0 --port 7801 --pair
+ *   node bridge.mjs --harness claude --host 0.0.0.0 --port 7802 --pair
+ *   node bridge.mjs --harness all --lan --pair
  *
  * The repo also has thin launchers in `antigravity-bridge/` and
  * `claude-bridge/`. The single file is the portable download.
@@ -36,16 +38,18 @@ import {
 } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import { createServer } from "node:http";
-import { homedir } from "node:os";
+import { homedir, hostname, networkInterfaces } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const BRIDGE_VERSION = "1.3.0";
+export const BRIDGE_VERSION = "1.4.0";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const PAIRING_TTL_MS = 5 * 60 * 1000;
+const PAIRING_TYPE = "mobile-agent-acp-pair";
 
 /**
  * One token file is shared by every harness bridge. Restarting a bridge (or
@@ -129,6 +133,7 @@ export function resolveBridgeToken({ host, token, tokenFile }) {
 
 /**
  * @typedef {object} BridgeProfile
+ * @property {string} id Stable harness id used by the mobile app.
  * @property {string} label Display name used in logs, docs, and usage text.
  * @property {string} service Value reported by `/health` and `/events`.
  * @property {number} defaultPort Default TCP port.
@@ -147,6 +152,7 @@ export function resolveBridgeToken({ host, token, tokenFile }) {
 
 /** @type {BridgeProfile} */
 export const ANTIGRAVITY_PROFILE = {
+  id: "antigravity",
   label: "Antigravity",
   service: "antigravity-bridge",
   defaultPort: 7801,
@@ -164,6 +170,7 @@ export const ANTIGRAVITY_PROFILE = {
 
 /** @type {BridgeProfile} */
 export const CLAUDE_PROFILE = {
+  id: "claude",
   label: "Claude",
   service: "claude-bridge",
   defaultPort: 7802,
@@ -194,7 +201,8 @@ Usage:
   node bridge.mjs [options]
 
 Options:
-  --host <address>       Bind address (default: 127.0.0.1)
+  --host <address>       Bind address (default: 0.0.0.0, LAN)
+  --lan                  Shortcut for --host 0.0.0.0
   --port <number>        Bind port (default: ${profile.defaultPort})
   --token-file <path>    Stable bridge token. Read on restart, created on
                          first use. Default: ${defaultTokenFile()}
@@ -207,6 +215,8 @@ ${addDirLine}
   ${profile.argFlag} <value>
                          Extra argument passed to the agent. Repeatable.
 ${skipLine}
+  --pair                 Print a 5-minute one-time pairing QR at startup.
+  --no-pair              Do not print a pairing QR (default).
   --help                 Show this help.
 
 Advanced:
@@ -223,8 +233,8 @@ Token:
   reuses it automatically. Copy that token into the app once.
 
 Examples:
-  node bridge.mjs
-  node bridge.mjs --host 0.0.0.0 --port ${profile.defaultPort}
+  node bridge.mjs --pair
+  node bridge.mjs --host 127.0.0.1
   node bridge.mjs --host 0.0.0.0 --port ${profile.defaultPort} --token-file ~/.config/mobile-agent/bridge-token
   node bridge.mjs ${profile.commandFlag} /usr/local/bin/${commandName} --cwd ~/code/project
 `;
@@ -233,7 +243,7 @@ Examples:
 function parseArgs(profile, argv) {
   const env = (name) => process.env[`${profile.envPrefix}_${name}`];
   const options = {
-    host: env("HOST") || "127.0.0.1",
+    host: env("HOST") || "0.0.0.0",
     port: Number(env("PORT") || profile.defaultPort),
     token: env("TOKEN") || "",
     tokenFile: env("TOKEN_FILE") || "",
@@ -243,6 +253,7 @@ function parseArgs(profile, argv) {
     addDirs: [],
     agentArgs: [],
     skipPermissions: false,
+    pair: false,
     tokenSource: null,
     tokenCreated: false,
   };
@@ -259,6 +270,9 @@ function parseArgs(profile, argv) {
     switch (arg) {
       case "--host":
         options.host = next();
+        break;
+      case "--lan":
+        options.host = "0.0.0.0";
         break;
       case "--port":
         options.port = Number(next());
@@ -286,6 +300,12 @@ function parseArgs(profile, argv) {
             `${profile.label} does not accept --dangerously-skip-permissions.`,
           );
         options.skipPermissions = true;
+        break;
+      case "--pair":
+        options.pair = true;
+        break;
+      case "--no-pair":
+        options.pair = false;
         break;
       case "--help":
       case "-h":
@@ -353,12 +373,139 @@ function isAuthorized(request, url, token, profile) {
   return url.searchParams.get("token") === token;
 }
 
+function ipv4Parts(address) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(address);
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  return parts.every((part) => part >= 0 && part <= 255) ? parts : null;
+}
+
+function isLocalNetworkAddress(address) {
+  const parts = ipv4Parts(address);
+  if (!parts) return false;
+  const [first, second] = parts;
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 100 && second >= 64 && second <= 127)
+  );
+}
+
+/** Pick an address a phone on the same LAN or tailnet can actually reach. */
+function lanAddress() {
+  const candidates = [];
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    for (const item of addresses || []) {
+      const family = String(item.family);
+      if (family !== "IPv4" && family !== "4") continue;
+      if (item.internal || !item.address) continue;
+      candidates.push({ name, address: item.address });
+    }
+  }
+  const preferred = candidates.filter((item) =>
+    isLocalNetworkAddress(item.address),
+  );
+  const pool = preferred.length > 0 ? preferred : candidates;
+  pool.sort((left, right) => {
+    const rank = (item) => {
+      if (/^(wlan|ap|swlan|eth|en\d|enp|eno)/i.test(item.name)) return 0;
+      if (/^(tun|ppp|wg|utun|tailscale)/i.test(item.name)) return 2;
+      if (/^(docker|veth|br-|virbr|vmnet)/i.test(item.name)) return 3;
+      return 1;
+    };
+    return rank(left) - rank(right);
+  });
+  return pool[0]?.address || "127.0.0.1";
+}
+
+function pairingBridgeUrl(host, port) {
+  const address =
+    host === "0.0.0.0" || host === "::" ? lanAddress() : host.replace(/^\[|\]$/g, "");
+  const formatted = address.includes(":") ? `[${address}]` : address;
+  return `http://${formatted}:${port}`;
+}
+
+function localBridgeUrl(host, port) {
+  if (host === "::1") return `http://[::1]:${port}`;
+  if (host === "localhost") return `http://localhost:${port}`;
+  if (host === "0.0.0.0" || host === "::")
+    return `http://127.0.0.1:${port}`;
+  const formatted = host.includes(":") ? `[${host.replace(/^\[|\]$/g, "")}]` : host;
+  return `http://${formatted}:${port}`;
+}
+
+function pairingPayload(entries) {
+  return {
+    v: 1,
+    type: PAIRING_TYPE,
+    name: hostname(),
+    issuedAt: Date.now(),
+    expiresAt: Math.min(...entries.map((entry) => entry.expiresAt)),
+    bridges: entries.map(({ id, url, code }) => ({ id, url, code })),
+  };
+}
+
+function issuePairingCode(store) {
+  const now = Date.now();
+  for (const [code, expiresAt] of store) {
+    if (expiresAt <= now) store.delete(code);
+  }
+  const code = randomBytes(18).toString("base64url");
+  const expiresAt = now + PAIRING_TTL_MS;
+  store.set(code, expiresAt);
+  return { code, expiresAt };
+}
+
+function redeemPairingCode(store, code) {
+  if (typeof code !== "string" || !code) return null;
+  const expiresAt = store.get(code);
+  if (!expiresAt) return null;
+  store.delete(code);
+  return Date.now() <= expiresAt ? expiresAt : null;
+}
+
+async function loadQrRenderer() {
+  try {
+    const module = await import("qrcode-terminal");
+    const renderer = module.default ?? module;
+    return typeof renderer?.generate === "function" ? renderer : null;
+  } catch {
+    return null;
+  }
+}
+
+async function printPairingQr(payload) {
+  const text = JSON.stringify(payload);
+  const renderer = await loadQrRenderer();
+  if (!renderer) {
+    console.log(
+      "[bridge] QR renderer is not installed. Re-run the installer or install qrcode-terminal.",
+    );
+    console.log(`[bridge] Pairing payload: ${text}`);
+    return;
+  }
+  console.log("[bridge] Scan this in Mobile Agent (valid for 5 minutes):");
+  try {
+    renderer.generate(text, { small: true });
+  } catch {
+    console.log(
+      "[bridge] Could not render the QR. Pairing payload follows for manual use:",
+    );
+    console.log(text);
+  }
+  console.log(
+    `[bridge] Pairing code expires at ${new Date(payload.expiresAt).toLocaleTimeString()}.`,
+  );
+}
+
 /** Start a bridge for one ACP harness. Never returns unless the process exits. */
 export function runBridge(profile, argv = process.argv.slice(2)) {
   const options = parseArgs(profile, argv);
   const agentVersion = readAgentVersion(options.agent);
   const startedAt = Date.now();
   const clients = new Set();
+  const pairingCodes = new Map();
   let shuttingDown = false;
 
   const agentArgs = [...profile.defaultArgs];
@@ -526,12 +673,86 @@ export function runBridge(profile, argv = process.argv.slice(2)) {
       return;
     }
 
+    // The pairing code in the QR is the credential for this route. It is
+    // single-use and expires quickly; the long-lived bridge token never appears
+    // in the QR.
+    if (request.method === "POST" && url.pathname === "/pair/redeem") {
+      let body;
+      try {
+        body = await readJsonBody(request, 4096);
+      } catch (error) {
+        response.writeHead(400, {
+          ...commonHeaders(),
+          "Content-Type": "application/json",
+        });
+        response.end(JSON.stringify({ error: error.message }));
+        return;
+      }
+      const expiresAt = redeemPairingCode(pairingCodes, body?.code);
+      if (!expiresAt) {
+        response.writeHead(401, {
+          ...commonHeaders(),
+          "Content-Type": "application/json",
+        });
+        response.end(
+          JSON.stringify({ error: "Invalid or expired pairing code." }),
+        );
+        return;
+      }
+      if (!options.token) {
+        response.writeHead(409, {
+          ...commonHeaders(),
+          "Content-Type": "application/json",
+        });
+        response.end(
+          JSON.stringify({
+            error: "This bridge has no token. Start it on LAN or set a token file.",
+          }),
+        );
+        return;
+      }
+      response.writeHead(200, {
+        ...commonHeaders(),
+        "Content-Type": "application/json",
+      });
+      response.end(
+        JSON.stringify({
+          token: options.token,
+          service: profile.service,
+          expiresAt,
+        }),
+      );
+      return;
+    }
+
     if (!isAuthorized(request, url, options.token, profile)) {
       response.writeHead(401, {
         ...commonHeaders(),
         "Content-Type": "application/json",
       });
       response.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/pair/request") {
+      if (!options.token) {
+        response.writeHead(409, {
+          ...commonHeaders(),
+          "Content-Type": "application/json",
+        });
+        response.end(
+          JSON.stringify({
+            error: "Pairing needs a token. Start the bridge on LAN first.",
+          }),
+        );
+        return;
+      }
+      const issued = issuePairingCode(pairingCodes);
+      response.writeHead(200, {
+        ...commonHeaders(),
+        "Content-Type": "application/json",
+      });
+      response.end(JSON.stringify(issued));
       return;
     }
 
@@ -704,6 +925,26 @@ export function runBridge(profile, argv = process.argv.slice(2)) {
     } else if (!options.token) {
       console.log("[bridge] No token configured; loopback clients only.");
     }
+    if (options.pair) {
+      if (!options.token) {
+        console.log(
+          "[bridge] Pairing needs a token. Restart with --lan, --token-file, or --token.",
+        );
+      } else {
+        const issued = issuePairingCode(pairingCodes);
+        const url = pairingBridgeUrl(options.host, options.port);
+        if (LOOPBACK_HOSTS.has(options.host)) {
+          console.log(
+            "[bridge] This bridge is loopback-only, so the phone cannot reach the pairing URL. Restart with --lan.",
+          );
+        }
+        void printPairingQr(
+          pairingPayload([
+            { id: profile.id, url, ...issued },
+          ]),
+        );
+      }
+    }
   });
 
   function shutdown(exitCode = 0) {
@@ -766,7 +1007,7 @@ Single-harness options:
   node bridge.mjs --harness claude --help
 
 All-harness options:
-  --host <address>          Bind address for both bridges (default 127.0.0.1)
+  --host <address>          Bind address for both bridges (default 0.0.0.0, LAN)
   --lan                     Shortcut for --host 0.0.0.0
   --antigravity-port <n>    Antigravity port (default 7801)
   --claude-port <n>         Claude port (default 7802)
@@ -774,6 +1015,8 @@ All-harness options:
                             (default ${defaultTokenFile()})
   --cwd <path>              Default session working directory for both
   --only <harness>          Start only "antigravity" or "claude"
+  --pair                    Print one 5-minute pairing QR for all started bridges
+  --no-pair                 Do not print a pairing QR (default)
   --help                    Show this help
 
 Both harnesses keep their own process, so one agent crashing does not stop the
@@ -783,7 +1026,7 @@ other. Each restart reuses the same stable token file.
 
 function parseAllBridgesArgs(argv) {
   const options = {
-    host: "127.0.0.1",
+    host: "0.0.0.0",
     ports: {
       antigravity: ANTIGRAVITY_PROFILE.defaultPort,
       claude: CLAUDE_PROFILE.defaultPort,
@@ -791,6 +1034,7 @@ function parseAllBridgesArgs(argv) {
     tokenFile: "",
     cwd: "",
     only: null,
+    pair: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -824,6 +1068,12 @@ function parseAllBridgesArgs(argv) {
       case "--only":
         options.only = next();
         break;
+      case "--pair":
+        options.pair = true;
+        break;
+      case "--no-pair":
+        options.pair = false;
+        break;
       case "--help":
       case "-h":
         process.stdout.write(allBridgesUsage());
@@ -841,6 +1091,98 @@ function parseAllBridgesArgs(argv) {
       throw new Error(`The ${id} port must be between 1 and 65535.`);
   }
   return options;
+}
+
+function delay(ms) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+async function waitForBridgeHealth(port, token, host, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${localBridgeUrl(host, port)}/health`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(1500),
+      });
+      if (response.ok) {
+        const health = await response.json().catch(() => null);
+        if (health?.ok === true) return true;
+      }
+    } catch {
+      // The child is still starting or its agent is not ready yet.
+    }
+    await delay(250);
+  }
+  return false;
+}
+
+async function requestBridgePairingCode(port, token, host) {
+  const response = await fetch(`${localBridgeUrl(host, port)}/pair/request`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) {
+    throw new Error(`pair/request returned HTTP ${response.status}`);
+  }
+  const body = await response.json();
+  if (typeof body?.code !== "string" || !body.code) {
+    throw new Error("pair/request did not return a pairing code");
+  }
+  return body;
+}
+
+async function readSharedToken(tokenFile, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const token = readFileSync(tokenFile, "utf8").trim();
+      if (token) return token;
+    } catch {
+      // The first bridge creates the token after it starts.
+    }
+    await delay(150);
+  }
+  return "";
+}
+
+async function printAllPairingQr(selected, options, tokenFile) {
+  const token = await readSharedToken(tokenFile);
+  if (!token) {
+    console.log(
+      "[start] Could not create a pairing QR because the shared token file is missing.",
+    );
+    return;
+  }
+  const entries = [];
+  for (const [id, profile] of selected) {
+    const port = options.ports[id];
+    if (!(await waitForBridgeHealth(port, token, options.host))) {
+      console.warn(
+        `[start] ${profile.label} did not become reachable; skipping it in the pairing QR.`,
+      );
+      continue;
+    }
+    try {
+      const issued = await requestBridgePairingCode(port, token, options.host);
+      entries.push({
+        id,
+        url: pairingBridgeUrl(options.host, port),
+        code: issued.code,
+        expiresAt: issued.expiresAt,
+      });
+    } catch (error) {
+      console.warn(
+        `[start] Could not create a pairing code for ${profile.label}: ${error.message}`,
+      );
+    }
+  }
+  if (entries.length === 0) {
+    console.log("[start] No bridges were available to pair.");
+    return;
+  }
+  await printPairingQr(pairingPayload(entries));
 }
 
 /** Start every harness bridge in its own child process. */
@@ -915,9 +1257,14 @@ export function runAllBridges(argv = process.argv.slice(2)) {
   }
 
   console.log(`[start] Shared token file: ${tokenFile}`);
-  console.log(
-    "[start] Copy the token from that file into each harness once. Restarts reuse it.",
-  );
+  if (options.pair) {
+    console.log("[start] Preparing a one-time pairing QR for the mobile app...");
+    void printAllPairingQr(selected, options, tokenFile);
+  } else {
+    console.log(
+      "[start] Copy the token from that file into each harness once. Restarts reuse it.",
+    );
+  }
 
   function shutdown(signal) {
     if (shuttingDown) return;

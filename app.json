@@ -61,7 +61,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to scan OpenCode pairing QR codes.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to scan pairing QR codes.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
@@ -121,7 +121,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to attach selected photos to your chats.",
-          "cameraPermission": "Allow $(PRODUCT_NAME) to scan OpenCode pairing QR codes.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to scan pairing QR codes.",
           "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for voice input."
         }
       ],

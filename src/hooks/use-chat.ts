@@ -126,7 +126,7 @@ export function useChat() {
     currentSelectedFileIds: harness.selectedFileIds,
     setCurrentSelectedFileIds: harness.setSelectedFileIds,
     // Skills are configured on the harness host. MCP servers are passed into
-    // Antigravity sessions; OpenCode keeps its own host-side configuration.
+    // ACP harness sessions; OpenCode keeps its own host-side configuration.
     currentSelectedSkillIds: [],
     setCurrentSelectedSkillIds: async () => {},
     currentSelectedMcpServerIds: harness.selectedMcpServerIds,

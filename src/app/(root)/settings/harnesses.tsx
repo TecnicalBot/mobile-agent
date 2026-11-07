@@ -17,6 +17,7 @@ import { DrawerPager, DrawerPagerPage } from "@/components/ui/drawer-pager";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { AntigravityConnectionForm } from "@/components/settings/antigravity-connection-form";
+import { ClaudeConnectionForm } from "@/components/settings/claude-connection-form";
 import { OpenCodeConnectionForm } from "@/components/settings/opencode-connection-form";
 import {
   ProviderModelRow,
@@ -48,8 +49,9 @@ export default function SettingsHarnessesScreen() {
     SUPPORTED_HARNESSES[0];
   const controller = harness.harnesses[selectedID];
   const loading = controller.status === "connecting";
-  const authRequired =
-    selectedID === "antigravity" && harness.harnesses.antigravity.authRequired;
+  const authRequiredFor = (id: HarnessID) =>
+    id === "opencode" ? false : harness.harnesses[id].authRequired;
+  const authRequired = authRequiredFor(selectedID);
   const query = modelQuery.trim().toLowerCase();
   const displayModels = controller.availableModels.filter(
     (model) =>
@@ -98,16 +100,13 @@ export default function SettingsHarnessesScreen() {
                     {entry.label}
                   </Text>
                   <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                    {entry.phoneTools
-                      ? "Host harness with device sharing"
-                      : "Host harness over an ACP bridge"}
+                    {entry.description}
                   </Text>
                 </View>
                 <Text className="text-right font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
                   {state.status === "connecting"
                     ? "Connecting"
-                    : entry.id === "antigravity" &&
-                        harness.harnesses.antigravity.authRequired
+                    : authRequiredFor(entry.id)
                       ? "Sign in required"
                       : state.connected
                         ? `${state.models.length} available`
@@ -217,9 +216,9 @@ export default function SettingsHarnessesScreen() {
                       Sign in on the bridge host
                     </Text>
                     <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                      Run `agy acp --login` on the computer running the bridge,
-                      then tap Refresh below. The app never stores Antigravity
-                      credentials.
+                      {"signInHint" in definition
+                        ? definition.signInHint
+                        : "Sign in on the computer running the bridge, then tap Refresh below."}
                     </Text>
                   </View>
                 ) : null}
@@ -293,10 +292,10 @@ export default function SettingsHarnessesScreen() {
                         disabled={controller.mutating}
                         onPress={() => {
                           // OpenCode reloads its catalog by reconnecting;
-                          // Antigravity can reuse its live bridge client.
-                          void (selectedID === "antigravity"
-                            ? controller.refresh()
-                            : controller.connect());
+                          // ACP harnesses can reuse their live bridge client.
+                          void (selectedID === "opencode"
+                            ? controller.connect()
+                            : controller.refresh());
                         }}
                       >
                         Refresh
@@ -366,6 +365,13 @@ export default function SettingsHarnessesScreen() {
                 selectedID === "antigravity" ? (
                   <AntigravityConnectionForm
                     key="antigravity"
+                    onConnected={() => {
+                      void controller.connect().then(() => setPage(0));
+                    }}
+                  />
+                ) : selectedID === "claude" ? (
+                  <ClaudeConnectionForm
+                    key="claude"
                     onConnected={() => {
                       void controller.connect().then(() => setPage(0));
                     }}

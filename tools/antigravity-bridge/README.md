@@ -1,7 +1,8 @@
 # Antigravity ACP bridge
 
 A dependency-free HTTP/SSE bridge for Google Antigravity CLI's Agent Client
-Protocol server (`agy acp`).
+Protocol server (`agy acp`). This launcher and the Claude launcher share the
+implementation in [`tools/acp-bridge/bridge.mjs`](../acp-bridge/bridge.mjs).
 
 The Mobile Agent app does not need Termux, Android, or a local Antigravity
 install. Run this bridge on any machine that has `agy` — a laptop, desktop,
@@ -87,7 +88,7 @@ The bridge is intentionally thin. The app speaks ACP JSON-RPC directly.
 {
   "ok": true,
   "service": "antigravity-bridge",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "agent": "agy",
   "agentVersion": "1.5.1",
   "cwd": "/home/me/project",

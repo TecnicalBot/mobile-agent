@@ -248,9 +248,10 @@ contact sheet, numbered left-to-right/top-to-bottom with timestamps. Inspect
 that inline image directly: do not issue separate reads for each frame.
 The sheet is saved to the workspace. For a closer look at small text or a
 suspicious thumbnail, call `getVideoFrame({ fileId, time: 2 })` for that one
-full-resolution frame. Pass either `time` or `times`, never both. Thumbnail
-sheets cannot verify fine details or motion; cost depends on model/resolution,
-not just the number of image parts.
+full-resolution frame. Pass `time` for one moment or `times` for several;
+combining them is also fine because they are merged and deduplicated.
+Thumbnail sheets cannot verify fine details or motion; cost depends on
+model/resolution, not just the number of image parts.
 
 After the tool returns, embed the video **inline** in your response exactly
 where you talk about it, the same way you would embed an image:

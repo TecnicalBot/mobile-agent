@@ -48,7 +48,7 @@ export function createVideoFrameTool({
   const workspaceService = createWorkspaceFileService(repository);
   return tool({
     description:
-      "Inspect a workspace video. Pass fileId and either time for ONE full-resolution still, or times (up to 12 seconds-based timestamps) to capture a batch and return ONE compact, timestamp-labeled contact sheet. Prefer times for reviewing multiple moments: one tool call and one vision image, no separate reads needed. Use time for a closer look at small text or details. Non-vision models get a file link for ocr instead.",
+      "Inspect a workspace video. Pass fileId plus times (1–12 seconds-based timestamps) to capture a batch, or time for a single moment. One timestamp returns ONE full-resolution still; multiple timestamps return ONE compact, timestamp-labeled contact sheet. time and times may both be passed — they are merged, deduplicated, and sorted, so a call is never rejected just for including both. Prefer times for reviewing multiple moments: one tool call and one vision image, no separate reads needed. Non-vision models get a file link for ocr instead.",
     inputSchema: z.object({
       fileId: z
         .string()
@@ -58,21 +58,39 @@ export function createVideoFrameTool({
         .number()
         .min(0)
         .max(3600)
-        .optional()
+        .nullish()
         .describe(
           "Timestamp in seconds into the video (e.g. 12 for 'at 0:12').",
         ),
-      times: z.array(z.number().min(0).max(3600)).min(1).max(MAX_CONTACT_SHEET_FRAMES).optional()
-        .describe("Batch timestamps in seconds; returns one numbered contact sheet. Do not also pass time."),
-    }).refine((input) => (input.time != null) !== (input.times != null), "Pass either time or times, not both."),
-    execute: async ({ fileId, time, times }: { fileId: string; time?: number; times?: number[] }, { abortSignal }: { abortSignal?: AbortSignal }): Promise<VideoFrameOutput> => {
+      times: z.array(z.number().min(0).max(3600)).max(MAX_CONTACT_SHEET_FRAMES).nullish()
+        .describe("Batch timestamps in seconds; returns one numbered contact sheet when more than one unique timestamp is supplied. May be combined with time."),
+    }),
+    execute: async ({ fileId, time, times }: { fileId: string; time?: number | null; times?: number[] | null }, { abortSignal }: { abortSignal?: AbortSignal }): Promise<VideoFrameOutput> => {
       const inputSummary = summarizeValue({ fileId, time, times });
 
       try {
-        if ((time != null) === (times != null)) throw new Error("Pass either time or times, not both.");
-        const requested = times ?? [time!];
-        if (!requested.length || requested.length > MAX_CONTACT_SHEET_FRAMES || requested.some((t) => !Number.isFinite(t) || t < 0 || t > 3600)) {
-          throw new Error("Provide 1–12 finite timestamps between 0 and 3600 seconds.");
+        // The JSON schema cannot express "exactly one of time/times", and
+        // models/harnesses reasonably send one, the other, or both. Normalize
+        // them here instead of failing schema validation before execute runs:
+        // a validation failure aborts the turn, while an execute error is a
+        // tool result the model can recover from.
+        const requested = [
+          ...new Set([...(times ?? []), ...(time != null ? [time] : [])]),
+        ].sort((a, b) => a - b);
+        if (requested.length === 0) {
+          throw new Error(
+            "Pass time or times with at least one timestamp in seconds.",
+          );
+        }
+        if (requested.length > MAX_CONTACT_SHEET_FRAMES) {
+          throw new Error(
+            `Provide at most ${MAX_CONTACT_SHEET_FRAMES} timestamps per call.`,
+          );
+        }
+        if (requested.some((t) => !Number.isFinite(t) || t < 0 || t > 3600)) {
+          throw new Error(
+            "Provide finite timestamps between 0 and 3600 seconds.",
+          );
         }
         const record = await repository.getById(fileId);
         if (!record) {
@@ -86,8 +104,8 @@ export function createVideoFrameTool({
         }
 
         const baseName = record.displayName.replace(/\.[a-z0-9]+$/i, "");
-        if (times) {
-          const timestamps = [...new Set(times)].sort((a, b) => a - b);
+        if (requested.length > 1) {
+          const timestamps = requested;
           const frames: ScenePreviewFrame[] = [];
           // Keep decoding bounded: one thumbnail at a time, one model response
           // for the whole batch. Never allocate twelve native full-size bitmaps.
@@ -105,7 +123,7 @@ export function createVideoFrameTool({
           const binary = atob(sheet.base64);
           const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
           const saved = await workspaceService.createDocumentFile({ bytes, mimeType: "image/jpeg", name: `${baseName}-contact-sheet.jpg` });
-          const text = `Contact sheet of "${record.displayName}": ${timestamps.length} frames, left-to-right, top-to-bottom (${timestamps.map((t, i) => `${i + 1}=${t}s`).join(", ")}). Saved as workspace://${saved.id}. Use time for a full-resolution closer look; thumbnails cannot verify fine details or motion.` +
+          const text = `Contact sheet of "${record.displayName}": ${timestamps.length} frames, left-to-right, top-to-bottom (${timestamps.map((t, i) => `${i + 1}=${t}s`).join(", ")}). Saved as workspace://${saved.id}. Use time (or a single value in times) for a full-resolution closer look; thumbnails cannot verify fine details or motion.` +
             (supportsImageInput ? "" : " Your model cannot display images; use the ocr tool on the saved sheet or ask the user what they see.");
           const output: VideoFrameOutput = { text, fileId: saved.id, link: `workspace://${saved.id}`, times: timestamps, frameCount: timestamps.length, width: sheet.width, height: sheet.height, inlineImage: supportsImageInput, image: supportsImageInput ? bytes : null };
           onRecord?.(createRecord({ toolName: "getVideoFrame", status: "completed", inputSummary,
@@ -116,8 +134,11 @@ export function createVideoFrameTool({
           return output;
         }
         abortSignal?.throwIfAborted();
+        // A single unique timestamp returns the full-resolution still, even
+        // when the caller supplied it through `times: [t]`.
+        const timestamp = requested[0]!;
         const thumb = await getThumbnailAsync(source.uri, {
-          time: Math.round(time! * 1000),
+          time: Math.round(timestamp * 1000),
           quality: 0.9,
         });
         const thumbFile = new File(thumb.uri);
@@ -131,11 +152,11 @@ export function createVideoFrameTool({
         const saved = await workspaceService.createDocumentFile({
           bytes,
           mimeType: "image/jpeg",
-          name: `${baseName}-frame-${time}s.jpg`,
+          name: `${baseName}-frame-${timestamp}s.jpg`,
         });
 
         const text =
-          `Frame at ${time}s of "${record.displayName}" ` +
+          `Frame at ${timestamp}s of "${record.displayName}" ` +
           `(${thumb.width}x${thumb.height}), saved as workspace://${saved.id}. ` +
           "Describe what you see at this timestamp when replying.";
 
@@ -152,7 +173,7 @@ export function createVideoFrameTool({
               `the user what they see at this timestamp.`,
           fileId: saved.id,
           link: `workspace://${saved.id}`,
-          time,
+          time: timestamp,
           width: thumb.width,
           height: thumb.height,
           inlineImage: supportsImageInput,
@@ -165,11 +186,11 @@ export function createVideoFrameTool({
             status: "completed",
             inputSummary,
             mediaResult: { sourceFileId: record.id, sourceUpdatedAt: record.updatedAt, resultFileId: saved.id },
-            preview: { title: `${record.displayName} · ${time}s`, uri: resolveWorkspaceFile(saved.relativePath).uri, mimeType: "image/jpeg" },
+            preview: { title: `${record.displayName} · ${timestamp}s`, uri: resolveWorkspaceFile(saved.relativePath).uri, mimeType: "image/jpeg" },
             outputSummary: summarizeValue({
               fileId: saved.id,
               link: `workspace://${saved.id}`,
-              time,
+              time: timestamp,
               width: thumb.width,
               height: thumb.height,
               inlineImage: supportsImageInput,

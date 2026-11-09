@@ -101,11 +101,28 @@ describe("getVideoFrame", () => {
     expect(out.text).toContain("2=5s");
   });
 
-  it("rejects ambiguous and oversized batches", async () => {
-    const tool = makeTool();
-    await expect(execute(tool, { fileId: "video-1", time: 0, times: [1] })).rejects.toThrow(/either/);
-    await expect(execute(tool, { fileId: "video-1", times: Array(13).fill(1) })).rejects.toThrow(/1–12/);
-    expect(mocks.getThumbnailAsync).not.toHaveBeenCalled();
+  it("merges time and times instead of rejecting the request", async () => {
+    const tool = makeTool() as any;
+    mocks.createContactSheet.mockResolvedValue({ base64: "QUJD", width: 960, height: 268 });
+    const out = await execute(tool, {
+      fileId: "video-1",
+      time: 20,
+      times: [10, 0],
+    }) as any;
+    expect(mocks.getThumbnailAsync.mock.calls.map((call) => call[1].time)).toEqual([0, 10000, 20000]);
+    expect(out.times).toEqual([0, 10, 20]);
+    await expect(execute(tool, { fileId: "video-1", times: [] })).rejects.toThrow(/at least one/);
+    await expect(execute(tool, { fileId: "video-1", times: Array.from({ length: 13 }, (_, index) => index) })).rejects.toThrow(/at most 12/);
+    expect(mocks.getThumbnailAsync).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses the full-resolution path for a single timestamp in times", async () => {
+    const output = (await execute(makeTool(), {
+      fileId: "video-1",
+      times: [12],
+    })) as Record<string, unknown>;
+    expect(mocks.createContactSheet).not.toHaveBeenCalled();
+    expect(output.time).toBe(12);
   });
 
   it("stops a batch when cancelled", async () => {

@@ -18,13 +18,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # The guard diffs the whole pushed range, so it needs the push's
+          # "before" commit even when it is several commits behind the tip.
+          fetch-depth: 0
 
       - name: Check if OTA is safe to publish
         id: guard
         shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
         run: |
-          CHANGED=$(git diff --name-only HEAD^ HEAD || true)
+          # A push can contain several commits. Diff the entire pushed range:
+          # checking only HEAD^..HEAD let a docs-only tip commit hide a JS fix
+          # behind it and skip the OTA.
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && [ -n "$AFTER_SHA" ]; then
+            CHANGED=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" || true)
+          else
+            CHANGED=$(git diff --name-only HEAD^ HEAD || true)
+          fi
           echo "$CHANGED"
 
           # Skip OTA when anything native-impacting changed — those require a new build.

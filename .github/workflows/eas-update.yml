@@ -46,13 +46,14 @@ jobs:
             exit 0
           fi
 
-          # Nothing bundled to ship: Markdown is never part of the JS bundle, and
+          # Nothing bundled to ship: Markdown is never part of the JS bundle,
           # catalog/*.json is re-fetched from GitHub raw at runtime (30-min TTL,
-          # bundled copy is only the offline fallback), so a catalog-only push
-          # reaches devices without an OTA. Mixed pushes (docs + src) still publish.
-          if [ -n "$CHANGED" ] && [ -z "$(echo "$CHANGED" | grep -vE '(^catalog/|\.md$)' || true)" ]; then
+          # bundled copy is only the offline fallback), and tools/ and .github/
+          # are host-side files the app never imports. Those pushes reach users
+          # without an OTA. Mixed pushes (docs + src) still publish.
+          if [ -n "$CHANGED" ] && [ -z "$(echo "$CHANGED" | grep -vE '(^catalog/|^tools/|^\.github/|\.md$)' || true)" ]; then
             echo "safe=false" >> "$GITHUB_OUTPUT"
-            echo "Only docs/catalog files changed. Skipping OTA — catalogs refresh from GitHub raw."
+            echo "Only docs/catalog/tools files changed. Skipping OTA — nothing bundled changed."
             exit 0
           fi
 

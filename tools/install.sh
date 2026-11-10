@@ -303,31 +303,82 @@ if [ "$MAB_NO_PATH" != "1" ]; then
   esac
 fi
 
+# Resolve the address a phone on the same network should use. The bridge does
+# this too, but the installer prints the manual URLs before the bridge starts.
+lan_ip=$("$NODE_BIN" -e '
+const os = require("node:os");
+const candidates = [];
+for (const addresses of Object.values(os.networkInterfaces())) {
+  for (const item of addresses || []) {
+    const family = String(item.family);
+    if (family !== "IPv4" && family !== "4") continue;
+    if (item.internal || !item.address) continue;
+    candidates.push({ name: item.name || "", address: item.address });
+  }
+}
+const isPrivate = (address) => {
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4) return false;
+  const [a, b] = parts;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+};
+const preferred = candidates.filter((item) => isPrivate(item.address));
+const pool = preferred.length > 0 ? preferred : candidates;
+pool.sort((left, right) => {
+  const rank = (item) => {
+    if (/^(wlan|ap|swlan|eth|en\d|enp|eno)/i.test(item.name)) return 0;
+    if (/^(tun|ppp|wg|utun|tailscale)/i.test(item.name)) return 2;
+    if (/^(docker|veth|br-|virbr|vmnet)/i.test(item.name)) return 3;
+    return 1;
+  };
+  return rank(left) - rank(right);
+});
+console.log(pool[0]?.address || "127.0.0.1");
+' 2>/dev/null || printf '127.0.0.1')
+[ -n "$lan_ip" ] || lan_ip=127.0.0.1
+
 say ""
 say "Installed."
 say "  command: mabridge"
 say "  bridge:  $MAB_HOME/bridge.mjs"
 say "  token:   $MAB_TOKEN_FILE"
 say ""
+have_agy=0
+have_claude=0
 if have agy; then
+  have_agy=1
   say "✓ Antigravity CLI: $(command -v agy)"
 else
   warn "Antigravity CLI (agy) not found. Install it, then run: agy acp --login"
 fi
 if have claude-agent-acp; then
+  have_claude=1
   say "✓ Claude ACP adapter: $(command -v claude-agent-acp)"
 else
   warn "Claude ACP adapter not found. Install: npm install -g @agentclientprotocol/claude-agent-acp"
 fi
 say ""
-say "Start both harnesses on your LAN and print a pairing QR:"
+if [ "$have_agy" -eq 1 ] || [ "$have_claude" -eq 1 ]; then
+  say "Start your installed harnesses on the LAN and print a pairing QR:"
+else
+  say "No harness CLI is installed yet. Install one of the above, then start:"
+fi
 say "  mabridge"
 say ""
 say "Open Settings → Harnesses in the mobile app and scan the QR."
 say "The code is single-use and expires in 5 minutes."
 say "Use --no-pair to skip the QR, or add the URLs manually:"
-say "  Antigravity: http://<this-computer-LAN-IP>:7801"
-say "  Claude:      http://<this-computer-LAN-IP>:7802"
+if [ "$have_agy" -eq 1 ]; then
+  say "  Antigravity: http://$lan_ip:7801"
+else
+  say "  Antigravity: http://$lan_ip:7801 (after installing agy)"
+fi
+if [ "$have_claude" -eq 1 ]; then
+  say "  Claude:      http://$lan_ip:7802"
+else
+  say "  Claude:      http://$lan_ip:7802 (after installing claude-agent-acp)"
+fi
 say "  Token:       $token"
 say ""
 say "Update later with: mabridge --update"

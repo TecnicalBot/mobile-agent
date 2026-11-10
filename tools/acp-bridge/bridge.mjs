@@ -29,7 +29,9 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  accessSync,
   chmodSync,
+  constants as fsConstants,
   createWriteStream,
   mkdirSync,
   readFileSync,
@@ -39,7 +41,7 @@ import {
 import { mkdir, unlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir, hostname, networkInterfaces } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -147,6 +149,7 @@ export function resolveBridgeToken({ host, token, tokenFile }) {
  * @property {boolean} supportsSkipPermissions Whether the agent accepts its
  *   own auto-approval flag.
  * @property {string} signInHint One-line setup hint for `--help`.
+ * @property {string} installHint One-line install hint when the CLI is missing.
  * @property {string[]} acceptedTokenHeaders Extra non-standard token headers.
  */
 
@@ -165,6 +168,8 @@ export const ANTIGRAVITY_PROFILE = {
   supportsAddDir: true,
   supportsSkipPermissions: true,
   signInHint: "Sign in once with `agy acp --login`.",
+  installHint:
+    "Install the Antigravity CLI (agy), then run `agy acp --login`.",
   acceptedTokenHeaders: ["x-antigravity-token"],
 };
 
@@ -184,6 +189,8 @@ export const CLAUDE_PROFILE = {
   supportsSkipPermissions: false,
   signInHint:
     "Sign in once with `claude auth login` (subscription) or set ANTHROPIC_API_KEY.",
+  installHint:
+    "Install it with `npm install -g @agentclientprotocol/claude-agent-acp`.",
   acceptedTokenHeaders: ["x-claude-token", "x-agent-token"],
 };
 
@@ -347,6 +354,36 @@ function parseArgs(profile, argv) {
   return options;
 }
 
+/**
+ * Locate an executable without running it. Returns the path, or null when the
+ * command is missing or not executable.
+ */
+function findExecutable(command) {
+  if (!command) return null;
+  const extensions =
+    process.platform === "win32"
+      ? (process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM").split(";")
+      : [""];
+  const candidates =
+    command.includes("/") || command.includes("\\")
+      ? [command]
+      : (process.env.PATH || "")
+          .split(delimiter)
+          .filter(Boolean)
+          .flatMap((directory) =>
+            extensions.map((extension) => join(directory, command + extension)),
+          );
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Keep looking.
+    }
+  }
+  return null;
+}
+
 function readAgentVersion(binary) {
   try {
     const result = spawnSync(binary, ["--version"], {
@@ -502,6 +539,11 @@ async function printPairingQr(payload) {
 /** Start a bridge for one ACP harness. Never returns unless the process exits. */
 export function runBridge(profile, argv = process.argv.slice(2)) {
   const options = parseArgs(profile, argv);
+  if (!findExecutable(options.agent)) {
+    console.error(`[bridge] Could not start ${options.agent}: command not found.`);
+    console.error(`[bridge] ${profile.installHint}`);
+    process.exit(1);
+  }
   const agentVersion = readAgentVersion(options.agent);
   const startedAt = Date.now();
   const clients = new Set();
@@ -950,6 +992,7 @@ export function runBridge(profile, argv = process.argv.slice(2)) {
   function shutdown(exitCode = 0) {
     if (shuttingDown) return;
     shuttingDown = true;
+    process.exitCode = exitCode;
     console.log("[bridge] Shutting down.");
     for (const response of clients) {
       try {
@@ -988,11 +1031,6 @@ const BRIDGE_PROFILES = {
   antigravity: ANTIGRAVITY_PROFILE,
   claude: CLAUDE_PROFILE,
 };
-
-function displayBridgeHost(host) {
-  if (host === "0.0.0.0" || host === "::") return "<this-computer-LAN-IP>";
-  return host;
-}
 
 function allBridgesUsage() {
   return `Mobile Agent ACP bridges ${BRIDGE_VERSION}
@@ -1191,6 +1229,29 @@ export function runAllBridges(argv = process.argv.slice(2)) {
   const selected = Object.entries(BRIDGE_PROFILES).filter(
     ([id]) => !options.only || id === options.only,
   );
+  const started = [];
+  for (const [id, profile] of selected) {
+    const command =
+      process.env[profile.commandEnv] ||
+      process.env[`${profile.envPrefix}_AGENT`] ||
+      profile.defaultCommand;
+    if (!findExecutable(command)) {
+      const message = `${profile.label} bridge skipped: ${command} was not found on PATH. ${profile.installHint}`;
+      if (options.only) {
+        console.error(`[start] ${message}`);
+        process.exit(1);
+      }
+      console.warn(`[start] ${message}`);
+      continue;
+    }
+    started.push([id, profile]);
+  }
+  if (started.length === 0) {
+    console.error(
+      "[start] No harness bridges to start. Install at least one harness CLI, then run mabridge again.",
+    );
+    process.exit(1);
+  }
   const tokenFile = (options.tokenFile || defaultTokenFile()).replace(
     /^~(?=$|\/|\\)/,
     homedir(),
@@ -1218,7 +1279,7 @@ export function runAllBridges(argv = process.argv.slice(2)) {
     process.exit(code ?? 1);
   }
 
-  for (const [id, profile] of selected) {
+  for (const [id, profile] of started) {
     const port = options.ports[id];
     const args = [
       script,
@@ -1233,7 +1294,7 @@ export function runAllBridges(argv = process.argv.slice(2)) {
     ];
     if (options.cwd) args.push("--cwd", options.cwd);
     console.log(
-      `[start] ${profile.label} bridge -> http://${displayBridgeHost(options.host)}:${port}`,
+      `[start] ${profile.label} bridge -> ${pairingBridgeUrl(options.host, port)}`,
     );
     const child = spawn(process.execPath, args, {
       cwd: process.cwd(),
@@ -1259,7 +1320,7 @@ export function runAllBridges(argv = process.argv.slice(2)) {
   console.log(`[start] Shared token file: ${tokenFile}`);
   if (options.pair) {
     console.log("[start] Preparing a one-time pairing QR for the mobile app...");
-    void printAllPairingQr(selected, options, tokenFile);
+    void printAllPairingQr(started, options, tokenFile);
   } else {
     console.log(
       "[start] Copy the token from that file into each harness once. Restarts reuse it.",

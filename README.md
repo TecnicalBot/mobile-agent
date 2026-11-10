@@ -41,10 +41,11 @@ curl -fsSL https://raw.githubusercontent.com/tecnicalbot/mobile-agent/main/tools
 mabridge
 ```
 
-`mabridge` installs a portable Node.js if needed, starts both bridges on your
-LAN, and prints a five-minute pairing QR. In the app, open
+The installer adds a portable Node.js when needed. `mabridge` starts both
+bridges on your LAN and prints a five-minute pairing QR. In the app, open
 **Settings → Harnesses** and scan the QR. One scan configures both harnesses;
-the stable bridge token is created once and reused across restarts.
+the stable bridge token is created once and reused across restarts. The bridges
+keep running in the foreground until you press Ctrl+C.
 
 Use `mabridge --no-pair` to print the URLs and token instead, or see
 [Antigravity](tools/antigravity-bridge/README.md) and

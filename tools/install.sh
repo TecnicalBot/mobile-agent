@@ -37,9 +37,15 @@ download() {
   url="$1"
   out="$2"
   if have curl; then
-    curl -fsSL "$url" -o "$out"
+    if [ -t 2 ]; then
+      curl -fL --retry 3 --retry-delay 1 --connect-timeout 20 \
+        --speed-limit 1024 --speed-time 60 --progress-bar "$url" -o "$out"
+    else
+      curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 20 \
+        --speed-limit 1024 --speed-time 60 "$url" -o "$out"
+    fi
   elif have wget; then
-    wget -qO "$out" "$url"
+    wget -q -t 3 -T 30 -O "$out" "$url"
   else
     die "curl or wget is required to download the bridge."
   fi
@@ -48,11 +54,23 @@ download() {
 download_stdout() {
   url="$1"
   if have curl; then
-    curl -fsSL "$url"
+    curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 20 --max-time 60 "$url"
   elif have wget; then
-    wget -qO- "$url"
+    wget -q -t 3 -T 30 -O - "$url"
   else
     die "curl or wget is required to download Node.js."
+  fi
+}
+
+run_with_timeout() {
+  seconds="$1"
+  shift
+  if have timeout; then
+    timeout "$seconds" "$@"
+  elif have gtimeout; then
+    gtimeout "$seconds" "$@"
+  else
+    "$@"
   fi
 }
 
@@ -91,7 +109,7 @@ checksum() {
 
 install_portable_node() {
   detect_platform
-  say "Node.js $MAB_NODE_MIN_MAJOR+ is required. Downloading a portable copy..."
+  say "Node.js $MAB_NODE_MIN_MAJOR+ is required. Downloading a portable copy (this can take a minute)..."
   dist="https://nodejs.org/dist/latest-v${MAB_NODE_MIN_MAJOR}.x"
   sums=$(download_stdout "$dist/SHASUMS256.txt")
   file=$(printf '%s\n' "$sums" | awk '{print $2}' | grep "node-v.*-$node_os-$node_arch.tar.gz$" | head -1)
@@ -183,10 +201,17 @@ download "$MAB_BRIDGE_URL" "$MAB_HOME/bridge.mjs"
 # The bridge has no required npm dependencies. This tiny optional package only
 # renders the terminal pairing QR; without it, the bridge prints the payload.
 if [ "$MAB_SKIP_QR" != "1" ]; then
-  if [ -n "$NODE_NPM" ]; then
-    say "Installing the QR renderer..."
-    if ! "$NODE_NPM" install --prefix "$MAB_HOME" --no-save --no-package-lock --silent qrcode-terminal@0.12.0; then
-      warn "Could not install qrcode-terminal. Pairing will print a text payload instead."
+  if [ -d "$MAB_HOME/node_modules/qrcode-terminal" ]; then
+    say "QR renderer already installed."
+  elif [ -n "$NODE_NPM" ]; then
+    # Cap the optional step so a slow registry cannot make the installer look
+    # stuck. The bridge is fully usable without this package.
+    say "Installing the optional QR renderer (up to 60 seconds)..."
+    if ! run_with_timeout 60 "$NODE_NPM" install --prefix "$MAB_HOME" \
+      --no-save --no-package-lock --no-audit --no-fund \
+      --fetch-timeout=20000 --fetch-retries=1 --loglevel=error \
+      qrcode-terminal@0.12.0; then
+      warn "Skipped qrcode-terminal. Pairing will print a text payload instead."
     fi
   else
     warn "npm was not found. Pairing will print a text payload instead of a QR."
@@ -365,6 +390,7 @@ else
   say "No harness CLI is installed yet. Install one of the above, then start:"
 fi
 say "  mabridge"
+say "The bridge keeps running in the foreground; press Ctrl+C to stop it."
 say ""
 say "Open Settings → Harnesses in the mobile app and scan the QR."
 say "The code is single-use and expires in 5 minutes."

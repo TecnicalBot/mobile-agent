@@ -1326,6 +1326,7 @@ export function runAllBridges(argv = process.argv.slice(2)) {
       "[start] Copy the token from that file into each harness once. Restarts reuse it.",
     );
   }
+  console.log("[start] Bridges are running. Press Ctrl+C to stop.");
 
   function shutdown(signal) {
     if (shuttingDown) return;

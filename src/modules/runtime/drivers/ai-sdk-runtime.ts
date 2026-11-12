@@ -191,6 +191,9 @@ async function generateViaAISDKWithContinuation(
       includeRawChunks: params.model.transport === "openaiCompatible",
       model: providerModel,
       messages: params.messages,
+      ...(params.temperature !== undefined
+        ? { temperature: params.temperature }
+        : {}),
       onChunk: ({ chunk }) => {
         if (chunk.type === "raw") {
           const text = getRawReasoningDetailsText(chunk.rawValue);
@@ -428,6 +431,9 @@ export async function generateViaAISDKNonStreaming(
     headers: params.requestHeaders,
     model: providerModel,
     messages: params.messages,
+    ...(params.temperature !== undefined
+      ? { temperature: params.temperature }
+      : {}),
     onStepEnd: (step) => {
       params.onEvent?.("step-end", step);
     },

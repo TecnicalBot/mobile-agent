@@ -28,6 +28,12 @@ export type ModelTransport =
 export type ToolApprovalMode = "ask" | "auto";
 export type AgentMode = "plan" | "build";
 export type AgentVisibilityMode = "primary" | "subagent" | "all";
+/**
+ * How a conversation relates to the chat that created it.
+ * `subagent` chats are spawned by the task tool and can be opened like any
+ * other chat, but keep subagent tool restrictions and cannot spawn children.
+ */
+export type ConversationRelationship = "subagent";
 export type AgentToolPermissions = {
   builtInTools?: Partial<Record<BuiltInToolKey, boolean>>;
   mcpServers?: Record<string, boolean>;
@@ -587,6 +593,14 @@ export type Conversation = {
   selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];
   externalFolderSession: ExternalFolderSession | null;
+  /**
+   * Conversation that spawned this chat, when it is a subagent session.
+   * Top-level chats keep both lineage fields null.
+   */
+  parentConversationId: string | null;
+  /** Root of the subagent thread. Equal to the parent for depth-1 children. */
+  rootConversationId: string | null;
+  relationshipToParent: ConversationRelationship | null;
   pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;

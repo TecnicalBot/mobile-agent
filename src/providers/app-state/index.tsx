@@ -4132,6 +4132,9 @@ Your output must be:
             selectedFileIds: [],
             selectedMcpServerIds: null,
             selectedSkillIds: [],
+            parentConversationId: null,
+            rootConversationId: null,
+            relationshipToParent: null,
             title: "New chat",
             updatedAt: now,
         };
@@ -4754,6 +4757,85 @@ Your output must be:
         [],
     );
 
+    const publishSubagentConversation = useCallback(
+        (input: {
+            approvalMode?: ToolApprovalMode | null;
+            approvedToolNames?: string[];
+            conversation: Conversation;
+        }) => {
+            const conversations = upsertConversation(
+                snapshotRef.current.conversations,
+                input.conversation,
+            );
+            const conversationApprovalModes = input.approvalMode
+                ? {
+                      ...snapshotRef.current.conversationApprovalModes,
+                      [input.conversation.id]: input.approvalMode,
+                  }
+                : snapshotRef.current.conversationApprovalModes;
+            const conversationApprovedTools =
+                input.approvedToolNames && input.approvedToolNames.length > 0
+                    ? {
+                          ...snapshotRef.current.conversationApprovedTools,
+                          [input.conversation.id]: input.approvedToolNames,
+                      }
+                    : snapshotRef.current.conversationApprovedTools;
+
+            // Keep the ref in sync before the child run starts: the approval
+            // check reads it directly and React's state update is async.
+            snapshotRef.current = {
+                ...snapshotRef.current,
+                conversations,
+                conversationApprovalModes,
+                conversationApprovedTools,
+            };
+
+            setSnapshot((current) => ({
+                ...current,
+                conversations: upsertConversation(
+                    current.conversations,
+                    input.conversation,
+                ),
+                conversationApprovalModes: input.approvalMode
+                    ? {
+                          ...current.conversationApprovalModes,
+                          [input.conversation.id]: input.approvalMode,
+                      }
+                    : current.conversationApprovalModes,
+                conversationApprovedTools:
+                    input.approvedToolNames &&
+                    input.approvedToolNames.length > 0
+                        ? {
+                              ...current.conversationApprovedTools,
+                              [input.conversation.id]:
+                                  input.approvedToolNames,
+                          }
+                        : current.conversationApprovedTools,
+            }));
+        },
+        [],
+    );
+
+    const createSubagentRunUi = useCallback(
+        (input: { conversationId: string; runId: string }) =>
+            createRunUiPublisher({
+                runId: input.runId,
+                setError: (next) => {
+                    // A child run's error belongs to the child chat; don't
+                    // surface it over whatever chat the user is reading.
+                    if (
+                        snapshotRef.current.currentConversation?.id ===
+                        input.conversationId
+                    ) {
+                        setError(next);
+                    }
+                },
+                setPendingToolApprovals,
+                setSnapshot,
+            }),
+        [],
+    );
+
     const executeAgentRun = useCallback(
         async (runId: string) => {
         const registry = runRegistryRef.current;
@@ -4796,9 +4878,13 @@ Your output must be:
                 },
                 shouldKeepBackgroundAgentAlive: () =>
                     runRegistryRef.current.hasActiveRuns(),
+                promoteAfterRun: (settledRunId) =>
+                    promoteAfterRunRef.current(settledRunId),
                 refreshScheduler,
                 spawnSubagent: (task) =>
                     executeSubagentTask(deps, task),
+                publishSubagentConversation,
+                createRunUi: createSubagentRunUi,
                 pluginRuntimeSnapshot: pluginRuntimeRef.current.snapshot(runId),
             };
 
@@ -4823,7 +4909,7 @@ Your output must be:
             }
         }
     },
-        [failOrphanedStreamingMessage, generateAndApplyConversationTitle, hydrate, notifyRunStateChange, refreshScheduler, requestRunQuestionnaire, requestRunSecret, requestToolApproval, updateRunRecord],
+        [createSubagentRunUi, failOrphanedStreamingMessage, generateAndApplyConversationTitle, hydrate, notifyRunStateChange, publishSubagentConversation, refreshScheduler, requestRunQuestionnaire, requestRunSecret, requestToolApproval, updateRunRecord],
     );
     executeAgentRunRef.current = executeAgentRun;
 

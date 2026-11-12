@@ -5,19 +5,19 @@ import type {
   AgentConfig,
   ToolExecutionRecord,
 } from "@/core/types/app-state";
+import { listSubagents } from "@/modules/agents/registry";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 
 export type SubagentTaskResult = {
+  conversationId?: string;
   output: string;
 };
 
 export function describeSubagentCatalog(agents: AgentConfig[]) {
-  const subagents = agents
-    .filter((agent) => agent.enabled && agent.mode !== "primary")
-    .map((agent) => ({
-      description: agent.description ?? "",
-      name: agent.name,
-    }));
+  const subagents = listSubagents(agents).map((agent) => ({
+    description: agent.description ?? "",
+    name: agent.name,
+  }));
 
   if (subagents.length === 0) {
     return "No subagents are configured yet. Tell the user they can create subagents in Settings > Agents (availability: Subagent only or Chat + Subagent).";
@@ -68,11 +68,9 @@ export function createTaskTool(input: {
             .describe("The name of the subagent to use for this task"),
         }),
         execute: async ({ description, prompt, subagent_type }, options) => {
-          const available = getAgents().find(
+          const available = listSubagents(getAgents()).find(
             (agent) =>
-              agent.enabled &&
-              agent.mode !== "primary" &&
-              (agent.name === subagent_type || agent.id === subagent_type),
+              agent.name === subagent_type || agent.id === subagent_type,
           );
 
           if (!available) {
@@ -107,6 +105,7 @@ export function createTaskTool(input: {
             return {
               ok: true,
               agent: available.name,
+              conversationId: result.conversationId ?? null,
               result: result.output,
             };
           } catch (error) {

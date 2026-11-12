@@ -100,6 +100,27 @@ describe("agent registry", () => {
     expect(subagents).toContain("helper");
     expect(subagents).toContain("dual");
     expect(subagents).not.toContain("solo");
+    // The default build agent is a chat persona, not a subagent.
+    expect(subagents).not.toContain(DEFAULT_AGENT_NAME);
+  });
+
+  it("finds the native general subagent with no stored agents", () => {
+    expect(listSubagents([]).map((agent) => agent.name)).toEqual([
+      GENERAL_SUBAGENT_NAME,
+    ]);
+  });
+
+  it("lets a disabled override remove a native or custom subagent", () => {
+    const disabledGeneral = makeAgent({
+      enabled: false,
+      id: "row-general",
+      name: GENERAL_SUBAGENT_NAME,
+      mode: "subagent",
+    });
+
+    expect(
+      listSubagents([disabledGeneral]).map((agent) => agent.name),
+    ).not.toContain(GENERAL_SUBAGENT_NAME);
   });
 });
 

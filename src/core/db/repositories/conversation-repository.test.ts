@@ -6,6 +6,49 @@ import type { AppDatabase } from "./types";
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn() }));
 vi.mock("./shared", () => ({ nowIso: () => "2026-10-14T00:00:00.000Z" }));
 
+describe("conversation lineage", () => {
+  it("persists subagent lineage on create", async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const db = {
+      insert: () => ({
+        values: async (input: Record<string, unknown>) => {
+          inserted.push(input);
+        },
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [inserted[0]],
+          }),
+        }),
+      }),
+    };
+    const repository = createConversationRepository(
+      db as unknown as AppDatabase,
+    );
+
+    const conversation = await repository.create({
+      id: "child",
+      parentConversationId: "parent",
+      relationshipToParent: "subagent",
+      rootConversationId: "root",
+      title: "Research the repo",
+    });
+
+    expect(inserted[0]).toMatchObject({
+      id: "child",
+      parentConversationId: "parent",
+      relationshipToParent: "subagent",
+      rootConversationId: "root",
+    });
+    expect(conversation).toMatchObject({
+      parentConversationId: "parent",
+      relationshipToParent: "subagent",
+      rootConversationId: "root",
+    });
+  });
+});
+
 describe("conversation metadata patches", () => {
   it("does not restore a stale file selection during a background title update", async () => {
     const row: Record<string, unknown> = { title: "Old", selectedFileIds: ["image-1"] };

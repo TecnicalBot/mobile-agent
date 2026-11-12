@@ -8,7 +8,7 @@ import {
 } from "@/modules/config/models-dev-catalog";
 import { resolveConfiguredModel } from "@/modules/config/registry";
 import {
-  DEFAULT_AGENT_NAME,
+  listSubagents,
   resolveAgent,
 } from "@/modules/agents/registry";
 import {
@@ -82,6 +82,7 @@ import { createSecretRequestTools } from "@/modules/tools/built-in/secret-reques
 import {
   createTaskTool,
   describeSubagentCatalog,
+  type SubagentTaskResult,
 } from "@/modules/tools/built-in/task-tool";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import { createTodosTool } from "@/modules/tools/built-in/todos";
@@ -117,6 +118,7 @@ import type {
   BuiltInToolKey,
   Conversation,
   ExternalFolderSession,
+  FileContextSource,
   MemoryEvent,
   MessageMetadata,
   PendingInput,
@@ -128,8 +130,10 @@ import type {
   PromptArtifact,
   ProviderConfig,
   ReasoningBlock,
+  ReasoningEffort,
   ResolvedModel,
   StoredMessage,
+  ToolApprovalMode,
   ToolExecutionRecord,
   WorkspaceFile,
 } from "@/core/types/app-state";
@@ -147,6 +151,7 @@ import {
   buildUsageSnapshot,
   describePromptArtifactLocation,
   pickEnabledTools,
+  resolveAppliedSkills,
   upsertAgentRun,
   upsertMessages,
 } from "./helpers";
@@ -244,7 +249,23 @@ export type AgentRunDeps = {
   /** Ask the scheduler engine to re-scan schedules (after tool-driven CRUD). */
   refreshScheduler: () => void;
   /** Spawn and await a subagent task run. */
-  spawnSubagent: (input: SubagentTaskInput) => Promise<{ output: string }>;
+  spawnSubagent: (input: SubagentTaskInput) => Promise<SubagentTaskResult>;
+  /**
+   * Publish a newly created subagent chat into the live snapshot so it shows
+   * up in the sidebar immediately instead of waiting for a re-hydrate.
+   */
+  publishSubagentConversation?: (input: {
+    approvalMode?: ToolApprovalMode | null;
+    approvedToolNames?: string[];
+    conversation: Conversation;
+  }) => void;
+  /** Create a UI publisher that targets one child conversation. */
+  createRunUi?: (input: {
+    conversationId: string;
+    runId: string;
+  }) => RunUiPublisher;
+  /** Promote queued input after a child run settles. */
+  promoteAfterRun?: (runId: string) => void;
   /** Snapshot of loaded plugin hooks for this run. */
   pluginRuntimeSnapshot?: PluginRuntimeSnapshot;
 };
@@ -445,7 +466,10 @@ export async function executeClaimedAgentRun(
     run.agentId ?? conversation.agentId,
   );
   const isPlanMode = isPlanAgent(agent);
-  const isSubagentRun = agent.mode === "subagent";
+  // Lineage is the source of truth: an "all"-mode agent can also run as a
+  // subagent, and the child must keep subagent restrictions even if the user
+  // opens its chat and sends a follow-up.
+  const isSubagentRun = conversation.relationshipToParent === "subagent";
 
   const provider = snapshotRef.current.resolvedConfig.providers.find(
     (item) => item.id === run.providerId,
@@ -1585,11 +1609,34 @@ export async function executeClaimedAgentRun(
         ? createTaskTool({
             getAgents: () => snapshotRef.current.agents,
             onRecord: handleToolExecutionRecord,
-            spawnSubagent: (task) =>
-              deps.spawnSubagent({
-                ...task,
-                abortSignal: abortController.signal,
-              }),
+            spawnSubagent: async (task) => {
+              // The parent is blocked inside the tool call, so it must keep
+              // its inactivity timer warm or a long subagent would abort it.
+              const heartbeat = setInterval(markActivity, 30_000);
+              try {
+                return await deps.spawnSubagent({
+                  ...task,
+                  abortSignal: abortController.signal,
+                  parent: {
+                    autoApprove: run.autoApprove,
+                    conversationId: conversation.id,
+                    externalFolderSession:
+                      run.externalFolderSession ??
+                      conversation.externalFolderSession,
+                    fileContextSource: run.fileContextSource,
+                    modelId: run.modelId,
+                    providerId: run.providerId,
+                    reasoningEffort: conversation.reasoningEffort,
+                    rootConversationId: conversation.rootConversationId,
+                    selectedFileIds: run.selectedFileIds,
+                    selectedMcpServerIds: conversation.selectedMcpServerIds,
+                    selectedSkillIds: conversation.selectedSkillIds,
+                  },
+                });
+              } finally {
+                clearInterval(heartbeat);
+              }
+            },
           })
         : null;
     const agentRuntime =
@@ -2411,6 +2458,9 @@ export async function executeClaimedAgentRun(
       maxToolSteps: 9999,
       messages: runtimeMessages,
       model: resolvedModel,
+      ...(agent.temperature !== null && agent.temperature !== undefined
+        ? { temperature: agent.temperature }
+        : {}),
       onDelta: (delta) => {
         if (runRegistry.isDisposed()) return;
         markActivity();
@@ -2974,17 +3024,33 @@ const SUBAGENT_NOOP_UI: RunUiPublisher = {
   publishSnapshot: () => {},
 };
 
+export type SubagentParentContext = {
+  autoApprove: boolean;
+  conversationId: string;
+  externalFolderSession: ExternalFolderSession | null;
+  fileContextSource: FileContextSource | null;
+  modelId: string;
+  providerId: string;
+  reasoningEffort: ReasoningEffort;
+  rootConversationId: string | null;
+  selectedFileIds: string[];
+  selectedMcpServerIds: string[] | null;
+  selectedSkillIds: string[];
+};
+
 export type SubagentTaskInput = {
   abortSignal?: AbortSignal;
   agentName: string;
   description: string;
+  /** Chat context the delegated task inherits from its parent run. */
+  parent?: SubagentParentContext;
   prompt: string;
 };
 
 export async function executeSubagentTask(
   parentDeps: AgentRunDeps,
   input: SubagentTaskInput,
-): Promise<{ output: string }> {
+): Promise<SubagentTaskResult> {
   const {
     repositories,
     snapshotRef,
@@ -2994,42 +3060,137 @@ export async function executeSubagentTask(
   } = parentDeps;
 
   const snapshot = snapshotRef.current;
-  const agent = resolveAgent(snapshot.agents, input.agentName);
+  const agent = listSubagents(snapshot.agents).find(
+    (candidate) =>
+      candidate.name === input.agentName || candidate.id === input.agentName,
+  );
 
-  if (agent.name === DEFAULT_AGENT_NAME || agent.mode === "primary") {
+  if (!agent) {
     throw new Error(`"${input.agentName}" is not available as a subagent.`);
   }
 
+  const agentModel =
+    agent.modelProviderId && agent.modelModelId
+      ? snapshot.resolvedConfig.availableModels.find(
+          (model) =>
+            model.providerId === agent.modelProviderId &&
+            model.modelId === agent.modelModelId,
+        )
+      : null;
+
   if (
-    !agent.modelProviderId ||
-    !agent.modelModelId
+    agent.modelProviderId &&
+    agent.modelModelId &&
+    !agentModel
   ) {
-    if (!snapshot.resolvedConfig.currentModel) {
-      throw new Error("No active model is available to run the subagent.");
-    }
+    throw new Error(
+      `Subagent "${agent.name}" is configured to use ${agent.modelProviderId}/${agent.modelModelId}, which is unavailable. Enable that provider or pick a different model for the agent.`,
+    );
   }
 
-  const modelRef =
-    agent.modelProviderId && agent.modelModelId
-      ? {
-          modelId: agent.modelModelId,
-          providerId: agent.modelProviderId,
-        }
-      : {
-          modelId: snapshot.resolvedConfig.currentModel!.modelId,
-          providerId: snapshot.resolvedConfig.currentModel!.providerId,
-        };
+  const parent = input.parent;
+  const modelRef = agentModel
+    ? {
+        modelId: agentModel.modelId,
+        providerId: agentModel.providerId,
+      }
+    : parent
+      ? { modelId: parent.modelId, providerId: parent.providerId }
+      : snapshot.resolvedConfig.currentModel
+        ? {
+            modelId: snapshot.resolvedConfig.currentModel.modelId,
+            providerId: snapshot.resolvedConfig.currentModel.providerId,
+          }
+        : null;
+
+  if (!modelRef) {
+    throw new Error("No active model is available to run the subagent.");
+  }
+
+  const [approvalModes, approvedToolsByConversation] = await Promise.all([
+    repositories.configRepository.getConversationApprovalModes(),
+    repositories.configRepository.getApprovedToolsByConversation(),
+  ]);
+  const approvalMode: ToolApprovalMode = parent?.autoApprove
+    ? "auto"
+    : parent
+      ? (approvalModes[parent.conversationId] ?? "ask")
+      : "ask";
+  const approvedToolNames = parent
+    ? (approvedToolsByConversation[parent.conversationId] ?? [])
+    : [];
+
+  const fileContextSource =
+    parent?.fileContextSource ??
+    (parent?.externalFolderSession ? "external-folder" : null);
+  const externalFolderSession =
+    fileContextSource === "external-folder"
+      ? (parent?.externalFolderSession ?? null)
+      : null;
+  const selectedFileIds = parent?.selectedFileIds ?? [];
 
   const conversation = await repositories.conversationRepository.create({
-    modelId: modelRef.modelId,
-    providerId: modelRef.providerId,
-    title: `${input.description} (@${agent.name} subagent)`,
-  });
-
-  await repositories.conversationRepository.updateMetadata(conversation.id, {
     agentId: agent.id,
     agentMode: "build",
+    externalFolderSession: parent?.externalFolderSession ?? null,
+    modelId: modelRef.modelId,
+    parentConversationId: parent?.conversationId ?? null,
+    providerId: modelRef.providerId,
+    reasoningEffort: parent?.reasoningEffort ?? "medium",
+    relationshipToParent: "subagent",
+    rootConversationId: parent
+      ? (parent.rootConversationId ?? parent.conversationId)
+      : null,
+    selectedFileIds: [],
+    selectedMcpServerIds: parent?.selectedMcpServerIds ?? null,
+    selectedSkillIds: parent?.selectedSkillIds ?? [],
+    title: input.description,
   });
+
+  // Persist inherited approval policy once, before the run starts, so the
+  // child's approval drawer and notification titles resolve correctly even
+  // while the parent is blocked inside the task tool.
+  if (approvalMode !== "ask") {
+    await repositories.configRepository.setConversationApprovalModes({
+      ...approvalModes,
+      [conversation.id]: approvalMode,
+    });
+  }
+  if (approvedToolNames.length > 0) {
+    await repositories.configRepository.setApprovedToolsByConversation({
+      ...approvedToolsByConversation,
+      [conversation.id]: approvedToolNames,
+    });
+  }
+
+  parentDeps.publishSubagentConversation?.({
+    approvalMode,
+    approvedToolNames,
+    conversation,
+  });
+
+  const appliedSkillIds = resolveAppliedSkills({
+    content: input.prompt,
+    selectedSkillIds: conversation.selectedSkillIds,
+    skills: snapshot.skills,
+  }).map((skill) => skill.id);
+  const userMetadataEntries: MessageMetadata = {};
+  if (selectedFileIds.length > 0 || fileContextSource) {
+    userMetadataEntries.externalFolderDisplayName =
+      externalFolderSession?.displayName ?? null;
+    if (fileContextSource) {
+      userMetadataEntries.fileContextSource = fileContextSource;
+    }
+    if (selectedFileIds.length > 0) {
+      userMetadataEntries.selectedFileIds = selectedFileIds;
+    }
+  }
+  if (appliedSkillIds.length > 0) {
+    userMetadataEntries.appliedSkillIds = appliedSkillIds;
+  }
+  const userMetadata = Object.keys(userMetadataEntries).length > 0
+    ? userMetadataEntries
+    : null;
 
   const userSequence = await repositories.messageRepository.getNextSequence(
     conversation.id,
@@ -3037,6 +3198,7 @@ export async function executeSubagentTask(
   const userMessage = await repositories.messageRepository.create({
     content: input.prompt,
     conversationId: conversation.id,
+    metadata: userMetadata,
     role: "user",
     sequence: userSequence,
     status: "completed",
@@ -3052,16 +3214,23 @@ export async function executeSubagentTask(
     agentId: agent.id,
     agentMode: "build",
     assistantMessageId: assistantMessage.id,
-    autoApprove:
-      snapshot.conversationApprovalModes?.[conversation.id] === "auto",
+    autoApprove: approvalMode === "auto",
     conversationId: conversation.id,
+    externalFolderSession,
+    fileContextSource,
     input: input.prompt,
     modelId: modelRef.modelId,
     providerId: modelRef.providerId,
-    selectedFileIds: [],
+    selectedFileIds,
     status: "queued",
     userMessageId: userMessage.id,
   });
+
+  const childUi =
+    parentDeps.createRunUi?.({
+      conversationId: conversation.id,
+      runId: childRun.id,
+    }) ?? SUBAGENT_NOOP_UI;
 
   const childDeps: AgentRunDeps = {
     ...parentDeps,
@@ -3076,7 +3245,7 @@ export async function executeSubagentTask(
     },
     shouldKeepBackgroundAgentAlive,
     refreshScheduler,
-    ui: SUBAGENT_NOOP_UI,
+    ui: childUi,
   };
 
   if (!runRegistry.claim(childRun.id)) {
@@ -3093,19 +3262,50 @@ export async function executeSubagentTask(
     await executeClaimedAgentRun(childRun.id, childDeps);
   } finally {
     input.abortSignal?.removeEventListener("abort", onParentAbort);
+
+    const updatedAt = new Date().toISOString();
+    await repositories.conversationRepository
+      .updateMetadata(conversation.id, { updatedAt })
+      .catch(() => {});
+    // A user may have renamed the child while it ran; publish the row as it
+    // exists now instead of the snapshot captured at creation.
+    const finishedConversation =
+      (await repositories.conversationRepository
+        .getById(conversation.id)
+        .catch(() => null)) ?? { ...conversation, updatedAt };
+    parentDeps.publishSubagentConversation?.({
+      approvalMode,
+      approvedToolNames,
+      conversation: finishedConversation,
+    });
+    parentDeps.promoteAfterRun?.(childRun.id);
   }
 
   const childMessages =
     await repositories.messageRepository.listByConversation(conversation.id);
-  const finalAssistant = childMessages.find(
-    (message) => message.id === childRun.assistantMessageId,
+  const runAssistants = childMessages.filter(
+    (message) =>
+      message.role === "assistant" &&
+      message.metadata?.runId === childRun.id,
+  );
+  const failedAssistant = runAssistants.find(
+    (message) => message.status === "failed",
   );
 
-  if (!finalAssistant || finalAssistant.status === "failed") {
+  if (failedAssistant) {
     throw new Error(
-      finalAssistant?.error ?? "Subagent did not produce a result.",
+      failedAssistant.error ?? "Subagent did not produce a result.",
     );
   }
 
-  return { output: finalAssistant.content };
+  const output = runAssistants
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!output) {
+    throw new Error("Subagent did not produce a result.");
+  }
+
+  return { conversationId: conversation.id, output };
 }

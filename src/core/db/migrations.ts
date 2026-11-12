@@ -5,7 +5,7 @@ import {
 } from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 34;
+const DATABASE_VERSION = 35;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -261,6 +261,39 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       `);
     }
 
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "parent_conversation_id",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN parent_conversation_id TEXT;
+      `);
+    }
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "root_conversation_id",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN root_conversation_id TEXT;
+      `);
+    }
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "relationship_to_parent",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN relationship_to_parent TEXT;
+      `);
+    }
+
     if (!conversationColumns.some((column) => column.name === "agent_id")) {
       await db.execAsync(`
         ALTER TABLE conversations
@@ -273,6 +306,11 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         WHERE agent_id IS NULL;
       `);
     }
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_conversations_parent
+      ON conversations(parent_conversation_id);
+    `);
 
     const runColumns = await db.getAllAsync<{ name: string }>(
       "PRAGMA table_info(agent_runs)",
@@ -334,6 +372,9 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
         selected_mcp_server_ids_json TEXT,
         selected_skill_ids_json TEXT NOT NULL DEFAULT '[]',
         external_folder_session_json TEXT,
+        parent_conversation_id TEXT,
+        root_conversation_id TEXT,
+        relationship_to_parent TEXT,
         pinned_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -1576,6 +1617,64 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 34;
+  }
+
+  if (currentVersion === 34) {
+    // Subagent chats are real conversations with lineage, so they can appear
+    // in the sidebar and be reopened like any other chat.
+    const conversationColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(conversations)",
+    );
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "parent_conversation_id",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN parent_conversation_id TEXT;
+      `);
+    }
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "root_conversation_id",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN root_conversation_id TEXT;
+      `);
+    }
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "relationship_to_parent",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN relationship_to_parent TEXT;
+      `);
+    }
+
+    // Old subagent runs were titled "<description> (@<agent> subagent)".
+    // We cannot recover the parent, but the chat can still be marked so it
+    // keeps subagent restrictions and renders the subagent badge.
+    await db.execAsync(`
+      UPDATE conversations
+      SET relationship_to_parent = 'subagent'
+      WHERE relationship_to_parent IS NULL
+        AND title LIKE '%(@% subagent)';
+    `);
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_conversations_parent
+      ON conversations(parent_conversation_id);
+    `);
+
+    currentVersion = 35;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

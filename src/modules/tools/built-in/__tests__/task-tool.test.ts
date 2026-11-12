@@ -29,13 +29,16 @@ function makeAgent(overrides: Partial<AgentConfig>): AgentConfig {
 }
 
 describe("task-tool", () => {
-  it("describes subagents and falls back when none exist", () => {
-    const empty = describeSubagentCatalog([
+  it("describes subagents and always includes the native general agent", () => {
+    // Stored agents only hold user-defined rows; the built-in general subagent
+    // still has to be discoverable out of the box.
+    const catalog = describeSubagentCatalog([
       makeAgent({ name: "solo", mode: "primary" }),
     ]);
-    expect(empty).toContain("No subagents are configured");
+    expect(catalog).toContain("general:");
+    expect(catalog).not.toContain("No subagents are configured");
 
-    const catalog = describeSubagentCatalog([
+    const withCustom = describeSubagentCatalog([
       makeAgent({
         name: "researcher",
         mode: "subagent",
@@ -43,8 +46,9 @@ describe("task-tool", () => {
       }),
       makeAgent({ name: "build", mode: "all" }),
     ]);
-    expect(catalog).toContain("researcher: Deep research");
-    expect(catalog).toContain("build:");
+    expect(withCustom).toContain("researcher: Deep research");
+    // build is the default chat persona, not a delegation target.
+    expect(withCustom).not.toContain("build:");
   });
 
   it("rejects unknown or primary-only targets", async () => {

@@ -11,6 +11,7 @@ import type {
   AppSettings,
   BuiltInToolSettings,
   Conversation,
+  ConversationRelationship,
   DatabaseMode,
   DocumentSection,
   ExternalFolderSession,
@@ -91,9 +92,12 @@ export interface ConversationRepository {
     externalFolderSession?: ExternalFolderSession | null;
     id?: string;
     modelId?: string | null;
+    parentConversationId?: string | null;
     pinnedAt?: string | null;
     providerId?: string | null;
     reasoningEffort?: ReasoningEffort;
+    relationshipToParent?: ConversationRelationship | null;
+    rootConversationId?: string | null;
     selectedFileIds?: string[];
     selectedMcpServerIds?: string[] | null;
     selectedSkillIds?: string[];

@@ -23,6 +23,8 @@ export type GenerateModelTextStreamParams = {
   onEvent?: (eventName: string | null, data: unknown) => void;
   provider: ProviderConfig;
   reasoning?: "provider-default" | ReasoningEffort;
+  /** Sampling temperature override from the active agent. */
+  temperature?: number;
   providerOptions?: Record<string, unknown>;
   requestHeaders?: Record<string, string>;
   secretStore: SecretStore;

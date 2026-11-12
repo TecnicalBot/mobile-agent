@@ -141,19 +141,29 @@ export function listSubagents(agents: AgentConfig[]): AgentConfig[] {
   const merged = new Map<string, AgentConfig>();
 
   for (const agent of NATIVE_AGENTS) {
-    if (agent.mode !== "subagent" && agent.mode !== "all") {
+    // The default agent is a chat persona, not a delegation target.
+    if (
+      agent.name === DEFAULT_AGENT_NAME ||
+      (agent.mode !== "subagent" && agent.mode !== "all")
+    ) {
       continue;
     }
     merged.set(agent.name, agent);
   }
 
   for (const agent of agents) {
+    // Never delegate to the default chat persona, even through an override.
+    if (agent.name === DEFAULT_AGENT_NAME) {
+      continue;
+    }
     if (!agent.enabled || agent.hidden) {
-      if (agent.mode !== "subagent") continue;
       merged.delete(agent.name);
       continue;
     }
-    if (agent.mode === "primary") continue;
+    if (agent.mode === "primary") {
+      merged.delete(agent.name);
+      continue;
+    }
     merged.set(agent.name, { ...agent });
   }
 

@@ -10,6 +10,7 @@ import {
 import type {
   AgentMode,
   AgentRunStatus,
+  ConversationRelationship,
   ExternalFolderSession,
   FileContextSource,
   MessageMetadata,
@@ -53,12 +54,20 @@ export const conversations = sqliteTable(
       .default([]),
     externalFolderSession: text("external_folder_session_json", { mode: "json" })
       .$type<ExternalFolderSession | null>(),
+    parentConversationId: text("parent_conversation_id"),
+    rootConversationId: text("root_conversation_id"),
+    relationshipToParent: text(
+      "relationship_to_parent",
+    ).$type<ConversationRelationship | null>(),
     pinnedAt: text("pinned_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     archivedAt: text("archived_at"),
   },
-  (table) => [index("idx_conversations_updated_at").on(table.updatedAt)],
+  (table) => [
+    index("idx_conversations_updated_at").on(table.updatedAt),
+    index("idx_conversations_parent").on(table.parentConversationId),
+  ],
 );
 
 export const messages = sqliteTable(

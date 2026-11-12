@@ -374,8 +374,10 @@ export default function Screen() {
     savedPrompts,
     setReasoningEffort,
     agents,
+    conversations,
     currentSelectedAgentId,
     conversationAgentName,
+    selectConversation,
     setConversationAgent,
   } = useChat();
   const currentConversationBusy =
@@ -385,6 +387,19 @@ export default function Screen() {
     currentConversationRunStatus === "waiting_for_question" ||
     currentConversationRunStatus === "resumable" ||
     currentConversationRunStatus === "retrying";
+  const parentConversation = useMemo(
+    () =>
+      currentConversation?.relationshipToParent === "subagent" &&
+      currentConversation.parentConversationId
+        ? (conversations.find(
+            (conversation) =>
+              conversation.id === currentConversation.parentConversationId,
+          ) ?? null)
+        : null,
+    [conversations, currentConversation],
+  );
+  const isSubagentConversation =
+    currentConversation?.relationshipToParent === "subagent";
   const latestUserMessageId = useMemo(
     () =>
       [...messages].reverse().find((message) => message.role === "user")?.id ??
@@ -903,6 +918,40 @@ export default function Screen() {
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+                {isSubagentConversation ? (
+                  <InfoSection
+                    subtitle="This chat was spawned by another chat and inherits its model, permissions, and context."
+                    title="Subagent"
+                  >
+                    <InfoRow
+                      label="Agent"
+                      value={
+                        currentConversation
+                          ? resolveAgent(agents, currentConversation.agentId)
+                              .name
+                          : "Unknown"
+                      }
+                    />
+                    <InfoRow
+                      label="Parent chat"
+                      value={parentConversation?.title ?? "Unavailable"}
+                    />
+                    {parentConversation ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        className="self-start rounded-ui border border-border px-sp-3 py-sp-2 dark:border-border-dark"
+                        onPress={() => {
+                          setInfoDrawerOpen(false);
+                          void selectConversation(parentConversation.id);
+                        }}
+                      >
+                        <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                          Open parent chat
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </InfoSection>
+                ) : null}
                 <InfoSection title="Model">
                   <InfoRow
                     label="Provider"

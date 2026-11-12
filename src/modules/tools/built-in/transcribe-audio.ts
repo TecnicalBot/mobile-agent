@@ -7,6 +7,7 @@ import {
   assertAudioFileUsable,
   buildAudioDataUri,
   MAX_AUDIO_FILE_BYTES,
+  MAX_SERVED_AUDIO_FILE_BYTES,
   resolveAudioMimeType,
 } from "@/modules/preview/video-audio";
 import { requestAudioAnalysis } from "@/modules/preview/video-audio-analysis-job";
@@ -34,8 +35,10 @@ import {
  *    decoded by MediaCodec into a bounded PCM cache, transcribed in 30 s
  *    Whisper windows. Time-bounded (`maxSeconds`), not size-bounded — long
  *    recordings never touch the JS heap or the in-page decode.
- *  - Legacy (iOS / older builds): the hidden WebView host decodes ≤15 MB
- *    via WebAudio; everything bigger fails with the inline budget error.
+ *  - Inline (iOS / older builds, and the `system` engine): the hidden WebView
+ *    host decodes the file over the loopback asset server (≤200 MB, no heap
+ *    copy), the same lane `analyzeAudio` uses. Only when that server is
+ *    unavailable does the file become a data URI, capped at 15 MB.
  *
  * The engine that turns PCM into words is selectable:
  *
@@ -54,7 +57,7 @@ export function createTranscribeAudioTool({
 }: WorkspaceToolFactoryParams) {
   return tool({
     description:
-      'Transcribe speech in an audio file already saved in the workspace and get the words with start/end times in seconds. Use this when the user wants a video, animation, or captions that follow what is said in a recording (e.g. \'make the words pop up as they are spoken\'). Returns the full `text`, a detected `language`, the transcribed `duration`, `sourceDuration` (the whole recording), `truncated` (true when `maxSeconds` cut it short), and `segments` (sentence/phrase-level spans with `start`, `end`, and `text`). Runs entirely on device with the Whisper model downloaded in Settings → Voice input; MP3, WAV, M4A, AAC, OGG, WebM, and long MP4/MOV/WebM video soundtracks are all supported — audio decodes natively in bounded windows and transcribes in 30 s slices, so the practical limit is spoken time (`maxSeconds`, up to 3600 s), not file size. When `truncated` is true, re-run with a larger `maxSeconds` to cover more of the recording. Builds without the native decoder fall back to inline decoding capped at 15 MB, as does engine: "system" — downloading a Whisper model does not raise that cap. engine: "system" uses the device\'s own recognizer (Android 13+; it reports word timings and therefore `segments` only on Android 14+ with the on-device speech model, otherwise it returns text with no timings). This only transcribes speech - it does not analyze music, so use analyzeAudio for tempo, melody, notes, and key.',
+      'Transcribe speech in an audio file already saved in the workspace and get the words with start/end times in seconds. Use this when the user wants a video, animation, or captions that follow what is said in a recording (e.g. \'make the words pop up as they are spoken\'). Returns the full `text`, a detected `language`, the transcribed `duration`, `sourceDuration` (the whole recording), `truncated` (true when `maxSeconds` cut it short), and `segments` (sentence/phrase-level spans with `start`, `end`, and `text`). Runs entirely on device with the Whisper model downloaded in Settings → Voice input; MP3, WAV, M4A, AAC, OGG, WebM, and long MP4/MOV/WebM video soundtracks are all supported — audio decodes natively in bounded windows and transcribes in 30 s slices, so the practical limit is spoken time (`maxSeconds`, up to 3600 s), not file size. When `truncated` is true, re-run with a larger `maxSeconds` to cover more of the recording. Builds without the native decoder — and engine: "system" — decode through the hidden WebView host over loopback HTTP (files up to 200 MB, no size inflation); only when the loopback server is unavailable does a data-URI fallback cap the file at 15 MB. engine: "system" uses the device\'s own recognizer (Android 13+; it reports word timings and therefore `segments` only on Android 14+ with the on-device speech model, otherwise it returns text with no timings). This only transcribes speech - it does not analyze music, so use analyzeAudio for tempo, melody, notes, and key.',
     inputSchema: z.object({
       fileId: z
         .string()
@@ -244,9 +247,17 @@ async function transcribeNatively(
   }
 }
 
-/** Legacy lane: inline ≤15 MB through the WebAudio decode host. */
+/**
+ * Inline lane: the WebView decode host. Prefer the loopback asset server
+ * (streams from disk, up to MAX_SERVED_AUDIO_FILE_BYTES) exactly like
+ * `analyzeAudio`; the ≤15 MB data-URI lane is only the no-server fallback.
+ */
 async function transcribeInline(
-  record: { displayName: string; mimeType: string | null | undefined },
+  record: {
+    displayName: string;
+    mimeType: string | null | undefined;
+    relativePath: string;
+  },
   file: { size?: number | null; bytes: () => Promise<Uint8Array> },
   options: {
     useSystem: boolean;
@@ -255,23 +266,42 @@ async function transcribeInline(
   },
   limits: { maxSeconds: number; signal?: AbortSignal },
 ) {
-  // Stat before reading: the data lane must reject an over-cap file on its
-  // stat, never on bytes already in the heap — FileSystemFile.bytes()
-  // materializes the whole file, so an oversized audio OOMs inside the read
-  // before the post-read assert could reject it.
   const statSize = typeof file.size === "number" ? file.size : null;
-  const budgetError = inlineBudgetError(record, statSize, options);
-  if (budgetError) throw budgetError;
-  assertAudioFileUsable(record.displayName, record.mimeType, statSize);
-  const bytes = await file.bytes();
-  const mimeType = assertAudioFileUsable(
-    record.displayName,
-    record.mimeType,
-    bytes.length,
+
+  // Served lane first: stat-only validation, and the host fetches the file
+  // over loopback HTTP, so a long video's soundtrack never enters the JS heap.
+  const { ensureAssetServer, workspaceFileUrl } = await import(
+    "@/modules/preview/asset-server"
   );
+  const baseUrl = await ensureAssetServer().catch(() => null);
+  let src: string;
+  if (baseUrl) {
+    assertAudioFileUsable(
+      record.displayName,
+      record.mimeType,
+      statSize,
+      MAX_SERVED_AUDIO_FILE_BYTES,
+    );
+    src = workspaceFileUrl(baseUrl, record.relativePath);
+  } else {
+    // Stat before reading: the data lane must reject an over-cap file on its
+    // stat, never on bytes already in the heap — FileSystemFile.bytes()
+    // materializes the whole file, so an oversized audio OOMs inside the read
+    // before the post-read assert could reject it.
+    const budgetError = inlineBudgetError(record, statSize, options);
+    if (budgetError) throw budgetError;
+    assertAudioFileUsable(record.displayName, record.mimeType, statSize);
+    const bytes = await file.bytes();
+    const mimeType = assertAudioFileUsable(
+      record.displayName,
+      record.mimeType,
+      bytes.length,
+    );
+    src = buildAudioDataUri(mimeType, bytes);
+  }
 
   const { pcm, summary } = await requestAudioAnalysis({
-    src: buildAudioDataUri(mimeType, bytes),
+    src,
     maxSeconds: limits.maxSeconds,
     sampleRate: 16000,
     pcmSampleRate: 16000,
@@ -305,9 +335,10 @@ async function transcribeInline(
 }
 
 /**
- * The inline lane's 15 MB cap is a decode-buffer limit, not a Whisper limit,
- * so the stock "keep files under 15 MB" message sent users (and the agent)
- * chasing a model download that cannot help. Name the actual cause instead.
+ * The data-URI fallback's 15 MB cap is a heap budget (base64-inflated document
+ * plus decode buffer), not a Whisper limit. The served lane never reaches this
+ * check; when it does run, name the real cause instead of sending users (and
+ * the agent) chasing a model download that cannot help.
  */
 function inlineBudgetError(
   record: { displayName: string; mimeType: string | null | undefined },
@@ -319,9 +350,9 @@ function inlineBudgetError(
   if (!resolveAudioMimeType(record.mimeType, record.displayName)) return null;
   const size = round1(sizeBytes / (1024 * 1024));
   const cap = round1(MAX_AUDIO_FILE_BYTES / (1024 * 1024));
-  if (options.useSystem) {
+  if (options.useSystem && options.nativeAvailable) {
     return new Error(
-      `Audio file "${record.displayName}" is too large (${size} MB) for the system recognizer, which decodes inline and is capped at ${cap} MB. Re-run with engine "whisper" so the native decoder can stream it, or provide a file under ${cap} MB.`,
+      `Audio file "${record.displayName}" is too large (${size} MB) for the system recognizer on this build, which has to use the ${cap} MB data-URI fallback because the loopback server is unavailable. Re-run with engine "whisper" so the native decoder can stream it, or provide a file under ${cap} MB.`,
     );
   }
   if (!options.nativeAvailable) {

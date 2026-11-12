@@ -45,8 +45,9 @@ function round2(value: number) {
 /**
  * True when this build can decode long audio natively (Android with the
  * video-export module present). Everything else — including the "system"
- * engine, which needs 16 kHz PCM — falls back to the data-URI decode lane
- * where the 15 MB budget keeps applying.
+ * engine, which needs 16 kHz PCM — falls back to the WebView decode lane;
+ * that lane serves the file over loopback HTTP (up to 200 MB) and only falls
+ * back to a 15 MB data URI when the asset server is unavailable.
  */
 export function hasNativeAudioDecoder(): boolean {
   if (Platform.OS !== "android") return false;

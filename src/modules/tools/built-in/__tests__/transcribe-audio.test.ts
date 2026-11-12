@@ -13,8 +13,22 @@ const mocks = vi.hoisted(() => ({
   hasNative: false,
   transcribeLongAudio: vi.fn(),
   deletedUris: [] as string[],
+  bytesCalls: 0,
   createTextFile: vi.fn(async (_input: { content: string }) => ({ id: "saved-transcript" })),
 }));
+
+const serverMocks = vi.hoisted(() => ({
+  baseUrl: null as string | null,
+}));
+
+vi.mock("@/modules/preview/asset-server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/modules/preview/asset-server")>();
+  return {
+    ...actual,
+    ensureAssetServer: async () => serverMocks.baseUrl,
+  };
+});
 
 vi.mock("@/core/services/workspace-file-service", () => ({
   createWorkspaceFileService: () => ({ createTextFile: mocks.createTextFile }),
@@ -26,7 +40,10 @@ vi.mock("@/core/services/workspace-file-service", () => ({
       return mocks.fileSize;
     },
     uri: "file:///documents/audio/speech.mp3",
-    bytes: async () => mocks.bytes,
+    bytes: async () => {
+      mocks.bytesCalls += 1;
+      return mocks.bytes;
+    },
   }),
 }));
 
@@ -133,6 +150,8 @@ describe("transcribeAudio tool", () => {
     mocks.transcribePcm16WithSystem.mockReset();
     mocks.transcribeLongAudio.mockReset();
     mocks.deletedUris.length = 0;
+    mocks.bytesCalls = 0;
+    serverMocks.baseUrl = null;
   });
 
   it("rejects an unknown file id", async () => {
@@ -473,6 +492,40 @@ describe("transcribeAudio tool", () => {
     expect(mocks.transcribePcm16WithSystem).toHaveBeenCalled();
     expect(out).toMatchObject({ engine: "system" });
     expect(mocks.deletedUris).toEqual([]);
+  });
+
+  it("serves a large video over loopback instead of enforcing the data-URI cap", async () => {
+    // A 123 MB video (a normal few-minute phone recording) must transcribe
+    // without the user extracting its audio first: the WebView host fetches
+    // it from disk over loopback HTTP, so no bytes enter the JS heap.
+    serverMocks.baseUrl = "http://127.0.0.1:9999";
+    mocks.hasNative = true;
+    mocks.fileSize = 123 * 1024 * 1024;
+    let src: string | null = null;
+    unsubscribe = subscribeAudioAnalysis((job) => {
+      src = job.src;
+      job.resolve({ summary: SUMMARY, pcm: { base64: "AAAA", sampleRate: 16000 } });
+    });
+    mocks.transcribePcm16WithSystem.mockResolvedValue(SYSTEM_TRANSCRIPT);
+
+    const tool = createTranscribeAudioTool({
+      repository: repository({
+        ...mp3Record,
+        displayName: "talk.mp4",
+        mimeType: "video/mp4",
+        relativePath: "video/talk.mp4",
+      }),
+      onRecord: () => {},
+    });
+    const out = (await tool.execute!(
+      { fileId: "file-1", engine: "system" },
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(src).toBe("http://127.0.0.1:9999/files/video/talk.mp4");
+    expect(mocks.bytesCalls).toBe(0);
+    expect(mocks.transcribePcm16WithSystem).toHaveBeenCalled();
+    expect(out).toMatchObject({ engine: "system", text: "hello world" });
   });
 
   it("names the missing native decoder when an oversized file falls back to inline", async () => {

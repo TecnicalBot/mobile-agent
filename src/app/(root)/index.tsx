@@ -68,10 +68,9 @@ import {
 } from "quote-selection";
 
 import { ComposerTip } from "@/components/chat/composer-tip";
+import { ContextBreakdownView } from "@/components/chat/context-breakdown";
 import { useStarterPrompts } from "@/modules/chat/use-starter-prompts";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
-import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { describeCompaction } from "@/modules/chat/compaction-info";
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
 import { Button } from "@/components/ui/button";
@@ -283,6 +282,7 @@ export default function Screen() {
   // red line at the bottom of the chat. Only mount the banner for real text.
   const visibleError = error?.trim() ?? "";
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const [contextDrawerOpen, setContextDrawerOpen] = useState(false);
   const {
     activeModels,
     activeProviderAccountIds,
@@ -391,6 +391,13 @@ export default function Screen() {
       null,
     [messages],
   );
+  const latestContextBreakdown = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const breakdown = messages[index].metadata?.contextBreakdown;
+      if (breakdown) return breakdown;
+    }
+    return null;
+  }, [messages]);
   const assistantResponseFooters = useMemo(
     () => getAssistantResponseFooters(messages),
     [messages],
@@ -784,6 +791,7 @@ export default function Screen() {
                 onOpenAgentSettings={() =>
                   router.push(harness.active ? "/settings/harnesses" : "/settings/agents")
                 }
+                onOpenContext={() => setContextDrawerOpen(true)}
               />
             </MessageScrollerProvider>
             <View
@@ -891,7 +899,7 @@ export default function Screen() {
               <DrawerHeader>
                 <DrawerTitle>Chat info</DrawerTitle>
                 <DrawerDescription>
-                  Model, usage, context, and cost for this conversation.
+                  Model and account usage for this conversation.
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
@@ -925,144 +933,28 @@ export default function Screen() {
                   />
                 ) : null}
 
-                {messages.length === 0 ? null : (
-                  <>
-                    <InfoSection title="Latest turn">
-                      <InfoRow
-                        label="Input tokens"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.inputTokens ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Output tokens"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.outputTokens ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Total tokens"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.totalTokens ?? null,
-                        )}
-                      />
-                      {chatInfo.latestTurn &&
-                      !chatInfo.latestTurn.planCovered ? (
-                        <InfoRow
-                          label="Cost"
-                          value={formatCurrency(
-                            chatInfo.latestTurn.costTotal ?? null,
-                          )}
-                        />
-                      ) : null}
-                    </InfoSection>
+              </DrawerBody>
+            </DrawerContent>
+          </Drawer>
 
-                    <InfoSection
-                      subtitle={
-                        chatInfo.conversationTotals?.isPartial
-                          ? "Partial data"
-                          : undefined
-                      }
-                      title="Conversation totals"
-                    >
-                      <InfoRow
-                        label="Input tokens"
-                        value={formatTokenCount(
-                          chatInfo.conversationTotals?.inputTokens ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Output tokens"
-                        value={formatTokenCount(
-                          chatInfo.conversationTotals?.outputTokens ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Total tokens"
-                        value={formatTokenCount(
-                          chatInfo.conversationTotals?.totalTokens ?? null,
-                        )}
-                      />
-                      {chatInfo.conversationTotals?.hasPaidUsage ? (
-                        <InfoRow
-                          label="Cost"
-                          value={formatCurrency(
-                            chatInfo.conversationTotals.costTotal ?? null,
-                          )}
-                        />
-                      ) : null}
-                    </InfoSection>
-
-                    <InfoSection
-                      title="Context"
-                      subtitle={chatInfo.latestTurn?.contextIsEstimated
-                        ? "Estimated context after manual compaction."
-                        : "Final model step, after context management. Turn totals include all tool steps."}
-                    >
-                      <InfoRow
-                        label="Context window"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.contextWindow ??
-                            chatInfo.currentModel?.contextWindow ??
-                            null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Used"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.contextTokens ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Remaining"
-                        value={formatTokenCount(
-                          chatInfo.latestTurn?.remainingContext ?? null,
-                        )}
-                      />
-                      <InfoRow
-                        label="Usage"
-                        value={formatPercent(
-                          chatInfo.latestTurn?.contextUsagePercent ?? null,
-                        )}
-                      />
-                    </InfoSection>
-                  </>
-                )}
-                {chatInfo.compactionHistory.length > 0 ? (
-                  <InfoSection
-                    title="Compaction details"
-                    subtitle="Exact saved summaries and context changes, newest first. Token counts are estimates for history only."
-                  >
-                    {chatInfo.compactionHistory.map((record) => (
-                      <CollapsibleSection
-                        key={record.id}
-                        label={`${record.trigger === "manual" ? "Manual" : "Automatic"} · ${new Date(record.createdAt).toLocaleString()}`}
-                        contentClassName="gap-sp-2"
-                      >
-                        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                          {describeCompaction(record)}
-                        </Text>
-                        <InfoRow label="History before" value={formatTokenCount(record.beforeTokens)} />
-                        <InfoRow label="History after" value={formatTokenCount(record.afterTokens)} />
-                        <InfoRow label="History token budget" value={formatTokenCount(record.inputBudget)} />
-                        {record.summary ? (
-                          <>
-                            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                              Full generated summary
-                            </Text>
-                            <Text selectable className="font-mono text-xs text-foreground dark:text-foreground-dark">
-                              {record.summary}
-                            </Text>
-                          </>
-                        ) : (
-                          <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                            No summary was generated. Context was reduced by pruning or truncation.
-                          </Text>
-                        )}
-                      </CollapsibleSection>
-                    ))}
-                  </InfoSection>
-                ) : null}
+          <Drawer onOpenChange={setContextDrawerOpen} open={contextDrawerOpen}>
+            <DrawerContent showCloseButton showHandle>
+              <DrawerHeader>
+                <DrawerTitle>Context</DrawerTitle>
+                <DrawerDescription>
+                  Where the context window went at the start of the latest run.
+                </DrawerDescription>
+              </DrawerHeader>
+              <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
+                <ContextBreakdownView
+                  breakdown={latestContextBreakdown}
+                  compactionCount={chatInfo.compactionHistory.length}
+                  modelContextWindow={
+                    chatInfo.currentModel?.contextWindow ?? null
+                  }
+                  modelLabel={chatInfo.currentModel?.modelLabel ?? null}
+                  reportedTokens={chatInfo.latestTurn?.contextTokens ?? null}
+                />
               </DrawerBody>
             </DrawerContent>
           </Drawer>
@@ -1128,35 +1020,6 @@ export default function Screen() {
       </KeyboardAvoidingView>
     </ChatErrorBoundary>
   );
-}
-
-function formatTokenCount(value: number | null) {
-  if (value === null) {
-    return "Unavailable";
-  }
-
-  return Math.round(value).toLocaleString();
-}
-
-
-function formatCurrency(value: number | null) {
-  if (value === null) {
-    return "Unavailable";
-  }
-
-  if (value > 0 && value < 0.000001) {
-    return "< $0.000001";
-  }
-
-  return `$${value.toFixed(value < 0.01 ? 6 : 4)}`;
-}
-
-function formatPercent(value: number | null) {
-  if (value === null) {
-    return "Unavailable";
-  }
-
-  return `${value.toFixed(1)}%`;
 }
 
 /**
@@ -1409,6 +1272,7 @@ const ChatInput = memo(function ChatInput({
   setConversationAgent,
   currentConversationId,
   onOpenAgentSettings,
+  onOpenContext,
 }: {
   activeModels: Array<{
     label: string;
@@ -1483,6 +1347,7 @@ const ChatInput = memo(function ChatInput({
   ) => Promise<void>;
   currentConversationId: string | null;
   onOpenAgentSettings: () => void;
+  onOpenContext: () => void;
 }) {
   const theme = useTheme();
   const colorScheme = useColorScheme();
@@ -1493,7 +1358,6 @@ const ChatInput = memo(function ChatInput({
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const keyboardHeight = useKeyboardState((state) => state.height);
   const { scrollToEnd } = useMessageScrollerActions();
-  const router = useRouter();
   const sendingRef = useRef(false);
   const composerRef = useRef<TextInput>(null);
   const [prompt, setPrompt] = useState("");
@@ -1916,6 +1780,11 @@ const ChatInput = memo(function ChatInput({
         ? appendQuote(currentPrompt, pendingQuote.quoted)
         : currentPrompt
     ).trim();
+    if (cleanPrompt.toLowerCase() === "/context") {
+      setPromptValue("");
+      onOpenContext();
+      return;
+    }
     if (cleanPrompt.toLowerCase() === "/compact") {
       if (harnessAgents || loading) {
         Alert.alert("Cannot compact now", harnessAgents
@@ -2371,20 +2240,6 @@ const ChatInput = memo(function ChatInput({
               : "No saved prompts",
         },
         {
-          id: "compact",
-          icon: <Brain color={theme.text} size={16} />,
-          label: "Compact conversation",
-          disabled: loading || !canSend || harnessAgents,
-          onPress: () => {
-            clearTriggerText();
-            onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" })
-              .catch((error: unknown) => Alert.alert("Could not compact", error instanceof Error ? error.message : String(error)));
-          },
-          subtitle: harnessAgents
-            ? "Manage compaction in OpenCode"
-            : "Summarize context now · /compact",
-        },
-        {
           id: "tool-permissions",
           icon: <Check color={theme.text} size={16} />,
           label: "Tool permissions",
@@ -2421,6 +2276,40 @@ const ChatInput = memo(function ChatInput({
           subtitle: getReasoningEffortLabel(reasoningEffort) + " for this chat",
         },
         {
+          id: "select-model",
+          icon: <Check color={theme.text} size={16} />,
+          label: "Select model",
+          onPress: () => {
+            clearTriggerText();
+            setModelsDrawerOpen(true);
+          },
+          subtitle: currentModelLabel ?? "Choose the current chat model",
+        },
+        {
+          id: "context",
+          icon: <Info color={theme.text} size={16} />,
+          label: "Context",
+          onPress: () => {
+            clearTriggerText();
+            onOpenContext();
+          },
+          subtitle: "See where the context window goes · /context",
+        },
+        {
+          id: "compact",
+          icon: <Brain color={theme.text} size={16} />,
+          label: "Compact conversation",
+          disabled: loading || !canSend || harnessAgents,
+          onPress: () => {
+            clearTriggerText();
+            onSend({ content: "/compact", selectedFileIds: [], fileContextSource: "workspace" })
+              .catch((error: unknown) => Alert.alert("Could not compact", error instanceof Error ? error.message : String(error)));
+          },
+          subtitle: harnessAgents
+            ? "Manage compaction in OpenCode"
+            : "Summarize context now · /compact",
+        },
+        {
           id: "select-skills",
           icon: <Brain color={theme.text} size={16} />,
           label: "Select skills",
@@ -2445,16 +2334,6 @@ const ChatInput = memo(function ChatInput({
             enabledMcpServers.length > 0
               ? `${activeMcpServerIds.size} of ${enabledMcpServers.length} servers for this chat`
               : "No enabled MCP servers",
-        },
-        {
-          id: "select-model",
-          icon: <Check color={theme.text} size={16} />,
-          label: "Select model",
-          onPress: () => {
-            clearTriggerText();
-            setModelsDrawerOpen(true);
-          },
-          subtitle: currentModelLabel ?? "Choose the current chat model",
         },
       ];
       const hostItems = (harnessCommands ?? []).map((command) => ({
@@ -2490,6 +2369,7 @@ const ChatInput = memo(function ChatInput({
       reasoningEffort,
       savedPrompts.length,
       selectedSkills.length,
+      onOpenContext,
       setPromptValue,
       toolApprovalMode,
       theme.text,

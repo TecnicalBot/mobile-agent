@@ -415,7 +415,26 @@ export type ContextCompactionRecord = {
   summary: string | null;
 };
 
+export type ContextBreakdownPart = {
+  key: string;
+  label: string;
+  tokens: number;
+};
+
+/**
+ * Snapshot of how the context window was divided for one run. Tool definition
+ * and prompt sizes are 4-characters-per-token estimates; the provider's own
+ * usage numbers remain the source of truth for billed tokens.
+ */
+export type ContextBreakdown = {
+  contextWindow: number;
+  parts: ContextBreakdownPart[];
+  reserved: number;
+  usedTokens: number;
+};
+
 export type MessageMetadata = {
+  contextBreakdown?: ContextBreakdown;
   contextCompactions?: ContextCompactionRecord[];
   contextCompaction?: { summary: string; throughSequence: number };
   agentName?: string | null;

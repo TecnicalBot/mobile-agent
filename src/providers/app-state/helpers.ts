@@ -496,6 +496,7 @@ export function buildUsageSnapshot(input: {
 }
 
 export function buildAssistantMetadata(input: {
+  contextBreakdown?: MessageMetadata["contextBreakdown"];
   contextCompactions?: MessageMetadata["contextCompactions"];
   appliedSkillIds?: string[];
   executionTimeline?: ExecutionTimelineEvent[];
@@ -513,6 +514,10 @@ export function buildAssistantMetadata(input: {
   usage?: ModelUsageSnapshot | null;
 }) {
   const metadata: MessageMetadata = {};
+
+  if (input.contextBreakdown) {
+    metadata.contextBreakdown = input.contextBreakdown;
+  }
 
   if (input.contextCompactions?.length) {
     metadata.contextCompactions = input.contextCompactions;

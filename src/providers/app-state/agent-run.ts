@@ -23,6 +23,10 @@ import {
   prepareMessagesForLLMWithSummary,
   type GenerateSummary,
 } from "@/modules/context";
+import {
+  buildContextBreakdown,
+  type ContextBreakdownSource,
+} from "@/modules/context/breakdown";
 import type { Repositories } from "@/core/db/repositories/types";
 import { compactHistory } from "@/modules/context/manual-compaction";
 import { calculateContextBudget } from "@/modules/context/overflow";
@@ -2023,6 +2027,130 @@ export async function executeClaimedAgentRun(
 
     if (!manualCompaction) runtimeMessages = await prepareRuntimeMessages(runtimeMessages);
 
+    const breakdownBudget = calculateContextBudget({
+      contextWindow: contextWindowFromCatalog,
+      model: resolvedModel,
+      systemPrompt: runtimeSystem,
+      tools: runtimeTools,
+    });
+    const claimedToolNames = new Set<string>();
+    const claimToolNames = (source: ToolSet | undefined) => {
+      const names: string[] = [];
+      for (const name of Object.keys(source ?? {})) {
+        if (
+          !runtimeTools ||
+          !(name in runtimeTools) ||
+          claimedToolNames.has(name)
+        ) {
+          continue;
+        }
+        claimedToolNames.add(name);
+        names.push(name);
+      }
+      return names;
+    };
+    // Claim in reverse spread order so a tool that replaced a built-in is
+    // attributed to the source that effectively supplied it.
+    const memoryToolNames = claimToolNames(memoryRuntime?.tools);
+    const pluginToolNames = claimToolNames(pluginTools);
+    const announcementToolNames = claimToolNames(announcementRuntime?.tools);
+    const secretToolNames = claimToolNames(secretRequestRuntime?.tools);
+    const pluginManagementToolNames = claimToolNames(
+      pluginManagementRuntime?.tools,
+    );
+    const agentToolNames = claimToolNames(agentRuntime?.tools);
+    const taskToolNames = claimToolNames(taskRuntime?.tools);
+    const scheduleToolNames = claimToolNames(scheduleRuntime?.tools);
+    const skillToolNames = claimToolNames(skillRuntime?.tools);
+    const questionToolNames = claimToolNames(questionRuntime?.tools);
+    const todosToolNames = claimToolNames(todosRuntime?.tools);
+    const breakdownMcpToolNames = claimToolNames(mcpRuntime?.tools);
+    const breakdownBuiltInToolNames = claimToolNames(builtInRuntimeTools);
+    const breakdownSources: ContextBreakdownSource[] = [
+      {
+        key: "system",
+        label: "System prompt",
+        text: [
+          agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+          agentDocsRuntimeSystem,
+          subagentRuntimeSystem,
+          buildCurrentDateTimeSystemPrompt(),
+          builtInRuntimeSystem,
+          workspaceRuntimeSystem,
+          transferRuntimeSystem,
+          skillManagementRuntimeSystem,
+          pluginManagementRuntimeSystem,
+          agentManagementRuntimeSystem,
+          taskRuntimeSystem,
+          announcementRuntimeSystem,
+          toolLoopRuntimeSystem,
+        ]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join("\n\n"),
+      },
+      { key: "memory", label: "Memory", text: memoryRuntimeSystem },
+      { key: "skills", label: "Skills", text: skillsRuntimeSystem },
+      { key: "mcp", label: "MCP", text: mcpRuntime?.systemPrompt },
+      {
+        key: "plugins",
+        label: "Plugins",
+        text: pluginSystemParts?.join("\n\n"),
+      },
+      {
+        key: "tools",
+        label: "Built-in tools",
+        toolNames: breakdownBuiltInToolNames,
+        tools: runtimeTools,
+      },
+      {
+        key: "tool-management",
+        label: "Agent runtime tools",
+        toolNames: [
+          ...todosToolNames,
+          ...questionToolNames,
+          ...scheduleToolNames,
+          ...taskToolNames,
+          ...agentToolNames,
+          ...pluginManagementToolNames,
+          ...secretToolNames,
+          ...announcementToolNames,
+        ],
+        tools: runtimeTools,
+      },
+      {
+        key: "mcp",
+        label: "MCP",
+        toolNames: breakdownMcpToolNames,
+        tools: runtimeTools,
+      },
+      {
+        key: "skills",
+        label: "Skills",
+        toolNames: skillToolNames,
+        tools: runtimeTools,
+      },
+      {
+        key: "memory",
+        label: "Memory",
+        toolNames: memoryToolNames,
+        tools: runtimeTools,
+      },
+      {
+        key: "plugins",
+        label: "Plugins",
+        toolNames: pluginToolNames,
+        tools: runtimeTools,
+      },
+    ];
+    const contextBreakdown = manualCompaction
+      ? undefined
+      : buildContextBreakdown({
+          contextWindow: breakdownBudget.contextWindow,
+          messages: runtimeMessages,
+          reserved: breakdownBudget.reserved,
+          sources: breakdownSources,
+        });
+
     pushTimelineEvent(
       createExecutionTimelineEvent({
         detail: `${resolvedModel.providerLabel} · ${resolvedModel.label}`,
@@ -2499,6 +2627,7 @@ export async function executeClaimedAgentRun(
       assistantUsage.contextIsEstimated = true;
     }
     const assistantMetadata = buildAssistantMetadata({
+      contextBreakdown,
       contextCompactions,
       appliedSkillIds,
       executionTimeline: [

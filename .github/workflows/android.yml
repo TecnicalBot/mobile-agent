@@ -99,6 +99,22 @@ jobs:
         run: |
           curl -fL "$APK_URL" -o mobile-agent-${{ env.VERSION }}.apk
 
+      - name: Merge release notes
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$VERSION"
+
+          if gh release view "$TAG" --json body --jq .body > existing-release-notes.md 2>/dev/null; then
+            node scripts/merge-release-notes.mjs .release-notes.md existing-release-notes.md merged-release-notes.md
+          else
+            cp .release-notes.md merged-release-notes.md
+          fi
+
+          echo "RELEASE_NOTES_PATH=merged-release-notes.md" >> "$GITHUB_ENV"
+
       - name: Publish GitHub Release
         if: steps.version.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
@@ -106,7 +122,7 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: Mobile Agent v${{ env.VERSION }}
           files: mobile-agent-${{ env.VERSION }}.apk
-          body_path: .release-notes.md
+          body_path: ${{ env.RELEASE_NOTES_PATH }}
           prerelease: ${{ contains(env.VERSION, 'alpha') || contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc') || contains(env.VERSION, 'pre') }}
 
       - name: Skip release

@@ -30,6 +30,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}", "plugins/**/*.test.{js,ts}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "plugins/**/*.test.{js,ts}",
+      "scripts/**/*.test.mjs",
+    ],
   },
 });

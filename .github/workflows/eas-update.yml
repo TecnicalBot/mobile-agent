@@ -10,6 +10,9 @@ concurrency:
   group: eas-update-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -38,6 +41,14 @@ jobs:
             CHANGED=$(git diff --name-only HEAD^ HEAD || true)
           fi
           echo "$CHANGED"
+
+          # Release-notes-only pushes still need the existing release body
+          # updated even though there is no new JS bundle to publish.
+          if [ -n "$CHANGED" ] && echo "$CHANGED" | grep -qE '^\.release-notes\.md$' && [ -z "$(echo "$CHANGED" | grep -vE '(^catalog/|^tools/|^\.github/|\.md$)' || true)" ]; then
+            echo "notes_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes_changed=false" >> "$GITHUB_OUTPUT"
+          fi
 
           # Skip OTA when anything native-impacting changed — those require a new build.
           if echo "$CHANGED" | grep -qE '^(package\.json|app\.json|eas\.json|plugins/|modules/|android/|ios/)'; then
@@ -100,6 +111,29 @@ jobs:
             --branch production \
             --platform android \
             --message "${OTA_MESSAGE%%$'\n'*}"
+
+      - name: Update release notes
+        if: steps.guard.outputs.safe == 'true' || steps.guard.outputs.notes_changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+
+          if ! gh release view "$TAG" --json body --jq .body > existing-release-notes.md 2>/dev/null; then
+            echo "No GitHub release found for $TAG; skipping release notes update."
+            exit 0
+          fi
+
+          node scripts/merge-release-notes.mjs .release-notes.md existing-release-notes.md merged-release-notes.md
+
+          if cmp -s existing-release-notes.md merged-release-notes.md; then
+            echo "Release notes already contain these entries."
+            exit 0
+          fi
+
+          gh release edit "$TAG" --notes-file merged-release-notes.md
 
       - name: Skip OTA
         if: steps.guard.outputs.safe == 'false'

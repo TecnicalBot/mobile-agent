@@ -90,7 +90,12 @@ export function openCodeErrorMessage(
   error: SessionStructuredError,
   label = "OpenCode",
 ): string {
-  const detail = error.message?.trim() || error.type || "Unknown error";
+  const detail =
+    typeof error.message === "string" && error.message.trim()
+      ? error.message.trim()
+      : typeof error.type === "string" && error.type
+        ? error.type
+        : "Unknown error";
   const status = error.status;
   const retry =
     typeof error.retryAfterMs === "number" && error.retryAfterMs > 0

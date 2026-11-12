@@ -49,7 +49,6 @@ import {
   View,
 } from "react-native";
 import {
-  KeyboardAvoidingView,
   KeyboardController,
   useKeyboardState,
 } from "react-native-keyboard-controller";
@@ -126,6 +125,7 @@ import {
 } from "@/core/services/workspace-file-service";
 import { inferMimeType } from "@/core/services/file-names";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useChatKeyboardStyle } from "@/hooks/use-chat-keyboard-style";
 import {
   isOpenAiChatGptProvider,
   isOpenAiSubscriptionProvider,
@@ -276,6 +276,7 @@ export default function Screen() {
   const router = useRouter();
   const theme = useTheme();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
+  const chatKeyboardStyle = useChatKeyboardStyle(keyboardVisible);
   const { error } = useAppState();
   // An empty harness error still renders the destructive border, leaving a thin
   // red line at the bottom of the chat. Only mount the banner for real text.
@@ -608,10 +609,7 @@ export default function Screen() {
 
   return (
     <ChatErrorBoundary>
-      {/* react-native-keyboard-controller's KAV has no NativeWind interop
-          (only react-native's does), so className would be dropped and the
-          chat block would collapse to content height — pass style instead. */}
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      <Animated.View style={[{ flex: 1 }, chatKeyboardStyle]}>
         <Container
           contentClassName="flex-1 gap-sp-1 !px-4"
           contentStyle={keyboardVisible ? { paddingBottom: 8 } : undefined}
@@ -1069,7 +1067,7 @@ export default function Screen() {
             </DrawerContent>
           </Drawer>
         </Container>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </ChatErrorBoundary>
   );
 }
@@ -1934,7 +1932,6 @@ const ChatInput = memo(function ChatInput({
     setPromptValue("");
     setPendingQuote(null);
     KeyboardController.dismiss();
-    composerRef.current?.blur();
 
     try {
       scrollToEnd();
@@ -1982,7 +1979,6 @@ const ChatInput = memo(function ChatInput({
       setPromptValue("");
       setPendingQuote(null);
       KeyboardController.dismiss();
-      composerRef.current?.blur();
       scrollToEnd();
       await setSelectedFileIds([]);
       await onSend({
@@ -2805,7 +2801,6 @@ const ChatInput = memo(function ChatInput({
                     hitSlop={6}
                     onPress={() => {
                       KeyboardController.dismiss();
-                      composerRef.current?.blur();
                       setComposerActionsOpen((open) => !open);
                     }}
                     style={({ pressed }) =>
@@ -2854,7 +2849,6 @@ const ChatInput = memo(function ChatInput({
                     hitSlop={8}
                     onPress={() => {
                     KeyboardController.dismiss();
-                    composerRef.current?.blur();
                     setComposerActionsOpen(false);
                     voiceInput.start().catch(console.error);
                     }}
@@ -2885,7 +2879,6 @@ const ChatInput = memo(function ChatInput({
                         const cleanEditPrompt = promptRef.current.trim();
                         if (!cleanEditPrompt) return;
                         KeyboardController.dismiss();
-                        composerRef.current?.blur();
                         onEditSend(cleanEditPrompt).catch(console.error);
                         return;
                       }

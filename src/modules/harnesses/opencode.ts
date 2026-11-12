@@ -163,6 +163,9 @@ export function normalizeOpenCodeUrl(
       "Use HTTPS for remote servers, or HTTP on localhost through Termux or a secure tunnel.",
     );
   }
+  // Android can resolve localhost to IPv6 first while OpenCode binds IPv4.
+  // Use the explicit loopback address so localhost works on the phone.
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
   return url.toString().replace(/\/$/, "");
 }
 

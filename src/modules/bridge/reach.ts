@@ -29,10 +29,67 @@ function ipv4Parts(address: string): number[] | null {
 }
 
 export function isLoopbackAddress(address: string) {
-  const normalized = address.replace(/^\[|\]$/g, "").split("%")[0];
-  if (normalized === "::1") return true;
+  const normalized = address
+    .trim()
+    .replace(/^\[|\]$/g, "")
+    .split("%")[0]
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
   const parts = ipv4Parts(normalized.replace(/^::ffff:/, ""));
   return Boolean(parts && parts[0] === 127);
+}
+
+/**
+ * Normalize a manually entered bridge address. Accept a bare host, a host with
+ * a port, or a full URL so a pasted MCP link does not silently create an
+ * invalid `http://http://...` address.
+ */
+export function normalizeBridgeAddress(value: string): string | null {
+  let input = value.trim();
+  if (!input) return null;
+  input = input.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  input = input.split(/[/?#]/, 1)[0] ?? "";
+  if (!input || input.includes("@")) return null;
+  if (input === "::1") return "[::1]";
+
+  if (input.startsWith("[")) {
+    const end = input.indexOf("]");
+    if (end < 0) return null;
+    const host = input.slice(1, end).toLowerCase();
+    const rest = input.slice(end + 1);
+    if (rest && !/^:\d+$/.test(rest)) return null;
+    return ipv6Host(host) ? `[${host}]` : null;
+  }
+
+  const match = /^([^:]+)(?::\d+)?$/.exec(input);
+  if (!match) return null;
+  const host = match[1].toLowerCase().replace(/\.$/, "");
+  if (host === "localhost" || ipv4Parts(host)) return host;
+  return null;
+}
+
+function ipv6Host(host: string) {
+  // The bridge only advertises IPv4 interfaces, but accepting the loopback
+  // literal keeps manual localhost configurations from being rejected.
+  return host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host);
+}
+
+export type BridgeAddressSelection = {
+  reach: BridgeReach;
+  address?: string;
+};
+
+/** Classify a manual override the same way harness URLs are classified. */
+export function classifyBridgeAddress(
+  value: string,
+): BridgeAddressSelection | null {
+  const address = normalizeBridgeAddress(value);
+  if (!address) return null;
+  if (isLoopbackAddress(address)) return { reach: "loopback" };
+  if (isTailnetAddress(address)) return { reach: "tailnet", address };
+  if (isPrivateAddress(address)) return { reach: "lan", address };
+  return null;
 }
 
 /** Tailscale assigns node addresses from the CGNAT range, and they stay stable. */

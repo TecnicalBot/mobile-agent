@@ -3261,7 +3261,14 @@ const ChatInput = memo(function ChatInput({
                             .then(() => {
                               setModelsDrawerOpen(false);
                             })
-                            .catch(console.error);
+                            .catch((error) => {
+                              Alert.alert(
+                                "Could not switch model",
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error),
+                              );
+                            });
                         }}
                         selected={currentModelRef === model.ref}
                         title={model.label}

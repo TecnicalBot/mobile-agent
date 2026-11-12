@@ -134,11 +134,16 @@ describe("OpenCode connection security", () => {
   });
   it.each([
     "http://127.0.0.1:4096",
-    "http://localhost:4096",
     "http://[::1]:4096",
     "https://agent.example/prefix",
   ])("accepts %s", (url) => {
     expect(normalizeOpenCodeUrl(`${url}/`)).toBe(url);
+  });
+
+  it("resolves localhost to the IPv4 loopback address", () => {
+    expect(normalizeOpenCodeUrl("http://localhost:4096/")).toBe(
+      "http://127.0.0.1:4096",
+    );
   });
 
   it.each([

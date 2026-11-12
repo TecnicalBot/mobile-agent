@@ -29,7 +29,8 @@ export function openCodeStalledAssistant(
 ): Assistant | null {
   const last = openCodeLastConversationMessage(messages);
   if (!last || last.type !== "assistant") return null;
-  if (last.error || !last.time.completed) return null;
+  // A retry in progress is not a stall; OpenCode is still working on the turn.
+  if (last.error || last.retry || !last.time.completed) return null;
   if (
     last.finish &&
     last.finish !== "stop" &&
@@ -64,6 +65,55 @@ export function openCodeExecutionFailure(
     );
   }
   return null;
+}
+
+/**
+ * The failure that belongs to the latest turn. OpenCode normally records a
+ * provider failure on the assistant row; older servers append a failed idle
+ * row instead. Both must reach the chat banner.
+ */
+export function openCodeConversationFailure(
+  messages: SessionMessageInfo[],
+): SessionStructuredError | null {
+  const last = openCodeLastConversationMessage(messages);
+  if (last?.type === "assistant" && last.retry) return null;
+  if (last?.type === "assistant" && last.error) return last.error;
+  return openCodeExecutionFailure(messages);
+}
+
+const RATE_LIMIT_PATTERN =
+  /rate.?limit|too many requests|quota|resource.?exhausted|limit exceeded/i;
+const AUTH_PATTERN = /auth|unauthor|forbidden|invalid.*(?:key|token)|401|403/i;
+
+/** Turn a structured harness failure into text a person can act on. */
+export function openCodeErrorMessage(
+  error: SessionStructuredError,
+  label = "OpenCode",
+): string {
+  const detail = error.message?.trim() || error.type || "Unknown error";
+  const status = error.status;
+  const retry =
+    typeof error.retryAfterMs === "number" && error.retryAfterMs > 0
+      ? Math.ceil(error.retryAfterMs / 1000)
+      : null;
+  if (status === 429 || RATE_LIMIT_PATTERN.test(`${error.type} ${detail}`)) {
+    return `${label} hit a rate limit${detail ? `: ${detail}` : ""}.${
+      retry ? ` Try again in ${retry}s.` : ""
+    } You can retry, or switch to another model/provider.`;
+  }
+  if (
+    status === 401 ||
+    status === 403 ||
+    AUTH_PATTERN.test(`${error.type} ${detail}`)
+  ) {
+    return `${label} rejected the request${
+      status ? ` (HTTP ${status})` : ""
+    }: ${detail}. Reconnect or check the harness credentials.`;
+  }
+  if (typeof status === "number" && status >= 500) {
+    return `${label} server error (HTTP ${status}): ${detail}. Try again shortly.`;
+  }
+  return `${label} failed: ${detail}`;
 }
 
 export type OpenCodePromptReply =

@@ -622,7 +622,13 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
         setError(
           /401|unauthor/i.test(detail)
             ? `The ${profile.label} bridge rejected this token. Check the token in Settings → Harnesses.`
-            : `Could not connect to ${profile.label}. Check the bridge URL, token, and network.${detail ? ` (${detail})` : ""}`,
+            : `Could not connect to ${profile.label}${
+                connectionRef.current?.url
+                  ? ` at ${connectionRef.current.url}`
+                  : ""
+              }. Check the bridge URL, token, and network.${
+                detail ? ` (${detail})` : ""
+              }`,
         );
       }
     } finally {
@@ -1966,6 +1972,8 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     active,
     connected: status === "connected",
     status,
+    connectionUrl:
+      status === "connected" ? (connectionRef.current?.url ?? null) : null,
     error,
     authRequired,
     authStatus,

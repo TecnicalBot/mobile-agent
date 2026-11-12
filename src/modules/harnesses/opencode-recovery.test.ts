@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { SessionMessageInfo } from "@opencode/client";
 
 import {
+  openCodeConversationFailure,
+  openCodeErrorMessage,
   openCodeExecutionFailure,
   openCodePromptReply,
   openCodeStalledAssistant,
@@ -77,6 +79,20 @@ describe("openCodeStalledAssistant", () => {
     ).toBeNull();
   });
 
+  it("does not recover a retrying assistant step", () => {
+    expect(
+      openCodeStalledAssistant([
+        assistant({
+          retry: {
+            attempt: 1,
+            at: 2,
+            error: { type: "ProviderError", message: "rate limited" },
+          },
+        }),
+      ]),
+    ).toBeNull();
+  });
+
   it("ignores tool-call and error finish reasons", () => {
     expect(
       openCodeStalledAssistant([assistant({ finish: "tool-calls" })]),
@@ -136,6 +152,108 @@ describe("openCodeExecutionFailure", () => {
     } as SessionMessageInfo;
     expect(openCodeExecutionFailure([success])).toBeNull();
     expect(openCodeExecutionFailure([success, assistant()])).toBeNull();
+  });
+});
+
+describe("openCodeConversationFailure", () => {
+  it("reads the assistant provider error", () => {
+    expect(
+      openCodeConversationFailure([
+        assistant({
+          error: {
+            type: "ProviderError",
+            message: "rate limit exceeded",
+            status: 429,
+          },
+        }),
+      ]),
+    ).toEqual({
+      type: "ProviderError",
+      message: "rate limit exceeded",
+      status: 429,
+    });
+  });
+
+  it("falls back to a failed idle row", () => {
+    const idle = {
+      id: "msg_idle",
+      type: "idle",
+      time: { created: 3 },
+      outcome: "failed",
+      error: { type: "ExecutionFailed", message: "stopped" },
+    } as SessionMessageInfo;
+    expect(openCodeConversationFailure([idle])).toEqual({
+      type: "ExecutionFailed",
+      message: "stopped",
+    });
+  });
+
+  it("ignores an error that belongs to an older turn", () => {
+    const failed = assistant({
+      error: { type: "ProviderError", message: "old" },
+    });
+    const nextUser = {
+      id: "msg_user_2",
+      type: "user",
+      time: { created: 4 },
+      text: "Try again",
+    } as SessionMessageInfo;
+    expect(openCodeConversationFailure([failed, nextUser])).toBeNull();
+  });
+
+  it("hides a failure while OpenCode is retrying it", () => {
+    expect(
+      openCodeConversationFailure([
+        assistant({
+          error: { type: "ProviderError", message: "rate limited" },
+          retry: {
+            attempt: 1,
+            at: 3,
+            error: { type: "ProviderError", message: "rate limited" },
+          },
+        }),
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("openCodeErrorMessage", () => {
+  it("turns rate limits into actionable text", () => {
+    expect(
+      openCodeErrorMessage({
+        type: "ProviderError",
+        message: "rate limit exceeded",
+        status: 429,
+        retryAfterMs: 6000,
+      }),
+    ).toContain("rate limit");
+    expect(
+      openCodeErrorMessage({
+        type: "ProviderError",
+        message: "rate limit exceeded",
+        status: 429,
+        retryAfterMs: 6000,
+      }),
+    ).toContain("Try again in 6s");
+  });
+
+  it("calls out authentication failures", () => {
+    expect(
+      openCodeErrorMessage({
+        type: "ProviderError",
+        message: "invalid api key",
+        status: 401,
+      }),
+    ).toContain("Reconnect or check the harness credentials");
+  });
+
+  it("keeps the provider detail for ordinary failures", () => {
+    expect(
+      openCodeErrorMessage({
+        type: "ProviderError",
+        message: "model unavailable",
+      }),
+    ).toBe("OpenCode failed: model unavailable");
   });
 });
 

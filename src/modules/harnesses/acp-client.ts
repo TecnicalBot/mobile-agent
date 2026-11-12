@@ -320,6 +320,8 @@ export function normalizeAcpUrl(
       "Use HTTPS for remote bridges, or HTTP on localhost through Termux or a secure tunnel.",
     );
   }
+  // Android can resolve localhost to IPv6 first while the bridge binds IPv4.
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
   return url.toString().replace(/\/$/, "");
 }
 

@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DrawerBody, DrawerFooter } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { isLoopbackAddress } from "@/modules/bridge/reach";
 import {
   normalizeAcpUrl,
   testAcpConnection,
@@ -20,6 +21,7 @@ import {
 import {
   parseAcpPairingPayload,
   redeemAcpPairing,
+  type AcpPairingEntry,
   type AcpPairingPayload,
 } from "@/modules/harnesses/acp-pairing";
 import {
@@ -48,15 +50,26 @@ type PairResult = {
   connection: SavedAcpConnection | null;
   phase: "redeem" | "save" | "verify";
   error: Error | null;
+  url?: string;
 };
 
+function isLoopbackUrl(value: string) {
+  try {
+    const hostname = new URL(value).hostname.replace(/^\[|\]$/g, "");
+    return isLoopbackAddress(hostname);
+  } catch {
+    return false;
+  }
+}
+
 function pairErrorMessage(result: PairResult, aborted: boolean): string {
+  const location = result.url ? ` at ${result.url}` : "";
   if (aborted) {
-    return `${result.profile.label} pairing timed out. Check the bridge address and network.`;
+    return `${result.profile.label} pairing timed out${location}. Check the bridge address and network.`;
   }
   const detail = result.error?.message.trim() ?? "";
   if (result.phase === "redeem") {
-    return `Could not redeem the ${result.profile.label} pairing code. Run \`mabridge\` again for a fresh QR.${
+    return `Could not redeem the ${result.profile.label} pairing code${location}. Run \`mabridge\` again for a fresh QR.${
       detail ? ` (${detail})` : ""
     }`;
   }
@@ -66,12 +79,12 @@ function pairErrorMessage(result: PairResult, aborted: boolean): string {
     }`;
   }
   if (/401|unauthor/i.test(detail)) {
-    return `The ${result.profile.label} bridge rejected the shared token. Try a fresh pairing QR.`;
+    return `The ${result.profile.label} bridge${location} rejected the shared token. Try a fresh pairing QR.`;
   }
   if (ACP_AUTH_ERROR_PATTERN.test(detail)) {
     return result.profile.signInHint;
   }
-  return `Could not reach the ${result.profile.label} bridge.${
+  return `Could not reach the ${result.profile.label} bridge${location}.${
     detail ? ` (${detail})` : ""
   }`;
 }
@@ -90,6 +103,7 @@ export function AcpConnectionForm({
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"qr" | "manual">("qr");
   const [pairing, setPairing] = useState<AcpPairingPayload | null>(null);
+  const [pairingUrls, setPairingUrls] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [foreground, setForeground] = useState(
     AppState.currentState === "active",
@@ -184,19 +198,21 @@ export function AcpConnectionForm({
       const detail = cause instanceof Error ? cause.message.trim() : "";
       if (controller.signal.aborted)
         setError(
-          `${profile.label} connection timed out. Check the bridge address and network before retrying.`,
+          `${profile.label} connection timed out at ${validatedUrl}. Check the bridge address and network before retrying.`,
         );
       else if (/401|unauthor/i.test(detail))
         setError(
-          "The bridge rejected this token. Paste the token printed on the bridge's first run, or read it from ~/.config/mobile-agent/bridge-token.",
+          `The bridge at ${validatedUrl} rejected this token. Paste the token printed on the bridge's first run, or read it from ~/.config/mobile-agent/bridge-token.`,
         );
       else if (ACP_AUTH_ERROR_PATTERN.test(detail))
         setError(profile.signInHint);
       else
         setError(
-          `Could not reach the ${profile.label} bridge.${
-            detail ? ` (${detail})` : ""
-          }`,
+          `Could not reach the ${profile.label} bridge at ${validatedUrl}.${
+            isLoopbackUrl(validatedUrl)
+              ? " localhost only works when the bridge runs on this phone; for a computer, use its LAN IP."
+              : " Check the address, token, and network."
+          }${detail ? ` (${detail})` : ""}`,
         );
     } finally {
       clearTimeout(timeout);
@@ -223,8 +239,28 @@ export function AcpConnectionForm({
     setError(null);
     const timeout = setTimeout(() => controller.abort(), 45000);
 
+    let entries: AcpPairingEntry[];
+    try {
+      entries = payload.bridges.map((entry) => ({
+        ...entry,
+        url: normalizeAcpUrl(pairingUrls[entry.id]?.trim() || entry.url, {
+          allowInsecureLan: true,
+        }),
+      }));
+    } catch (cause) {
+      clearTimeout(timeout);
+      request.current = null;
+      setBusy(false);
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Enter a valid bridge URL for every harness in the QR.",
+      );
+      return;
+    }
+
     const results = await Promise.all(
-      payload.bridges.map(async (entry): Promise<PairResult> => {
+      entries.map(async (entry): Promise<PairResult> => {
         const entryProfile = ACP_PROFILES.find(
           (candidate) => candidate.id === entry.id,
         );
@@ -234,6 +270,7 @@ export function AcpConnectionForm({
             connection: null,
             phase: "redeem",
             error: new Error("Unsupported harness."),
+            url: entry.url,
           };
         }
         let token: string;
@@ -248,6 +285,7 @@ export function AcpConnectionForm({
             phase: "redeem",
             error:
               cause instanceof Error ? cause : new Error("Pairing failed."),
+            url: entry.url,
           };
         }
 
@@ -270,6 +308,7 @@ export function AcpConnectionForm({
               cause instanceof Error
                 ? cause
                 : new Error("Could not save the connection."),
+            url: entry.url,
           };
         }
 
@@ -283,6 +322,7 @@ export function AcpConnectionForm({
             connection: next,
             phase: "verify",
             error: null,
+            url: entry.url,
           };
         } catch (cause) {
           return {
@@ -293,6 +333,7 @@ export function AcpConnectionForm({
               cause instanceof Error
                 ? cause
                 : new Error("Verification failed."),
+            url: entry.url,
           };
         }
       }),
@@ -316,12 +357,14 @@ export function AcpConnectionForm({
         // The code was redeemed and the token saved, so a manual retry needs
         // no fresh QR.
         setPairing(null);
+        setPairingUrls({});
         setMode("manual");
         scanned.current = false;
       }
     } else if (own) {
       setConnection(own.connection ?? connection);
       setPairing(null);
+      setPairingUrls({});
       scanned.current = false;
       onConnected();
     }
@@ -340,6 +383,7 @@ export function AcpConnectionForm({
   function resetScan() {
     scanned.current = false;
     setPairing(null);
+    setPairingUrls({});
     setError(null);
   }
 
@@ -367,6 +411,14 @@ export function AcpConnectionForm({
                     try {
                       const parsed = parseAcpPairingPayload(data);
                       setPairing(parsed);
+                      setPairingUrls(
+                        Object.fromEntries(
+                          parsed.bridges.map((bridge) => [
+                            bridge.id,
+                            bridge.url,
+                          ]),
+                        ),
+                      );
                       setError(null);
                     } catch (cause) {
                       setError(
@@ -397,6 +449,44 @@ export function AcpConnectionForm({
                     : "Pairing QR scanned."}{" "}
                   Tap Connect to save every harness in this code.
                 </Text>
+                <View className="gap-sp-2">
+                  {pairing.bridges.map((bridge) => {
+                    const bridgeProfile = ACP_PROFILES.find(
+                      (candidate) => candidate.id === bridge.id,
+                    );
+                    return (
+                      <View key={bridge.id} className="gap-sp-1">
+                        <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                          {bridgeProfile?.label ?? bridge.id} bridge URL
+                        </Text>
+                        <Input
+                          value={pairingUrls[bridge.id] ?? bridge.url}
+                          disabled={busy}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          keyboardType="url"
+                          placeholder={`http://192.168.1.20:${bridgeProfile?.defaultPort ?? ""}`}
+                          onChangeText={(url) => {
+                            setPairingUrls((current) => ({
+                              ...current,
+                              [bridge.id]: url,
+                            }));
+                            setError(null);
+                          }}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+                {pairing.bridges.some((bridge) =>
+                  isLoopbackUrl(pairingUrls[bridge.id] ?? bridge.url),
+                ) ? (
+                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                    This QR advertises localhost. Keep it when the bridge runs in
+                    Termux on this phone; for a computer, replace it with that
+                    computer&apos;s LAN IP.
+                  </Text>
+                ) : null}
                 <Pressable
                   accessibilityRole="link"
                   className="self-center"
@@ -458,12 +548,16 @@ export function AcpConnectionForm({
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
-              placeholder={`http://192.168.1.20:${profile.defaultPort}`}
+              placeholder={`http://127.0.0.1:${profile.defaultPort} (this phone) or http://192.168.1.20:${profile.defaultPort}`}
               onChangeText={(url) => {
                 setConnection((current) => ({ ...current, url }));
                 setError(null);
               }}
             />
+            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+              Use localhost/127.0.0.1 only when the bridge runs in Termux on this
+              phone. For a computer, use its LAN IP.
+            </Text>
             <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
               Token
             </Text>

@@ -1363,7 +1363,14 @@ export default function SettingsProvidersScreen() {
                                             await selectModel(modelRef);
                                           }
                                         },
-                                      ).catch(console.error);
+                                      ).catch((cause) => {
+                                        Alert.alert(
+                                          "Could not switch model",
+                                          cause instanceof Error
+                                            ? cause.message
+                                            : String(cause),
+                                        );
+                                      });
                                     }}
                                     stateLabel={
                                       current

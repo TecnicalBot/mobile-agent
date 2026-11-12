@@ -17,6 +17,34 @@ import {
 } from "./opencode-presentation";
 
 describe("OpenCode shared chat presentation", () => {
+  it("shows assistant provider failures as actionable text", () => {
+    const messages = [
+      {
+        id: "msg_user",
+        type: "user",
+        time: { created: 1 },
+        text: "Hello",
+      },
+      {
+        id: "msg_assistant",
+        type: "assistant",
+        agent: "build",
+        time: { created: 2, completed: 3 },
+        finish: "error",
+        content: [],
+        error: {
+          type: "ProviderError",
+          message: "rate limit exceeded",
+          status: 429,
+          retryAfterMs: 5000,
+        },
+      },
+    ] as SessionMessageInfo[];
+    const [, reply] = presentOpenCodeMessages(messages, "ses_1", false);
+    expect(reply.error).toContain("rate limit");
+    expect(reply.error).toContain("Try again in 5s");
+  });
+
   it("presents actual harness agents without importing their execution configuration", () => {
     const agent: AgentInfo = {
       id: "reviewer",

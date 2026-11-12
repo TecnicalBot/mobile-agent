@@ -47,6 +47,8 @@ import { makeOpenCodeClient } from "@/modules/harnesses/opencode";
 import { readOpenCodeAgents } from "@/modules/harnesses/opencode-agents";
 import {
   OPENCODE_CONTINUATION_PROMPT,
+  openCodeConversationFailure,
+  openCodeErrorMessage,
   openCodeExecutionFailure,
   openCodePromptReply,
   openCodeStalledAssistant,
@@ -191,12 +193,14 @@ function useOpenCodeHarnessController() {
     setError(null);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
+    let attemptedUrl: string | null = null;
     try {
       const saved = await loadOpenCodeConnection();
       if (!saved) {
         if (epoch === generation.current) setStatus("disconnected");
         return;
       }
+      attemptedUrl = saved.url;
       const api = makeOpenCodeClient(
         saved,
         expoFetch as typeof globalThis.fetch,
@@ -241,12 +245,29 @@ function useOpenCodeHarnessController() {
       setDefaultAgentID(agentCatalog.defaultAgent?.id ?? null);
       setSessions(list.data);
       setStatus("connected");
-    } catch {
+    } catch (cause) {
       if (epoch === generation.current) {
         setClient(null);
         setStatus("disconnected");
+        const detail =
+          cause instanceof Error && cause.message.trim()
+            ? cause.message.trim()
+            : "";
+        const local =
+          attemptedUrl !== null &&
+          /^https?:\/\/(?:localhost|127\.|\[::1\])/i.test(attemptedUrl);
         setError(
-          "Could not connect to OpenCode. Check the server and reconnect in Settings → Harnesses.",
+          controller.signal.aborted
+            ? `OpenCode connection timed out${
+                attemptedUrl ? ` at ${attemptedUrl}` : ""
+              }. Check that OpenCode is running and reachable.`
+            : attemptedUrl
+              ? `Could not connect to OpenCode at ${attemptedUrl}.${
+                  local
+                    ? " If OpenCode runs in Termux on this phone, keep 127.0.0.1/localhost; if it runs on a computer, use that computer's LAN IP."
+                    : " Check the server address, password, and network."
+                }${detail ? ` (${detail})` : ""}`
+              : "Could not load the saved OpenCode connection. Reconnect in Settings → Harnesses.",
         );
       }
     } finally {
@@ -524,13 +545,17 @@ function useOpenCodeHarnessController() {
     setPendingPrompt(null);
   }, [client, pendingPrompt, refresh, sessionID, snapshot]);
 
-  // Surface execution failures that OpenCode records as a trailing idle row.
-  useEffect(() => {
-    if (!client || !sessionID || pendingPrompt) return;
-    if (snapshot?.session.id !== sessionID || snapshot.running) return;
-    const failure = openCodeExecutionFailure(snapshot.messages);
-    if (failure) setError(failure.message);
-  }, [client, pendingPrompt, sessionID, snapshot]);
+  // Execution failures are derived from the latest snapshot below. Do not copy
+  // them into local state: an old failure must clear as soon as a newer turn
+  // exists, including a rate-limit retry that succeeds.
+  const conversationFailure = useMemo(() => {
+    if (!snapshot || snapshot.session.id !== sessionID) return null;
+    if (snapshot.running || pendingPrompt) return null;
+    return openCodeConversationFailure(snapshot.messages);
+  }, [pendingPrompt, sessionID, snapshot]);
+  const conversationError = conversationFailure
+    ? openCodeErrorMessage(conversationFailure)
+    : null;
 
   const disconnect = useCallback(() => {
     generation.current++;
@@ -1204,15 +1229,6 @@ function useOpenCodeHarnessController() {
   const resolveDirectoryRef = useRef(resolveDirectory);
   resolveDirectoryRef.current = resolveDirectory;
 
-  // Tell the bridge which address the harness reached us on. It then advertises
-  // a matching interface instead of assuming the harness is on this phone.
-  const noteHarnessUrl = phoneBridge.noteHarnessUrl;
-  useEffect(() => {
-    noteHarnessUrl(
-      status === "connected" ? (connection.current?.url ?? null) : null,
-    );
-  }, [noteHarnessUrl, status]);
-
   // Attaching is automatic: a paired harness should not need a manual tap after
   // every reconnect, network change, or app restart.
   const sharedPhone = phoneBridge.sharing;
@@ -1436,7 +1452,9 @@ function useOpenCodeHarnessController() {
     active,
     connected: status === "connected",
     status,
-    error: error || (active ? streamError : null),
+    connectionUrl:
+      status === "connected" ? (connection.current?.url ?? null) : null,
+    error: error || (active ? streamError : null) || conversationError,
     models,
     availableModels:
       status === "connected" ? models.map(presentOpenCodeModel) : [],
@@ -1539,6 +1557,7 @@ function useHarnessController() {
   const opencode = useOpenCodeHarnessController();
   const antigravity = useAntigravityHarnessController();
   const claude = useClaudeHarnessController();
+  const phoneBridge = usePhoneBridge();
   const harnesses = useMemo(
     () => ({ opencode, antigravity, claude }),
     [opencode, antigravity, claude],
@@ -1548,6 +1567,16 @@ function useHarnessController() {
 
   const activeController =
     controllers.find((controller) => controller.active) ?? null;
+  const connectedHarnessUrl =
+    activeController?.connectionUrl ??
+    controllers.find((controller) => controller.connectionUrl)?.connectionUrl ??
+    null;
+  // Device sharing follows whichever harness the user is working in. Report the
+  // active connection, or any connected harness when no chat is open.
+  const noteHarnessUrl = phoneBridge.noteHarnessUrl;
+  useEffect(() => {
+    noteHarnessUrl(connectedHarnessUrl);
+  }, [connectedHarnessUrl, noteHarnessUrl]);
   const activeHarnessID: HarnessID | null = opencode.active
     ? "opencode"
     : antigravity.active

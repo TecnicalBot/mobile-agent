@@ -22,8 +22,8 @@ import type { BridgeReach } from "@/modules/bridge/reach";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
 
 const NETWORK_LABEL = {
-  auto: "Automatic",
-  loopback: "This phone",
+  auto: "Match harness",
+  loopback: "This phone (localhost)",
   lan: "Local network (unencrypted)",
   tailnet: "Tailscale",
 } as const;
@@ -129,6 +129,15 @@ export function PhoneBridgeDrawer({
                       label="Network"
                       value={NETWORK_LABEL[bridge.sharing.reach]}
                     />
+                    {bridge.harnessUrl ? (
+                      <>
+                        <Separator />
+                        <StatusRow
+                          label="Harness"
+                          value={bridge.harnessUrl}
+                        />
+                      </>
+                    ) : null}
                     <Separator />
                     <StatusRow
                       label="Shared tools"
@@ -355,6 +364,10 @@ export function PhoneBridgeDrawer({
                     ),
                   )}
                 </View>
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  Match harness follows the connected harness. Use this phone
+                  (localhost) when the harness runs in Termux on this device.
+                </Text>
               </View>
               {bridge.sharing ? (
                 <View className="gap-sp-2">
@@ -399,14 +412,44 @@ export function PhoneBridgeDrawer({
                   autoCapitalize="none"
                   autoCorrect={false}
                   disabled={bridge.busy}
-                  keyboardType="numbers-and-punctuation"
-                  placeholder="Automatic"
+                  keyboardType="url"
+                  placeholder="localhost or 192.168.1.20"
                   value={manualDraft}
                   onBlur={commitManualAddress}
                   onChangeText={setManualDraft}
                   onEndEditing={commitManualAddress}
                   onSubmitEditing={commitManualAddress}
                 />
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  Leave blank to match the harness. Use localhost only when the
+                  harness runs on this phone; otherwise enter the phone&apos;s
+                  LAN or Tailscale address.
+                </Text>
+                <View className="flex-row gap-sp-2">
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    disabled={bridge.busy}
+                    onPress={() => {
+                      setManualDraft("localhost");
+                      bridge.setManualAddress("localhost");
+                    }}
+                  >
+                    Use localhost
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    disabled={bridge.busy || !bridge.manualAddress}
+                    onPress={() => {
+                      setManualDraft("");
+                      bridge.setManualAddress(null);
+                      bridge.setPreference("auto");
+                    }}
+                  >
+                    Match harness
+                  </Button>
+                </View>
               </View>
               <View className="gap-sp-2">
                 <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">

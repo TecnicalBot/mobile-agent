@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  bridgeUrl,
   bridgeUrls,
+  classifyBridgeAddress,
   isAllowedBridgeHost,
   isAllowedBridgeSource,
   isLoopbackAddress,
   isPrivateAddress,
   isTailnetAddress,
+  normalizeBridgeAddress,
   selectReach,
   type BridgeInterface,
 } from "./reach";
@@ -30,6 +33,9 @@ describe("address classification", () => {
   it("recognises loopback, private, and tailnet addresses", () => {
     expect(isLoopbackAddress("127.0.0.1")).toBe(true);
     expect(isLoopbackAddress("::1")).toBe(true);
+    expect(isLoopbackAddress("localhost")).toBe(true);
+    expect(isLoopbackAddress("LOCALHOST")).toBe(true);
+    expect(isLoopbackAddress("localhost.")).toBe(true);
     expect(isLoopbackAddress("192.168.1.5")).toBe(false);
     expect(isPrivateAddress("192.168.1.5")).toBe(true);
     expect(isPrivateAddress("10.0.0.2")).toBe(true);
@@ -38,6 +44,36 @@ describe("address classification", () => {
     expect(isTailnetAddress("100.64.0.1")).toBe(true);
     expect(isTailnetAddress("100.127.255.254")).toBe(true);
     expect(isTailnetAddress("100.128.0.1")).toBe(false);
+  });
+
+  it("normalizes manual addresses and classifies their reach", () => {
+    expect(normalizeBridgeAddress("localhost")).toBe("localhost");
+    expect(normalizeBridgeAddress("http://192.168.1.20:43877/mcp")).toBe(
+      "192.168.1.20",
+    );
+    expect(normalizeBridgeAddress("[::1]:43877")).toBe("[::1]");
+    expect(normalizeBridgeAddress("::1")).toBe("[::1]");
+    expect(normalizeBridgeAddress("http://localhost:43877/mcp")).toBe(
+      "localhost",
+    );
+    expect(normalizeBridgeAddress("attacker.example")).toBeNull();
+    expect(normalizeBridgeAddress("http://user:pass@192.168.1.20")).toBeNull();
+
+    expect(classifyBridgeAddress("localhost")).toEqual({ reach: "loopback" });
+    expect(classifyBridgeAddress("127.0.0.1")).toEqual({ reach: "loopback" });
+    expect(classifyBridgeAddress("192.168.1.20")).toEqual({
+      reach: "lan",
+      address: "192.168.1.20",
+    });
+    expect(classifyBridgeAddress("100.88.1.2")).toEqual({
+      reach: "tailnet",
+      address: "100.88.1.2",
+    });
+    expect(classifyBridgeAddress("8.8.8.8")).toBeNull();
+  });
+
+  it("brackets IPv6 hosts when building a bridge URL", () => {
+    expect(bridgeUrl("[::1]", 43877)).toBe("http://[::1]:43877/mcp");
   });
 });
 
@@ -48,6 +84,17 @@ describe("reach selection", () => {
     expect(
       selectReach({
         harnessUrl: "http://127.0.0.1:4096",
+        interfaces,
+        port: 43877,
+      }),
+    ).toMatchObject({
+      reach: "loopback",
+      url: "http://127.0.0.1:43877/mcp",
+      needsOverride: false,
+    });
+    expect(
+      selectReach({
+        harnessUrl: "http://localhost:4096",
         interfaces,
         port: 43877,
       }),

@@ -1958,6 +1958,17 @@ const ChatMessageContent = memo(function ChatMessageContent({
                   }}
                 >
 
+                  {message.error ? (
+                    <View className="rounded-md border border-destructive/30 px-sp-3 py-sp-2">
+                      <Text
+                        selectable
+                        className="font-sans text-sm text-destructive dark:text-destructive-dark"
+                      >
+                        {message.error}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {memoryEventLabel ? (
                     <Trace>
                       <TraceCollapsible

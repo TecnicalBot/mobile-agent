@@ -40,6 +40,7 @@ export function OpenCodeConnectionForm({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"qr" | "manual">("qr");
+  const [manualMode, setManualMode] = useState<"pairing" | "server">("server");
   const [pairing, setPairing] = useState<{ url: string; code: string } | null>(
     null,
   );
@@ -57,13 +58,17 @@ export function OpenCodeConnectionForm({
   const requested = useRef(false);
   const mounted = useRef(true);
   const request = useRef<AbortController | null>(null);
+  const savedConnection = useRef<SavedOpenCodeConnection | null>(null);
   const endpointUrl = pairingServerUrl;
 
   useEffect(() => {
     mounted.current = true;
     loadOpenCodeConnection()
       .then((value) => {
-        if (mounted.current && value) setConnection(value);
+        if (mounted.current && value) {
+          savedConnection.current = value;
+          setConnection(value);
+        }
       })
       .catch(() => {
         if (mounted.current) setError("Could not load the saved connection.");
@@ -94,10 +99,17 @@ export function OpenCodeConnectionForm({
   }, [getPermission]);
 
   async function connect() {
-    if (request.current || (!pairing && !redeemed)) return;
+    if (request.current) return;
+    const direct = mode === "manual" && manualMode === "server";
+    if (!direct && !pairing && !redeemed) return;
+    const rawUrl = direct ? connection.url : endpointUrl;
+    if (!rawUrl.trim()) {
+      setError("Enter the OpenCode server URL.");
+      return;
+    }
     let validatedUrl: string;
     try {
-      validatedUrl = normalizeOpenCodeUrl(endpointUrl, { allowInsecureLan });
+      validatedUrl = normalizeOpenCodeUrl(rawUrl, { allowInsecureLan });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Invalid server URL.");
       return;
@@ -108,10 +120,26 @@ export function OpenCodeConnectionForm({
     setError(null);
     const timeout = setTimeout(() => controller.abort(), 15000);
     let phase: "pair" | "verify" | "save" =
-      pairing && !redeemed ? "pair" : "verify";
+      !direct && pairing && !redeemed ? "pair" : "verify";
     try {
-      let next = { ...connection, url: validatedUrl, allowInsecureLan };
-      if (pairing && !redeemed) {
+      const username = connection.username.trim() || "opencode";
+      let next: SavedOpenCodeConnection = direct
+        ? {
+            ...connection,
+            url: validatedUrl,
+            username,
+            password: connection.password,
+            allowInsecureLan,
+            sessionID:
+              savedConnection.current?.url === validatedUrl &&
+              savedConnection.current.username === username &&
+              savedConnection.current.password === connection.password &&
+              savedConnection.current.directory === connection.directory
+                ? savedConnection.current.sessionID
+                : undefined,
+          }
+        : { ...connection, url: validatedUrl, allowInsecureLan };
+      if (!direct && pairing && !redeemed) {
         const url = validatedUrl;
         const api = makeOpenCodeClient(
           { ...EMPTY, url, allowInsecureLan },
@@ -144,27 +172,53 @@ export function OpenCodeConnectionForm({
       );
       phase = "verify";
       const info = await api.server.info({ signal: controller.signal });
-      if (!/^2\./.test(info.version)) throw new Error("version");
+      if (!/^2\./.test(info.version))
+        throw new Error("OpenCode V2 is required.");
       await api.session.list({ limit: 1 }, { signal: controller.signal });
       if (controller.signal.aborted) return;
       phase = "save";
       await saveOpenCodeConnection(next);
       if (mounted.current) onConnected();
-    } catch {
-      if (mounted.current)
+    } catch (cause) {
+      if (!mounted.current) return;
+      const detail = cause instanceof Error ? cause.message.trim() : "";
+      const hostname = (() => {
+        try {
+          return new URL(validatedUrl).hostname;
+        } catch {
+          return "";
+        }
+      })();
+      const local =
+        hostname === "localhost" ||
+        hostname === "[::1]" ||
+        hostname === "::1" ||
+        /^127\./.test(hostname);
+      if (controller.signal.aborted) {
         setError(
-          controller.signal.aborted
-            ? "OpenCode connection timed out. Check the server address and network before retrying."
-            : ["127.0.0.1", "localhost", "[::1]"].includes(
-                  new URL(validatedUrl).hostname,
-                )
-              ? "This QR points to localhost on the phone. For desktop pairing, generate the QR with opencode pair --url http://DESKTOP_IP:PORT. Use localhost only if OpenCode runs on this phone."
-              : phase === "pair"
-                ? "Could not redeem the pairing code. Check the desktop address, then scan a fresh OpenCode pairing QR."
-                : phase === "save"
-                  ? "OpenCode responded, but the connection could not be saved securely."
-                  : "Pairing credentials were saved, but OpenCode verification failed. Retry Connect without scanning again.",
+          `OpenCode connection timed out at ${validatedUrl}. Check the server address and network before retrying.`,
         );
+      } else if (phase === "pair") {
+        setError(
+          `Could not redeem the pairing code at ${validatedUrl}. Check the desktop address, then scan a fresh OpenCode pairing QR.${
+            detail ? ` (${detail})` : ""
+          }`,
+        );
+      } else if (phase === "save") {
+        setError(
+          `OpenCode responded at ${validatedUrl}, but the connection could not be saved securely.${
+            detail ? ` (${detail})` : ""
+          }`,
+        );
+      } else {
+        setError(
+          `Could not reach OpenCode at ${validatedUrl}.${
+            local
+              ? " If OpenCode runs on this phone, keep 127.0.0.1/localhost; if it runs on a computer, use that computer's LAN IP."
+              : " Check the address, password, and network."
+          }${detail ? ` (${detail})` : ""}`,
+        );
+      }
     } finally {
       clearTimeout(timeout);
       request.current = null;
@@ -269,59 +323,142 @@ export function OpenCodeConnectionForm({
           </>
         ) : (
           <>
-            <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
-              Pairing link
-            </Text>
-            <Input
-              value={pastedLink}
-              disabled={loading || busy}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="https://your-server/auth/connect/…"
-              secureTextEntry
-              onChangeText={(link) => {
-                setPastedLink(link);
-                setRedeemed(false);
-                setError(null);
-                try {
-                  const parsed = parseOpenCodePairingLink(link, {
-                    allowAddressOverride: true,
-                  });
-                  setPairing(parsed);
-                  setPairingServerUrl(parsed.url);
-                } catch {
-                  setPairing(null);
-                  setPairingServerUrl("");
-                }
-              }}
-            />
-            <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-              Paste the full link from OpenCode Pair. No password is required.
-            </Text>
-            {pairing ? (
+            <View className="flex-row gap-sp-2">
+              <Button
+                className="flex-1"
+                variant={manualMode === "server" ? "secondary" : "outline"}
+                disabled={loading || busy}
+                onPress={() => {
+                  setManualMode("server");
+                  setError(null);
+                }}
+              >
+                Server address
+              </Button>
+              <Button
+                className="flex-1"
+                variant={manualMode === "pairing" ? "secondary" : "outline"}
+                disabled={loading || busy}
+                onPress={() => {
+                  setManualMode("pairing");
+                  setError(null);
+                }}
+              >
+                Pairing link
+              </Button>
+            </View>
+            {manualMode === "server" ? (
               <>
                 <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
                   Server URL
                 </Text>
                 <Input
-                  value={pairingServerUrl}
-                  disabled={busy}
+                  value={connection.url}
+                  disabled={loading || busy}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
+                  placeholder="http://127.0.0.1:4096"
                   onChangeText={(url) => {
-                    setPairingServerUrl(url);
+                    setConnection((current) => ({ ...current, url }));
                     setError(null);
                   }}
                 />
-                {/^http:\/\/(127\.|localhost|0\.0\.0\.0)/i.test(pairing.url) ? (
-                  <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
-                    For Wi-Fi, enter the desktop LAN IP and keep the port.
-                  </Text>
+                <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                  Username
+                </Text>
+                <Input
+                  value={connection.username}
+                  disabled={loading || busy}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="opencode"
+                  onChangeText={(username) => {
+                    setConnection((current) => ({ ...current, username }));
+                    setError(null);
+                  }}
+                />
+                <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                  Password
+                </Text>
+                <Input
+                  value={connection.password}
+                  disabled={loading || busy}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  placeholder="Optional. Leave blank when the server has no password."
+                  onChangeText={(password) => {
+                    setConnection((current) => ({ ...current, password }));
+                    setError(null);
+                  }}
+                />
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  Use this when OpenCode runs on this phone (Termux) or you have
+                  its server password. localhost is treated as 127.0.0.1 on the
+                  phone. For a desktop, enter its LAN IP.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                  Pairing link
+                </Text>
+                <Input
+                  value={pastedLink}
+                  disabled={loading || busy}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="https://your-server/auth/connect/…"
+                  secureTextEntry
+                  onChangeText={(link) => {
+                    setPastedLink(link);
+                    setRedeemed(false);
+                    setError(null);
+                    try {
+                      const parsed = parseOpenCodePairingLink(link, {
+                        allowAddressOverride: true,
+                      });
+                      setPairing(parsed);
+                      setPairingServerUrl(parsed.url);
+                    } catch {
+                      setPairing(null);
+                      setPairingServerUrl("");
+                    }
+                  }}
+                />
+                <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                  Paste the full link from OpenCode Pair. No password is
+                  required.
+                </Text>
+                {pairing ? (
+                  <>
+                    <Text className="font-sans text-sm text-foreground dark:text-foreground-dark">
+                      Server URL
+                    </Text>
+                    <Input
+                      value={pairingServerUrl}
+                      disabled={busy}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      onChangeText={(url) => {
+                        setPairingServerUrl(url);
+                        setError(null);
+                      }}
+                    />
+                    {/^http:\/\/(127\.|localhost|0\.0\.0\.0)/i.test(
+                      pairing.url,
+                    ) ? (
+                      <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                        For Wi-Fi, enter the desktop LAN IP and keep the port.
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
               </>
-            ) : null}
+            )}
           </>
         )}
         {error ? (
@@ -337,7 +474,13 @@ export function OpenCodeConnectionForm({
         <Button
           className="w-full"
           loading={busy}
-          disabled={loading || busy || (!pairing && !redeemed)}
+          disabled={
+            loading ||
+            busy ||
+            (mode === "manual" && manualMode === "server"
+              ? !connection.url.trim()
+              : !pairing && !redeemed)
+          }
           onPress={() => {
             void connect();
           }}
@@ -350,7 +493,12 @@ export function OpenCodeConnectionForm({
           hitSlop={8}
           disabled={busy}
           onPress={() => {
-            setMode((value) => (value === "qr" ? "manual" : "qr"));
+            if (mode === "qr") {
+              setManualMode("server");
+              setMode("manual");
+            } else {
+              setMode("qr");
+            }
             setError(null);
           }}
           style={({ pressed }) => (pressed ? { opacity: 0.6 } : null)}

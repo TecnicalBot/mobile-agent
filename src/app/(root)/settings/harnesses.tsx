@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
@@ -353,7 +353,14 @@ export default function SettingsHarnessesScreen() {
                                 : "Use"
                             }
                             onPress={() => {
-                              void selectModel(model.ref).catch(() => {});
+                              void selectModel(model.ref).catch((cause) => {
+                                Alert.alert(
+                                  "Could not switch model",
+                                  cause instanceof Error
+                                    ? cause.message
+                                    : String(cause),
+                                );
+                              });
                             }}
                           />
                         </View>

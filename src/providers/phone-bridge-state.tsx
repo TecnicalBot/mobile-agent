@@ -43,8 +43,9 @@ import {
   startPhoneBridgeListener,
 } from "@/modules/bridge/native-http-server";
 import {
+  bridgeUrl,
   bridgeUrls,
-  isTailnetAddress,
+  classifyBridgeAddress,
   selectReach,
   type BridgeInterface,
   type BridgeReach,
@@ -320,13 +321,20 @@ function usePhoneBridgeController() {
         preferenceRef.current === "auto" && !harnessUrl
           ? (desiredSharing.current?.reach ?? "auto")
           : preferenceRef.current;
-      const selection = manual
+      const manualSelection = manual
+        ? classifyBridgeAddress(manual)
+        : null;
+      if (manual && !manualSelection)
+        throw new Error(
+          "Use localhost, a LAN IP, or a Tailscale 100.x address for the bridge override.",
+        );
+      const selection = manualSelection
         ? {
-            reach: (isTailnetAddress(manual)
-              ? "tailnet"
-              : "lan") as BridgeReach,
-            address: manual,
-            url: `http://${manual}:${PHONE_BRIDGE_PORT}/mcp`,
+            ...manualSelection,
+            url: bridgeUrl(
+              manualSelection.address ?? "127.0.0.1",
+              PHONE_BRIDGE_PORT,
+            ),
             needsOverride: false,
           }
         : selectReach({
@@ -415,20 +423,29 @@ function usePhoneBridgeController() {
       await setBackgroundAgentNotificationState("running", listener.url).catch(
         () => {},
       );
-    } catch {
+    } catch (cause) {
       const ownsFailure = epoch === generation.current;
       if (ownsFailure) await stopRuntime();
       else await endpoint?.close();
       // stopRuntime advances the generation; this failure still belongs to
       // this start unless an external Stop/restart already invalidated it.
-      if (ownsFailure && epoch + 1 === generation.current)
+      if (ownsFailure && epoch + 1 === generation.current) {
+        const detail =
+          cause instanceof Error && cause.message.trim()
+            ? cause.message.trim()
+            : "";
         setError(
           phase === "save"
             ? "Could not save device sharing settings. Sharing was stopped."
             : phase === "listen"
-              ? "Could not open device sharing. Check the network and try again."
-              : "Could not prepare device sharing. Check the shared folder and network.",
+              ? `Could not open device sharing. Check the network and try again.${
+                  detail ? ` (${detail})` : ""
+                }`
+              : `Could not prepare device sharing. Check the shared folder, address, and network.${
+                  detail ? ` (${detail})` : ""
+                }`,
         );
+      }
     } finally {
       starting.current = false;
       setBusy(false);
@@ -486,7 +503,13 @@ function usePhoneBridgeController() {
         }
         const manual = manualAddress?.trim() || null;
         if (manual) {
-          if (`http://${manual}:${shared.port}/mcp` === shared.url) return;
+          const classified = classifyBridgeAddress(manual);
+          if (!classified) return;
+          const expected = bridgeUrl(
+            classified.address ?? "127.0.0.1",
+            shared.port,
+          );
+          if (expected === shared.url) return;
           await startRef.current(shared.grant);
           return;
         }
@@ -563,6 +586,7 @@ function usePhoneBridgeController() {
     records,
     interfaces,
     urls: bridgeUrls(interfaces, sharing?.port ?? PHONE_BRIDGE_PORT),
+    harnessUrl,
     preference,
     manualAddress,
     setPreference,

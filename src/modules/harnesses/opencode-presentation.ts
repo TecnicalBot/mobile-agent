@@ -16,7 +16,10 @@ import type {
   PendingQuestionnaire,
   PendingQuestionnaireAnswer,
 } from "@/core/types/app-state";
-import { openCodeLastConversationMessage } from "@/modules/harnesses/opencode-recovery";
+import {
+  openCodeErrorMessage,
+  openCodeLastConversationMessage,
+} from "@/modules/harnesses/opencode-recovery";
 import { presentHarnessToolExecution } from "@/modules/harnesses/tool-execution";
 
 export const OPENCODE_PROVIDER_ID = "harness:opencode";
@@ -282,7 +285,7 @@ export function presentOpenCodeMessages(
               : "completed",
         error:
           message.type === "assistant" && message.error
-            ? JSON.stringify(message.error)
+            ? openCodeErrorMessage(message.error)
             : null,
         sequence,
         createdAt,

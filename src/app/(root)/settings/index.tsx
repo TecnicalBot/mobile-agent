@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Alert, Platform, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { SearchBox } from "@/components/shared/search-box";
@@ -597,7 +597,14 @@ export default function SettingsScreen() {
                           runAction(`model:${model.ref}`, async () => {
                             await selectModel(model.ref as ModelRef);
                             setOpenDrawer(null);
-                          }).catch(console.error);
+                          }).catch((cause) => {
+                            Alert.alert(
+                              "Could not switch model",
+                              cause instanceof Error
+                                ? cause.message
+                                : String(cause),
+                            );
+                          });
                         }}
                         selected={selected}
                         subtitle={model.providerLabel}

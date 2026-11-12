@@ -53,6 +53,21 @@ describe("ACP pairing QR payloads", () => {
     });
   });
 
+  it("resolves localhost bridge URLs to the IPv4 loopback address", () => {
+    const parsed = parseAcpPairingPayload(
+      payload({
+        bridges: [
+          {
+            id: "antigravity",
+            url: "http://localhost:7801",
+            code: "abcdefgh",
+          },
+        ],
+      }),
+    );
+    expect(parsed.bridges[0]?.url).toBe("http://127.0.0.1:7801");
+  });
+
   it("rejects expired and malformed QR codes", () => {
     expect(() =>
       parseAcpPairingPayload(payload({ expiresAt: Date.now() - 1 })),

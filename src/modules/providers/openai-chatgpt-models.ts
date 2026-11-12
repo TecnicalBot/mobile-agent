@@ -25,22 +25,22 @@ export type ChatGptRemoteModel = {
  * list cannot be fetched so the provider still offers usable models.
  */
 export const CHATGPT_FALLBACK_MODEL_SLUGS = [
-  "gpt-5.5",
-  "gpt-5.5-fast",
-  "gpt-5.6-luna",
-  "gpt-5.6-luna-fast",
-  "gpt-5.6-sol",
-  "gpt-5.6-sol-fast",
-  "gpt-5.6-terra",
-  "gpt-5.6-terra-fast",
-  "gpt-6-astra",
-  "gpt-6-astra-fast",
-  "gpt-6-luna",
-  "gpt-6-luna-fast",
-  "gpt-6-sol",
-  "gpt-6-sol-fast",
   "gpt-6.1-sol",
   "gpt-6.1-sol-fast",
+  "gpt-6-sol",
+  "gpt-6-sol-fast",
+  "gpt-6-luna",
+  "gpt-6-luna-fast",
+  "gpt-6-astra",
+  "gpt-6-astra-fast",
+  "gpt-5.6-sol",
+  "gpt-5.6-sol-fast",
+  "gpt-5.6-luna",
+  "gpt-5.6-luna-fast",
+  "gpt-5.6-terra",
+  "gpt-5.6-terra-fast",
+  "gpt-5.5",
+  "gpt-5.5-fast",
 ] as const;
 
 type CacheEntry = {
@@ -48,7 +48,11 @@ type CacheEntry = {
   models: ChatGptRemoteModel[];
 };
 
-function getCacheKey(clientId: string) {
+function getCacheKey(accountId: string | null) {
+  return `openai_chatgpt_models_${accountId ?? "legacy"}`;
+}
+
+function getLegacyCacheKey(clientId: string) {
   return `openai_chatgpt_models_${clientId}`;
 }
 
@@ -161,23 +165,35 @@ function parseCache(raw: string | null): CacheEntry | null {
 }
 
 export async function readChatGptModelCache(
-  clientId: string,
+  accountId: string | null,
 ): Promise<CacheEntry | null> {
-  return parseCache(await SecureStore.getItemAsync(getCacheKey(clientId)));
+  return parseCache(await SecureStore.getItemAsync(getCacheKey(accountId)));
 }
 
 async function writeChatGptModelCache(
-  clientId: string,
+  accountId: string | null,
   models: ChatGptRemoteModel[],
 ) {
   await SecureStore.setItemAsync(
-    getCacheKey(clientId),
+    getCacheKey(accountId),
     JSON.stringify({ fetchedAt: Date.now(), models } satisfies CacheEntry),
   );
 }
 
-export async function clearChatGptModelCache(clientId: string) {
-  await SecureStore.deleteItemAsync(getCacheKey(clientId));
+/**
+ * Drops the cached model list for an account. Called on sign-in, disconnect,
+ * and account switch so one account's (or plan's) list is never reused for
+ * another. `clientId` is accepted to clean up the pre-account cache key.
+ */
+export async function clearChatGptModelCache(
+  accountId: string | null,
+  clientId?: string | null,
+) {
+  await SecureStore.deleteItemAsync(getCacheKey(accountId));
+
+  if (clientId) {
+    await SecureStore.deleteItemAsync(getLegacyCacheKey(clientId));
+  }
 }
 
 /**
@@ -200,16 +216,55 @@ export async function fetchChatGptRemoteModels(input: {
 
   const data = (await response.json().catch(() => null)) as unknown;
 
-  if (!isRecord(data) || !Array.isArray(data.models)) {
+  return filterChatGptRemoteModels(parseRemoteModels(data));
+}
+
+/**
+ * The plan model endpoint has historically used a `{ models: [...] }` envelope
+ * with ChatGPT-specific fields. A standard OpenAI `{ data: [...] }` list is
+ * accepted too, since it is account-scoped and already filtered by the server.
+ */
+function parseRemoteModels(data: unknown): ChatGptRemoteModel[] {
+  if (!isRecord(data)) {
     return [];
   }
 
-  return filterChatGptRemoteModels(
-    data.models.filter(
+  if (Array.isArray(data.models)) {
+    return data.models.filter(
       (model): model is ChatGptRemoteModel =>
         isRecord(model) && typeof model.slug === "string",
-    ),
-  );
+    );
+  }
+
+  if (Array.isArray(data.data)) {
+    return data.data.flatMap((model): ChatGptRemoteModel[] => {
+      if (!isRecord(model)) {
+        return [];
+      }
+
+      const slug =
+        typeof model.id === "string"
+          ? model.id
+          : typeof model.slug === "string"
+            ? model.slug
+            : null;
+
+      if (!slug || !/^(gpt-|o\d|chatgpt)/i.test(slug)) {
+        return [];
+      }
+
+      return [
+        {
+          ...model,
+          slug,
+          supported_in_api: true,
+          visibility: "list",
+        },
+      ];
+    });
+  }
+
+  return [];
 }
 
 /**
@@ -218,17 +273,17 @@ export async function fetchChatGptRemoteModels(input: {
  * exposes something usable.
  */
 export async function discoverChatGptModels(input: {
+  accountId: string | null;
   baseURL?: string | null;
   clientId: string | null;
   token: string;
 }): Promise<CuratedModelDefinition[]> {
-  const cached = input.clientId
-    ? await readChatGptModelCache(input.clientId)
-    : null;
+  const cached = await readChatGptModelCache(input.accountId);
 
   if (
     cached &&
-    (cached.fetchedAt === 0 || Date.now() - cached.fetchedAt < CACHE_TTL_MS)
+    cached.fetchedAt > 0 &&
+    Date.now() - cached.fetchedAt < CACHE_TTL_MS
   ) {
     return cached.models.map(mapChatGptRemoteModel);
   }
@@ -243,9 +298,7 @@ export async function discoverChatGptModels(input: {
       throw new Error("No ChatGPT models are available for this account.");
     }
 
-    if (input.clientId) {
-      await writeChatGptModelCache(input.clientId, remote);
-    }
+    await writeChatGptModelCache(input.accountId, remote);
 
     return remote.map(mapChatGptRemoteModel);
   } catch (error) {

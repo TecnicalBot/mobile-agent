@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHATGPT_FALLBACK_MODEL_SLUGS,
+  clearChatGptModelCache,
+  discoverChatGptModels,
+  fetchChatGptRemoteModels,
   filterChatGptRemoteModels,
   formatChatGptModelLabel,
   getFallbackChatGptModels,
@@ -10,10 +13,18 @@ import {
   type ChatGptRemoteModel,
 } from "@/modules/providers/openai-chatgpt-models";
 
+const { store } = vi.hoisted(() => ({
+  store: new Map<string, string>(),
+}));
+
 vi.mock("expo-secure-store", () => ({
-  deleteItemAsync: vi.fn(),
-  getItemAsync: vi.fn(),
-  setItemAsync: vi.fn(),
+  deleteItemAsync: vi.fn(async (key: string) => {
+    store.delete(key);
+  }),
+  getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+  setItemAsync: vi.fn(async (key: string, value: string) => {
+    store.set(key, value);
+  }),
 }));
 
 describe("formatChatGptModelLabel", () => {
@@ -105,5 +116,135 @@ describe("getFallbackChatGptModels", () => {
       expect(model.transport).toBe("openaiResponses");
       expect(model.capabilities?.tools).toBe(true);
     }
+  });
+
+  it("defaults to a current model rather than the oldest allowlisted one", () => {
+    expect(getFallbackChatGptModels()[0]?.id).toBe("gpt-6.1-sol");
+  });
+});
+
+describe("fetchChatGptRemoteModels", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts the account-scoped custom envelope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              models: [
+                { slug: "gpt-6.1-sol", visibility: "list", supported_in_api: true },
+                { slug: "hidden", visibility: "hidden", supported_in_api: true },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const models = await fetchChatGptRemoteModels({ token: "token" });
+
+    expect(models.map((model) => model.slug)).toEqual(["gpt-6.1-sol"]);
+  });
+
+  it("accepts a standard OpenAI data envelope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              object: "list",
+              data: [
+                { id: "gpt-6.1-sol", object: "model" },
+                { id: "text-embedding-3-small", object: "model" },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const models = await fetchChatGptRemoteModels({ token: "token" });
+
+    expect(models.map((model) => model.slug)).toEqual(["gpt-6.1-sol"]);
+  });
+});
+
+describe("discoverChatGptModels", () => {
+  beforeEach(() => {
+    store.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("caches the model list per account instead of per OAuth client", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            models: [
+              { slug: "gpt-5.5", visibility: "list", supported_in_api: true },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            models: [
+              {
+                slug: "gpt-6.1-sol",
+                visibility: "list",
+                supported_in_api: true,
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            models: [
+              { slug: "gpt-5.5", visibility: "list", supported_in_api: true },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await discoverChatGptModels({
+      accountId: "account-a",
+      clientId: "shared-client",
+      token: "token",
+    });
+    const second = await discoverChatGptModels({
+      accountId: "account-b",
+      clientId: "shared-client",
+      token: "token",
+    });
+
+    expect(first.map((model) => model.id)).toEqual(["gpt-5.5"]);
+    expect(second.map((model) => model.id)).toEqual(["gpt-6.1-sol"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await clearChatGptModelCache("account-a");
+
+    const third = await discoverChatGptModels({
+      accountId: "account-a",
+      clientId: "shared-client",
+      token: "token",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(third.map((model) => model.id)).toEqual(["gpt-5.5"]);
   });
 });

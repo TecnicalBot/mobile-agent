@@ -2,13 +2,13 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Platform } from "react-native";
 
 import {
+  forceRefreshOpenAiTokenInfo,
+  forceRefreshOpenAiTokenInfoForAccount,
   getValidOpenAiTokenInfo,
   getValidOpenAiTokenInfoForAccount,
-  refreshOpenAIToken,
-  setOpenAiTokens,
-  setOpenAiTokensForAccount,
 } from "@/modules/providers/openai-oauth";
 import {
+  forceRefreshOpenAiChatGptToken,
   forceRefreshOpenAiChatGptTokenForAccount,
   getValidOpenAiChatGptTokenInfo,
   getValidOpenAiChatGptTokenInfoForAccount,
@@ -136,31 +136,14 @@ async function fetchWithCodexOAuth(
   let response = await send(session.accessToken, session.accountId);
 
   if (response.status === 401 && session.refreshToken) {
-    const refreshed = await refreshOpenAIToken(session.refreshToken);
-
-    if (accountId) {
-      await setOpenAiTokensForAccount(accountId, {
-        accessToken: refreshed.access_token,
-        accountId: session.accountId,
-        email: session.email,
-        expiresIn: refreshed.expires_in ?? null,
-        idToken: refreshed.id_token ?? null,
-        refreshToken: refreshed.refresh_token ?? session.refreshToken,
-      });
-    } else {
-      await setOpenAiTokens({
-        accessToken: refreshed.access_token,
-        accountId: session.accountId,
-        email: session.email,
-        expiresIn: refreshed.expires_in ?? null,
-        idToken: refreshed.id_token ?? null,
-        refreshToken: refreshed.refresh_token ?? session.refreshToken,
-      });
-    }
-
+    // Go through the shared coordinator so a reactive 401 refresh cannot race
+    // with a proactive refresh (or another 401) and burn the rotating token.
     session = accountId
-      ? await getValidOpenAiTokenInfoForAccount(accountId)
-      : await getValidOpenAiTokenInfo();
+      ? await forceRefreshOpenAiTokenInfoForAccount(
+          accountId,
+          session.accessToken,
+        )
+      : await forceRefreshOpenAiTokenInfo(session.accessToken);
 
     if (!session.accessToken) {
       throw new Error("Session expired. Please connect ChatGPT again.");
@@ -233,15 +216,15 @@ async function fetchWithChatGptOAuth(
 
   let response = await send(session.accessToken);
 
-  if (
-    response.status === 401 &&
-    accountId &&
-    session.refreshToken &&
-    session.clientId
-  ) {
-    session = await forceRefreshOpenAiChatGptTokenForAccount(accountId).catch(
-      () => session,
-    );
+  if (response.status === 401 && session.refreshToken && session.clientId) {
+    // Never swallow a terminal refresh failure here: retrying with the same
+    // expired access token just hides the reason and burns the grant.
+    session = accountId
+      ? await forceRefreshOpenAiChatGptTokenForAccount(
+          accountId,
+          session.accessToken,
+        )
+      : await forceRefreshOpenAiChatGptToken(session.accessToken);
 
     if (session.accessToken) {
       response = await send(session.accessToken);

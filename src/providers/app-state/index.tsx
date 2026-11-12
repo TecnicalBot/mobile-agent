@@ -58,6 +58,7 @@ import {
     getOpenAiChatGptTokenInfoForAccount,
     handleChatGptLogin,
 } from "@/modules/providers/openai-chatgpt-oauth";
+import { clearChatGptModelCache } from "@/modules/providers/openai-chatgpt-models";
 import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
 import { getSupportedProviderDefinition } from "@/modules/providers";
 import {
@@ -2592,6 +2593,13 @@ Your output must be:
             input.providerId,
             input.accountId,
         );
+
+        // A model list is account-scoped, so never reuse the previous
+        // account's cached ChatGPT-plan models for this one.
+        if (getOpenAiOAuthFlavor(input.providerId) === "chatgpt") {
+            await clearChatGptModelCache(input.accountId).catch(() => {});
+        }
+
         await hydrate();
     },
         [hydrate],
@@ -2668,6 +2676,7 @@ Your output must be:
             // rather than the API-key slot, so clear the right store.
             if (getOpenAiOAuthFlavor(input.providerId) === "chatgpt") {
                 await clearOpenAiChatGptTokensForAccount(input.accountId);
+                await clearChatGptModelCache(input.accountId).catch(() => {});
             } else {
                 await clearOpenAiTokensForAccount(input.accountId);
             }
@@ -2693,6 +2702,7 @@ Your output must be:
         ) {
             if (getOpenAiOAuthFlavor(input.providerId) === "chatgpt") {
                 await clearLegacyOpenAiChatGptTokens();
+                await clearChatGptModelCache(null).catch(() => {});
             } else {
                 await clearOpenAiTokens();
             }
@@ -3983,6 +3993,11 @@ Your output must be:
 
         const tokenInfo = await readOAuthTokenInfo(providerId, accountId);
 
+        // Force fresh model discovery for the credential that just signed in.
+        if (getOpenAiOAuthFlavor(providerId) === "chatgpt") {
+            await clearChatGptModelCache(accountId).catch(() => {});
+        }
+
         await secureSecretStore.setActiveProviderAccount(providerId, accountId);
 
         await repositoriesRef.current.configRepository
@@ -4099,12 +4114,20 @@ Your output must be:
         if (accountId) {
             if (flavor === "chatgpt") {
                 await clearOpenAiChatGptTokensForAccount(accountId);
+                await clearChatGptModelCache(accountId).catch(() => {});
             } else {
                 await clearOpenAiTokensForAccount(accountId);
             }
 
             await secureSecretStore.setActiveProviderAccount(providerId, null);
         } else {
+            if (flavor === "chatgpt") {
+                await clearLegacyOpenAiChatGptTokens();
+                await clearChatGptModelCache(null).catch(() => {});
+            } else {
+                await clearOpenAiTokens();
+            }
+
             await secureSecretStore.deleteLegacyProviderApiKey(providerId);
         }
 

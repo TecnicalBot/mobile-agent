@@ -1,5 +1,10 @@
 import { prepareOpenAICallbackSession } from "@/core/services/local-server";
 import { watchForOAuthCancel } from "@/modules/providers/oauth-browser-cancel";
+import {
+  isOAuthSessionExpiredError,
+  isTerminalOAuthErrorCode,
+  OAuthSessionExpiredError,
+} from "@/modules/providers/oauth-errors";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -42,8 +47,11 @@ type OpenAiClaims = {
   };
 };
 
-let refreshPromise: Promise<OpenAiTokenInfo> | null = null;
-let refreshPromiseForAccount: Map<string, Promise<OpenAiTokenInfo>> = new Map();
+const refreshPromises = new Map<string, Promise<OpenAiTokenInfo>>();
+
+function refreshKey(accountId: string | null) {
+  return accountId ?? "__legacy__";
+}
 
 async function returnToAppAfterOAuth() {
   try {
@@ -377,7 +385,7 @@ export async function setOpenAiTokensForAccount(
 }
 
 export async function clearOpenAiTokens() {
-  refreshPromise = null;
+  refreshPromises.delete(refreshKey(null));
   await Promise.all([
     SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
     SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
@@ -386,7 +394,7 @@ export async function clearOpenAiTokens() {
 }
 
 export async function clearOpenAiTokensForAccount(accountId: string) {
-  refreshPromiseForAccount.delete(accountId);
+  refreshPromises.delete(refreshKey(accountId));
   await SecureStore.deleteItemAsync(getAccountSessionKey(accountId));
 }
 
@@ -474,6 +482,14 @@ export async function refreshOpenAIToken(refreshToken: string) {
 
   if (!res.ok) {
     const errorData = data as Record<string, string>;
+
+    if (isTerminalOAuthErrorCode(errorData.error)) {
+      throw new OAuthSessionExpiredError(
+        "Your ChatGPT session expired. Connect ChatGPT again.",
+        errorData.error,
+      );
+    }
+
     throw new Error(
       errorData.error_description || errorData.error || "Token refresh failed",
     );
@@ -504,67 +520,131 @@ async function refreshTokenInfo(
   return next;
 }
 
+function isFresh(info: OpenAiTokenInfo) {
+  if (!info.accessToken) {
+    return false;
+  }
+
+  if (info.expiresAt === null) {
+    return true;
+  }
+
+  return info.expiresAt - REFRESH_SKEW_MS > Date.now();
+}
+
+async function readTokenInfo(accountId: string | null) {
+  return accountId
+    ? getOpenAiTokenInfoForAccount(accountId)
+    : getOpenAiTokenInfo();
+}
+
+async function clearTokenInfo(accountId: string | null) {
+  if (accountId) {
+    await clearOpenAiTokensForAccount(accountId);
+  } else {
+    await clearOpenAiTokens();
+  }
+}
+
+/**
+ * Single-flight refresh shared by proactive (near-expiry) and reactive (401)
+ * refresh. Refresh tokens rotate, so parallel callers must share one request.
+ */
+async function refreshSession(input: {
+  accountId: string | null;
+  force: boolean;
+  staleAccessToken?: string | null;
+}): Promise<OpenAiTokenInfo> {
+  const { accountId } = input;
+  const key = refreshKey(accountId);
+  const inFlight = refreshPromises.get(key);
+
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = (async () => {
+    const current = await readTokenInfo(accountId);
+
+    if (
+      input.staleAccessToken &&
+      current.accessToken &&
+      current.accessToken !== input.staleAccessToken &&
+      isFresh(current)
+    ) {
+      return current;
+    }
+
+    if (!input.force && isFresh(current)) {
+      return current;
+    }
+
+    if (!current.refreshToken) {
+      return current;
+    }
+
+    const persist = accountId
+      ? (info: OpenAiTokenInfo) => persistTokenInfoForAccount(accountId, info)
+      : persistTokenInfo;
+
+    try {
+      return await refreshTokenInfo(current, persist);
+    } catch (error) {
+      if (!isOAuthSessionExpiredError(error)) {
+        throw error;
+      }
+
+      const latest = await readTokenInfo(accountId);
+
+      if (
+        latest.refreshToken &&
+        latest.refreshToken !== current.refreshToken
+      ) {
+        return latest;
+      }
+
+      await clearTokenInfo(accountId);
+      throw error;
+    }
+  })().finally(() => {
+    refreshPromises.delete(key);
+  });
+
+  refreshPromises.set(key, promise);
+  return promise;
+}
+
 export async function getValidOpenAiTokenInfo(): Promise<OpenAiTokenInfo> {
   const current = await getOpenAiTokenInfo();
-  const now = Date.now();
 
-  if (
-    current.accessToken &&
-    current.expiresAt !== null &&
-    current.expiresAt - REFRESH_SKEW_MS > now
-  ) {
+  if (isFresh(current)) {
     return current;
   }
 
-  if (current.accessToken && current.expiresAt === null) {
-    return current;
-  }
-
-  if (!current.refreshToken) {
-    return current;
-  }
-
-  if (!refreshPromise) {
-    refreshPromise = refreshTokenInfo(current, persistTokenInfo).finally(() => {
-      refreshPromise = null;
-    });
-  }
-
-  return refreshPromise;
+  return refreshSession({ accountId: null, force: false });
 }
 
 export async function getValidOpenAiTokenInfoForAccount(
   accountId: string,
 ): Promise<OpenAiTokenInfo> {
   const current = await getOpenAiTokenInfoForAccount(accountId);
-  const now = Date.now();
 
-  if (
-    current.accessToken &&
-    current.expiresAt !== null &&
-    current.expiresAt - REFRESH_SKEW_MS > now
-  ) {
+  if (isFresh(current)) {
     return current;
   }
 
-  if (current.accessToken && current.expiresAt === null) {
-    return current;
-  }
+  return refreshSession({ accountId, force: false });
+}
 
-  if (!current.refreshToken) {
-    return current;
-  }
+export async function forceRefreshOpenAiTokenInfo(
+  staleAccessToken?: string | null,
+): Promise<OpenAiTokenInfo> {
+  return refreshSession({ accountId: null, force: true, staleAccessToken });
+}
 
-  let promise = refreshPromiseForAccount.get(accountId);
-
-  if (!promise) {
-    promise = refreshTokenInfo(current, (info) =>
-      persistTokenInfoForAccount(accountId, info),
-    ).finally(() => {
-      refreshPromiseForAccount.delete(accountId);
-    });
-    refreshPromiseForAccount.set(accountId, promise);
-  }
-
-  return promise;
+export async function forceRefreshOpenAiTokenInfoForAccount(
+  accountId: string,
+  staleAccessToken?: string | null,
+): Promise<OpenAiTokenInfo> {
+  return refreshSession({ accountId, force: true, staleAccessToken });
 }

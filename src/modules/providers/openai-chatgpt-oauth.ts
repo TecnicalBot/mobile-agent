@@ -5,6 +5,11 @@ import * as SecureStore from "expo-secure-store";
 import { prepareLocalCallbackSession } from "@/core/services/local-server";
 import { initializeCrypto } from "@/core/services/crypto";
 import { watchForOAuthCancel } from "@/modules/providers/oauth-browser-cancel";
+import {
+  isOAuthSessionExpiredError,
+  isTerminalOAuthErrorCode,
+  OAuthSessionExpiredError,
+} from "@/modules/providers/oauth-errors";
 
 const ISSUER = "https://auth.openai.com";
 const AUTHORIZE_URL = `${ISSUER}/api/accounts/authorize`;
@@ -77,8 +82,11 @@ const EMPTY_TOKEN_INFO: OpenAiChatGptTokenInfo = {
   scopes: [],
 };
 
-let refreshPromiseForAccount = new Map<string, Promise<OpenAiChatGptTokenInfo>>();
-let legacyRefreshPromise: Promise<OpenAiChatGptTokenInfo> | null = null;
+const refreshPromises = new Map<string, Promise<OpenAiChatGptTokenInfo>>();
+
+function refreshKey(accountId: string | null) {
+  return accountId ?? "__legacy__";
+}
 
 async function returnToAppAfterOAuth() {
   try {
@@ -322,12 +330,12 @@ export async function setOpenAiChatGptTokensForAccount(
 }
 
 export async function clearOpenAiChatGptTokensForAccount(accountId: string) {
-  refreshPromiseForAccount.delete(accountId);
+  refreshPromises.delete(refreshKey(accountId));
   await SecureStore.deleteItemAsync(getAccountSessionKey(accountId));
 }
 
 export async function clearLegacyOpenAiChatGptTokens() {
-  legacyRefreshPromise = null;
+  refreshPromises.delete(refreshKey(null));
   await SecureStore.deleteItemAsync(LEGACY_SESSION_KEY);
 }
 
@@ -533,6 +541,14 @@ async function refreshTokenInfo(
 
   if (!res.ok) {
     const errorData = data as Record<string, string>;
+
+    if (isTerminalOAuthErrorCode(errorData.error)) {
+      throw new OAuthSessionExpiredError(
+        "Your ChatGPT plan session expired. Connect ChatGPT again.",
+        errorData.error,
+      );
+    }
+
     throw new Error(
       errorData.error_description ||
         errorData.error ||
@@ -566,6 +582,97 @@ function isFresh(info: OpenAiChatGptTokenInfo) {
   return info.expiresAt - REFRESH_SKEW_MS > Date.now();
 }
 
+async function readTokenInfo(accountId: string | null) {
+  return accountId
+    ? getOpenAiChatGptTokenInfoForAccount(accountId)
+    : getOpenAiChatGptTokenInfo();
+}
+
+async function clearTokenInfo(accountId: string | null) {
+  if (accountId) {
+    await clearOpenAiChatGptTokensForAccount(accountId);
+  } else {
+    await clearLegacyOpenAiChatGptTokens();
+  }
+}
+
+/**
+ * Single-flight refresh shared by proactive (near-expiry) and reactive (401)
+ * refresh. ChatGPT refresh tokens rotate on every use, so concurrent callers
+ * must share one token-endpoint request: a second request with the old token
+ * returns `invalid_grant` and can invalidate the whole grant.
+ */
+async function refreshSession(input: {
+  accountId: string | null;
+  force: boolean;
+  staleAccessToken?: string | null;
+}): Promise<OpenAiChatGptTokenInfo> {
+  const { accountId } = input;
+  const key = refreshKey(accountId);
+  const inFlight = refreshPromises.get(key);
+
+  if (inFlight) {
+    return inFlight;
+  }
+
+  // Set the promise synchronously so parallel callers cannot start a second
+  // refresh while this one is reading storage.
+  const promise = (async () => {
+    const current = await readTokenInfo(accountId);
+
+    // Another refresh already produced a newer token than the one the caller
+    // saw when it received its 401.
+    if (
+      input.staleAccessToken &&
+      current.accessToken &&
+      current.accessToken !== input.staleAccessToken &&
+      isFresh(current)
+    ) {
+      return current;
+    }
+
+    if (!input.force && isFresh(current)) {
+      return current;
+    }
+
+    if (!current.refreshToken || !current.clientId) {
+      return current;
+    }
+
+    const persist = accountId
+      ? (info: OpenAiChatGptTokenInfo) =>
+          persistTokenInfoForAccount(accountId, info)
+      : persistTokenInfo;
+
+    try {
+      return await refreshTokenInfo(current, persist);
+    } catch (error) {
+      if (!isOAuthSessionExpiredError(error)) {
+        throw error;
+      }
+
+      // A concurrent refresh may have rotated the token since we read it.
+      // Never delete a newer credential because of a stale `invalid_grant`.
+      const latest = await readTokenInfo(accountId);
+
+      if (
+        latest.refreshToken &&
+        latest.refreshToken !== current.refreshToken
+      ) {
+        return latest;
+      }
+
+      await clearTokenInfo(accountId);
+      throw error;
+    }
+  })().finally(() => {
+    refreshPromises.delete(key);
+  });
+
+  refreshPromises.set(key, promise);
+  return promise;
+}
+
 export async function getValidOpenAiChatGptTokenInfoForAccount(
   accountId: string,
 ): Promise<OpenAiChatGptTokenInfo> {
@@ -575,22 +682,7 @@ export async function getValidOpenAiChatGptTokenInfoForAccount(
     return current;
   }
 
-  if (!current.refreshToken || !current.clientId) {
-    return current;
-  }
-
-  let promise = refreshPromiseForAccount.get(accountId);
-
-  if (!promise) {
-    promise = refreshTokenInfo(current, (info) =>
-      persistTokenInfoForAccount(accountId, info),
-    ).finally(() => {
-      refreshPromiseForAccount.delete(accountId);
-    });
-    refreshPromiseForAccount.set(accountId, promise);
-  }
-
-  return promise;
+  return refreshSession({ accountId, force: false });
 }
 
 /**
@@ -599,21 +691,9 @@ export async function getValidOpenAiChatGptTokenInfoForAccount(
  */
 export async function forceRefreshOpenAiChatGptTokenForAccount(
   accountId: string,
+  staleAccessToken?: string | null,
 ): Promise<OpenAiChatGptTokenInfo> {
-  const current = await getOpenAiChatGptTokenInfoForAccount(accountId);
-
-  if (!current.refreshToken || !current.clientId) {
-    return current;
-  }
-
-  const promise = refreshTokenInfo(current, (info) =>
-    persistTokenInfoForAccount(accountId, info),
-  ).finally(() => {
-    refreshPromiseForAccount.delete(accountId);
-  });
-  refreshPromiseForAccount.set(accountId, promise);
-
-  return promise;
+  return refreshSession({ accountId, force: true, staleAccessToken });
 }
 
 export async function getValidOpenAiChatGptTokenInfo(): Promise<OpenAiChatGptTokenInfo> {
@@ -623,19 +703,13 @@ export async function getValidOpenAiChatGptTokenInfo(): Promise<OpenAiChatGptTok
     return current;
   }
 
-  if (!current.refreshToken || !current.clientId) {
-    return current;
-  }
+  return refreshSession({ accountId: null, force: false });
+}
 
-  if (!legacyRefreshPromise) {
-    legacyRefreshPromise = refreshTokenInfo(current, persistTokenInfo).finally(
-      () => {
-        legacyRefreshPromise = null;
-      },
-    );
-  }
-
-  return legacyRefreshPromise;
+export async function forceRefreshOpenAiChatGptToken(
+  staleAccessToken?: string | null,
+): Promise<OpenAiChatGptTokenInfo> {
+  return refreshSession({ accountId: null, force: true, staleAccessToken });
 }
 
 export async function refreshOpenAiChatGptToken(

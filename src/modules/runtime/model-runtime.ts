@@ -11,6 +11,7 @@ import {
 } from "@/modules/providers/openai-client";
 import { isOpenAiChatGptProvider } from "@/modules/providers/openai";
 import { NON_RETRYABLE_CHATGPT_SHARING_CODES } from "@/modules/providers/openai-chatgpt-oauth";
+import { isOAuthSessionExpiredError } from "@/modules/providers/oauth-errors";
 import {
   generateViaAISDK,
   generateViaAISDKNonStreaming,
@@ -88,7 +89,7 @@ function normalizeCodexOAuthError(error: unknown) {
 
   const message = extractOAuthErrorMessage(error);
 
-  if (/\b401\b|unauthorized/i.test(message)) {
+  if (isSessionExpired(error, message)) {
     return new Error(
       "Your ChatGPT session expired. Please connect ChatGPT again.",
     );
@@ -97,6 +98,14 @@ function normalizeCodexOAuthError(error: unknown) {
   return new Error(message, {
     cause: error,
   });
+}
+
+function isSessionExpired(error: unknown, message: string) {
+  return (
+    isOAuthSessionExpiredError(error) ||
+    /\binvalid_grant\b|\binvalid_token\b/i.test(message) ||
+    /\b401\b|unauthorized/i.test(message)
+  );
 }
 
 function normalizeChatGptOAuthError(error: unknown) {
@@ -116,7 +125,7 @@ function normalizeChatGptOAuthError(error: unknown) {
     );
   }
 
-  if (/\b401\b|unauthorized/i.test(message)) {
+  if (isSessionExpired(error, message)) {
     return new Error(
       "Your ChatGPT plan session expired. Please connect ChatGPT again.",
     );

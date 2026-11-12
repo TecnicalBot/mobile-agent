@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearLegacyOpenAiChatGptTokens,
+  forceRefreshOpenAiChatGptTokenForAccount,
   getOpenAiChatGptTokenInfo,
   getOpenAiChatGptTokenInfoForAccount,
+  getValidOpenAiChatGptTokenInfoForAccount,
   migrateLegacyOpenAiChatGptTokensToAccount,
 } from "@/modules/providers/openai-chatgpt-oauth";
 import { isOAuthCanceledError } from "@/modules/providers/oauth-browser-cancel";
+import { OAuthSessionExpiredError } from "@/modules/providers/oauth-errors";
 
 const { store } = vi.hoisted(() => ({
   store: new Map<string, string>(),
@@ -104,6 +107,116 @@ describe("clearLegacyOpenAiChatGptTokens", () => {
     await clearLegacyOpenAiChatGptTokens();
 
     expect(store.has(LEGACY_SESSION_KEY)).toBe(false);
+  });
+});
+
+function setAccountSession(
+  accountId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  store.set(
+    accountSessionKey(accountId),
+    JSON.stringify({
+      accessToken: "expired-access",
+      clientId: "dynamic_agent_client",
+      email: "user@example.com",
+      expiresAt: Date.now() - 60_000,
+      idToken: "id-token",
+      refreshToken: "refresh-1",
+      scopes: ["openid"],
+      ...overrides,
+    }),
+  );
+}
+
+function tokenResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    access_token: "fresh-access",
+    expires_in: 3600,
+    refresh_token: "refresh-2",
+    ...overrides,
+  };
+}
+
+describe("ChatGPT plan token refresh", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shares one refresh request between proactive and forced callers", async () => {
+    setAccountSession("account-race");
+    const fetchMock = vi.fn(async () => {
+      await Promise.resolve();
+      return new Response(JSON.stringify(tokenResponse()), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [proactive, forced] = await Promise.all([
+      getValidOpenAiChatGptTokenInfoForAccount("account-race"),
+      forceRefreshOpenAiChatGptTokenForAccount("account-race"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(proactive.accessToken).toBe("fresh-access");
+    expect(forced.accessToken).toBe("fresh-access");
+
+    const stored = await getOpenAiChatGptTokenInfoForAccount("account-race");
+    expect(stored.accessToken).toBe("fresh-access");
+    expect(stored.refreshToken).toBe("refresh-2");
+  });
+
+  it("clears the credential and throws a session-expired error on invalid_grant", async () => {
+    setAccountSession("account-revoked");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 400,
+          }),
+      ),
+    );
+
+    await expect(
+      getValidOpenAiChatGptTokenInfoForAccount("account-revoked"),
+    ).rejects.toBeInstanceOf(OAuthSessionExpiredError);
+
+    expect(store.has(accountSessionKey("account-revoked"))).toBe(false);
+    const stored = await getOpenAiChatGptTokenInfoForAccount("account-revoked");
+    expect(stored.refreshToken).toBeNull();
+  });
+
+  it("keeps a newer rotated credential when the failed refresh is stale", async () => {
+    setAccountSession("account-rotated");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        // Another request rotated the token while this refresh was in flight.
+        setAccountSession("account-rotated", {
+          accessToken: "newer-access",
+          expiresAt: Date.now() + 3_600_000,
+          refreshToken: "refresh-2",
+        });
+
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+        });
+      }),
+    );
+
+    const info = await getValidOpenAiChatGptTokenInfoForAccount(
+      "account-rotated",
+    );
+
+    expect(info.accessToken).toBe("newer-access");
+    expect(info.refreshToken).toBe("refresh-2");
+    const stored = await getOpenAiChatGptTokenInfoForAccount("account-rotated");
+    expect(stored.refreshToken).toBe("refresh-2");
   });
 });
 

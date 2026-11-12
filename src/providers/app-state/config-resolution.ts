@@ -18,6 +18,8 @@ import {
 import {
   discoverChatGptModels,
   getFallbackChatGptModels,
+  mapChatGptRemoteModel,
+  readChatGptModelCache,
 } from "@/modules/providers/openai-chatgpt-models";
 import {
   getValidOpenAiChatGptTokenInfo,
@@ -162,7 +164,7 @@ export async function resolveConfig(
           };
         }
       }),
-    ...(discoverRemote ? input.providers : [])
+    ...input.providers
       .filter(
         (provider) =>
           provider.family === "openai" &&
@@ -174,6 +176,22 @@ export async function resolveConfig(
         try {
           const accountId =
             await secureSecretStore.getActiveProviderAccountId(provider.id);
+
+          if (!discoverRemote) {
+            // Warm the initial snapshot from the account's cached list so a
+            // cold start does not briefly default to an unsupported fallback
+            // model before network discovery finishes.
+            const cached = await readChatGptModelCache(accountId ?? null);
+
+            if (cached && cached.models.length > 0) {
+              chatgptModelsByProvider[provider.id] = cached.models.map(
+                mapChatGptRemoteModel,
+              );
+            }
+
+            return;
+          }
+
           const tokenInfo = accountId
             ? await getValidOpenAiChatGptTokenInfoForAccount(accountId)
             : await getValidOpenAiChatGptTokenInfo();
@@ -183,6 +201,7 @@ export async function resolveConfig(
           }
 
           chatgptModelsByProvider[provider.id] = await discoverChatGptModels({
+            accountId: accountId ?? null,
             baseURL: provider.baseUrl,
             clientId: tokenInfo.clientId,
             token: tokenInfo.accessToken,
@@ -272,7 +291,11 @@ export async function resolveConfig(
             label: preset.label?.trim() || preset.modelId,
             options: preset.options ?? undefined,
           })),
+        // The ChatGPT-plan list is account-scoped and authoritative: never
+        // resurrect a saved model the account no longer offers, or old chats
+        // keep requesting a model the API rejects.
         ...(activeModelSelection?.providerId === provider.id &&
+        !isChatGpt &&
         !discoveredModels.some(
           (model) => model.id === activeModelSelection.modelId,
         ) &&

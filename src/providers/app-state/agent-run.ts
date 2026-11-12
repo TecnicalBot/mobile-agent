@@ -489,7 +489,7 @@ export async function executeClaimedAgentRun(
     return;
   }
 
-  const resolvedModel =
+  let resolvedModel =
     snapshotRef.current.resolvedConfig.availableModels.find(
       (item) =>
         item.providerId === run.providerId && item.modelId === run.modelId,
@@ -502,6 +502,23 @@ export async function executeClaimedAgentRun(
       preset: null,
       provider,
     });
+
+  if (!resolvedModel) {
+    // The saved model is gone (for example an account-scoped ChatGPT-plan
+    // model after switching plans). Re-point the run at the provider's current
+    // model instead of failing every retry with "model unavailable".
+    const currentModel = snapshotRef.current.resolvedConfig.currentModel;
+
+    if (currentModel && currentModel.providerId === run.providerId) {
+      resolvedModel = currentModel;
+      // Persist the switch so a retry of this run does not fall back to the
+      // removed model again.
+      await safeUpdateRunRecord(run.id, {
+        modelId: currentModel.modelId,
+        providerId: currentModel.providerId,
+      }).catch(() => null);
+    }
+  }
 
   if (!resolvedModel) {
     await failAssistantMessageForRun(
@@ -1624,8 +1641,8 @@ export async function executeClaimedAgentRun(
                       run.externalFolderSession ??
                       conversation.externalFolderSession,
                     fileContextSource: run.fileContextSource,
-                    modelId: run.modelId,
-                    providerId: run.providerId,
+                    modelId: resolvedModel.modelId,
+                    providerId: resolvedModel.providerId,
                     reasoningEffort: conversation.reasoningEffort,
                     rootConversationId: conversation.rootConversationId,
                     selectedFileIds: run.selectedFileIds,

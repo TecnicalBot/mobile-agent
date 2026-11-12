@@ -119,12 +119,26 @@ export function createAnalyzeAudioTool({
           output.resultFileId = mediaResult.resultFileId;
           output.resultLink = `workspace://${mediaResult.resultFileId}`;
         }
+        const previewLines = [
+          `Duration: ${summary.duration}s`,
+          `Tempo: ${summary.bpm ? `${summary.bpm} BPM` : "not detected"}`,
+          `Key: ${summary.key ?? "unknown"}${summary.keyConfidence !== null ? ` (${Math.round(summary.keyConfidence * 100)}% confidence)` : ""}`,
+          `Onsets: ${summary.beatCount}`,
+          `Notes: ${summary.noteCount}`,
+          summary.sourceDuration && summary.sourceDuration > summary.duration
+            ? `Only the first ${summary.duration}s of ${summary.sourceDuration}s were analyzed.`
+            : null,
+        ].filter((line): line is string => line !== null);
         onRecord?.(
           createRecord({
             toolName: "analyzeAudio",
             status: "completed",
             inputSummary,
             mediaResult,
+            preview: {
+              title: record.displayName,
+              text: previewLines.join("\n"),
+            },
             outputSummary: summarizeValue(output),
           }),
         );

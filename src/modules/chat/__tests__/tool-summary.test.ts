@@ -55,6 +55,12 @@ describe("formatSummaryLines", () => {
     ]);
   });
 
+  it("formats byte sizes and durations for humans", () => {
+    expect(
+      formatSummaryLines('{"size":123469,"duration":5,"sizeBytes":2048}'),
+    ).toEqual(["size: 121 KB", "duration: 5s", "size Bytes: 2.0 KB"]);
+  });
+
   it("labels object-array items by their readable field", () => {
     const summary =
       '{"entries":[{"path":"docs","kind":"directory"},{"path":"a.md","kind":"file"}]}';

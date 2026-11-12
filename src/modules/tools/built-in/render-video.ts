@@ -193,6 +193,10 @@ export function createRenderVideoTool({
             toolName: "renderVideo",
             status: "completed",
             inputSummary,
+            preview: {
+              title: file.displayName,
+              text: formatRenderPreview(output),
+            },
             outputSummary: summarizeValue(output),
           }),
         );
@@ -245,6 +249,85 @@ export async function resolveHtml({
 function normalizeName(name: string | undefined) {
   const base = (name ?? `video-${Date.now()}`).trim() || `video-${Date.now()}`;
   return /\.mp4$/i.test(base) ? base : `${base}.mp4`;
+}
+
+function formatBytes(size: number | null | undefined) {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
+    return "unknown size";
+  }
+
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let value = size / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatDuration(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) {
+    return "unknown length";
+  }
+
+  if (seconds < 60) {
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+  }
+
+  const whole = Math.round(seconds);
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+}
+
+/**
+ * A compact, readable preview for the trace row. The raw result is a JSON blob
+ * whose `size` is bytes and whose warning arrays are noisy; the detail should
+ * lead with duration/size/audio and only surface the warnings that matter.
+ */
+export function formatRenderPreview(output: {
+  size: number | null;
+  duration: number | null;
+  hasAudio: boolean;
+  warnings: string[];
+  encoder?: string;
+  incremental?: {
+    shots: number;
+    renderedSegments: number;
+    reusedSegments: number;
+  };
+}) {
+  const lines = [
+    `${formatDuration(output.duration)} · ${formatBytes(output.size)} · ${output.hasAudio ? "with audio" : "no audio"}`,
+  ];
+
+  if (output.incremental) {
+    const { shots, renderedSegments, reusedSegments } = output.incremental;
+    lines.push(
+      `Shot reuse: ${renderedSegments} segment(s) re-rendered, ${reusedSegments} reused (${shots} shot${shots === 1 ? "" : "s"})`,
+    );
+  }
+
+  if (output.encoder) {
+    lines.push(`Encoder: ${output.encoder}`);
+  }
+
+  const shownWarnings = output.warnings.slice(0, 3);
+  for (const warning of shownWarnings) {
+    lines.push(`Warning: ${warning}`);
+  }
+  if (output.warnings.length > shownWarnings.length) {
+    lines.push(`+${output.warnings.length - shownWarnings.length} more warning(s)`);
+  }
+
+  return lines.join("\n");
 }
 
 /** `clip.mp4` -> `clip.source.html`: the revisable render source. */

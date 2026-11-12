@@ -33,7 +33,7 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 
-const { buildMixWarning, createPreviewMixTool } = await import(
+const { buildMixWarning, createPreviewMixTool, formatMixPreview } = await import(
   "@/modules/tools/built-in/preview-mix"
 );
 
@@ -111,6 +111,34 @@ describe("buildMixWarning", () => {
   });
 });
 
+describe("formatMixPreview", () => {
+  it("summarises levels and keeps the actionable warning", () => {
+    expect(
+      formatMixPreview({
+        clipped: true,
+        duration: 6,
+        peak: 1.2,
+        rms: 0.4,
+        warning: "Lower the music.",
+      }),
+    ).toBe(
+      "Duration: 6s\nPeak: 1.2\nRMS: 0.4\nClipping: yes\n\nLower the music.",
+    );
+  });
+
+  it("says the mix is clean when there is no warning", () => {
+    expect(
+      formatMixPreview({
+        clipped: false,
+        duration: 6,
+        peak: 0.7,
+        rms: 0.3,
+        warning: null,
+      }),
+    ).toContain("No clipping detected.");
+  });
+});
+
 describe("previewMix", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,7 +157,14 @@ describe("previewMix", () => {
     expect(out).toMatchObject({ peak: 0.7, rms: 0.3, clipped: false });
     expect(out.warning).toBeNull();
     expect(mocks.onRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ toolName: "previewMix", status: "completed" }),
+      expect.objectContaining({
+        toolName: "previewMix",
+        status: "completed",
+        preview: expect.objectContaining({
+          title: "audio mix",
+          text: expect.stringContaining("Peak: 0.7"),
+        }),
+      }),
     );
   });
 

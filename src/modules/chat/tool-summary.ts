@@ -40,6 +40,51 @@ const RESERVED_KEYS = new Set([
 /** Fields an object-array item can be labelled with, in preference order. */
 const ITEM_LABEL_KEYS = ["displayName", "name", "path", "title"] as const;
 
+/** Summaries report file/asset sizes in bytes; render those for humans. */
+const BYTE_FIELD = /(?:^size$|bytes$|Bytes$)/;
+
+/** Video/audio summaries report lengths in seconds. */
+const DURATION_FIELD = /(?:^duration$|Duration$)/;
+
+function formatByteSize(size: number) {
+  if (size < 1024) {
+    return `${Math.round(size)} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let value = size / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatSeconds(seconds: number) {
+  if (seconds < 60) {
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+  }
+
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
+function formatScalar(key: string, value: string | number | boolean) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (BYTE_FIELD.test(key)) {
+      return formatByteSize(value);
+    }
+    if (DURATION_FIELD.test(key)) {
+      return formatSeconds(value);
+    }
+  }
+
+  return String(value);
+}
+
 function unescapeJsonString(value: string) {
   try {
     return JSON.parse(`"${value}"`) as string;
@@ -156,7 +201,7 @@ export function formatSummaryLines(
       typeof value === "number" ||
       typeof value === "boolean"
     ) {
-      push(key, String(value));
+      push(key, formatScalar(key, value));
     }
   }
 

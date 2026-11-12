@@ -2958,6 +2958,9 @@ const ToolTraceDetail = memo(function ToolTraceDetail({ record }: { record: Tool
   const summary = formatSummaryLines(record.outputSummary).join("\n");
   const inputLines = formatSummaryLines(record.inputSummary);
   const plainOutput = record.outputSummary && !/^[\s]*[\[{]/.test(record.outputSummary) ? record.outputSummary : null;
+  // Last resort for tools whose summary is structured but could not be
+  // salvaged: show the captured output rather than claiming nothing exists.
+  const rawOutput = record.outputSummary?.trim() || null;
   const images = preview?.images ?? [];
   const noPreviewDetail = record.status === "running"
     ? "Waiting for output…"
@@ -2974,7 +2977,11 @@ const ToolTraceDetail = memo(function ToolTraceDetail({ record }: { record: Tool
         <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }}>
           <CodeBlock size="sm"><CodeBlockContent>{text}</CodeBlockContent></CodeBlock>
         </ScrollView>
-      ) : summary || plainOutput ? <Text selectable className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">{summary || plainOutput}</Text> : !record.error && !(uri && isImage) && images.length === 0 ? (
+      ) : summary || plainOutput ? <Text selectable className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">{summary || plainOutput}</Text> : rawOutput ? (
+        <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }}>
+          <CodeBlock size="sm"><CodeBlockContent>{rawOutput}</CodeBlockContent></CodeBlock>
+        </ScrollView>
+      ) : !record.error && !(uri && isImage) && images.length === 0 ? (
         <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">{noPreviewDetail}</Text>
       ) : null}
       {preview?.truncated || (!preview && text) ? <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">Partial content captured for this step.</Text> : null}

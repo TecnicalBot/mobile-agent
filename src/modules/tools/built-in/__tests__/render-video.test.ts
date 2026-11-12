@@ -105,6 +105,17 @@ describe("renderVideo source persistence", () => {
     })) as Record<string, unknown>;
     expect(output).toMatchObject({ duration: 6, sourceFileId: "source-1" });
   });
+
+  it("records a human-readable preview instead of raw byte counts", async () => {
+    await execute(makeTool(), { html: HTML_6S, name: "clip.mp4", duration: 6 });
+    const preview = mocks.onRecord.mock.calls[0][0].preview as {
+      title: string;
+      text: string;
+    };
+
+    expect(preview.title).toBe("clip.mp4");
+    expect(preview.text).toBe("6s · 1.2 KB · with audio");
+  });
 });
 
 describe("renderVideo asset inlining", () => {

@@ -3,13 +3,44 @@
  * approval drawer and the chat trace rows so tools read the same everywhere.
  */
 import {
+  AudioLines,
+  AudioWaveform,
+  BellRing,
+  BookOpen,
+  BookOpenText,
+  Bot,
+  Braces,
+  CalendarClock,
+  Captions,
+  Clapperboard,
+  Combine,
   Download,
+  Eye,
+  FilePen,
+  FilePlus,
   FileText,
+  FolderInput,
+  FolderOpen,
+  FolderOutput,
+  FolderPlus,
   Globe,
   Image as ImageIcon,
+  KeyRound,
+  Link,
   ListTodo,
+  MessageCircleQuestionMark,
+  Mic,
   Pencil,
+  Plug,
+  ScanText,
+  Scissors,
+  Search,
+  Settings2,
+  Terminal,
+  Trash2,
   type LucideIcon,
+  Video,
+  Volume2,
   Wrench,
 } from "lucide-react-native";
 
@@ -20,7 +51,7 @@ export function formatToolName(toolName: string) {
 
   return toolName
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[-_]+/g, " ")
+    .replace(/[-_.]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
@@ -30,13 +61,22 @@ export function formatToolName(toolName: string) {
  */
 const TOOL_TRACE_VERBS: Record<string, string> = {
   analyzeAudio: "Analyzed",
+  announceWhenDone: "Armed an announcement for",
+  browser: "Used the browser on",
+  cancel_schedule: "Canceled the schedule for",
+  createDirectory: "Created folder",
   createFile: "Created",
+  deleteEntry: "Deleted",
   downloadFile: "Downloaded",
   edit: "Edited",
+  exportWorkspaceFileToFolder: "Exported",
   fetchPage: "Fetched",
   getVideoFrame: "Grabbed a frame from",
   glob: "Searched",
   grep: "Searched",
+  importFolderFileToWorkspace: "Imported",
+  importSkillFromUrl: "Imported",
+  listDirectory: "Listed",
   listFiles: "Listed",
   listVoices: "Listed voices with",
   list_schedules: "Listed schedules with",
@@ -45,15 +85,29 @@ const TOOL_TRACE_VERBS: Record<string, string> = {
   manageSkill: "Managed skills with",
   mergeDocuments: "Merged",
   mergePdfs: "Merged",
+  moveEntry: "Moved",
   ocr: "Read text from",
+  previewMix: "Checked audio for",
+  previewScene: "Previewed",
+  question: "Asked",
   read: "Read",
-  write: "Wrote",
+  renderVideo: "Rendered",
+  renameEntry: "Renamed",
+  requestSecret: "Requested a secret for",
+  schedule_task: "Scheduled",
+  shell: "Ran",
   skill: "Loaded",
   skillReadFile: "Read",
-  previewScene: "Previewed",
-  previewMix: "Checked audio for",
+  splitDocument: "Split",
+  splitPdf: "Split",
+  task: "Ran task with",
+  textToSpeech: "Spoke with",
+  todos: "Updated tasks with",
   transcribeAudio: "Transcribed",
+  updateDocument: "Updated",
+  update_schedule: "Updated the schedule for",
   viewFile: "Viewed",
+  write: "Wrote",
 };
 
 export function toolTraceVerb(toolName: string) {
@@ -63,50 +117,99 @@ export function toolTraceVerb(toolName: string) {
 // —─── Trace row helpers shared by chat rows and the approval drawer ────────
 
 const TOOL_TRACE_ICONS: Record<string, LucideIcon> = {
-  analyzeAudio: ImageIcon,
+  analyzeAudio: AudioWaveform,
+  announceWhenDone: BellRing,
   browser: Globe,
-  cancel_schedule: ListTodo,
-  createDirectory: FileText,
-  createFile: Pencil,
-  deleteEntry: FileText,
+  cancel_schedule: CalendarClock,
+  createDirectory: FolderPlus,
+  createFile: FilePlus,
+  deleteEntry: Trash2,
   downloadFile: Download,
   edit: Pencil,
-  exportWorkspaceFileToFolder: FileText,
+  exportWorkspaceFileToFolder: FolderOutput,
   fetchPage: Globe,
-  getVideoFrame: ImageIcon,
-  glob: FileText,
-  grep: FileText,
-  importFolderFileToWorkspace: FileText,
-  importSkillFromUrl: FileText,
-  listDirectory: FileText,
-  listFiles: FileText,
-  list_schedules: ListTodo,
-  manageAgent: Pencil,
-  managePlugin: Pencil,
-  manageSkill: Pencil,
-  mergeDocuments: FileText,
-  mergePdfs: FileText,
-  moveEntry: FileText,
-  ocr: ImageIcon,
-  previewMix: ImageIcon,
-  previewScene: ImageIcon,
+  getVideoFrame: Video,
+  glob: Search,
+  grep: Search,
+  importFolderFileToWorkspace: FolderInput,
+  importSkillFromUrl: Link,
+  listDirectory: FolderOpen,
+  listFiles: FolderOpen,
+  listVoices: Mic,
+  list_schedules: CalendarClock,
+  manageAgent: Settings2,
+  managePlugin: Settings2,
+  manageSkill: Settings2,
+  mergeDocuments: Combine,
+  mergePdfs: Combine,
+  moveEntry: FolderInput,
+  ocr: ScanText,
+  previewMix: AudioLines,
+  previewScene: Clapperboard,
+  question: MessageCircleQuestionMark,
   read: FileText,
-  write: Pencil,
-  viewFile: ImageIcon,
-  renameEntry: Pencil,
-  renderVideo: ImageIcon,
-  schedule_task: ListTodo,
-  skill: FileText,
-  skillReadFile: FileText,
-  splitDocument: FileText,
-  splitPdf: FileText,
+  renderVideo: Video,
+  renameEntry: FilePen,
+  requestSecret: KeyRound,
+  schedule_task: CalendarClock,
+  shell: Terminal,
+  skill: BookOpen,
+  skillReadFile: BookOpenText,
+  splitDocument: Scissors,
+  splitPdf: Scissors,
+  task: Bot,
+  textToSpeech: Volume2,
+  todos: ListTodo,
+  transcribeAudio: Captions,
+  updateDocument: FilePen,
+  update_schedule: CalendarClock,
+  viewFile: Eye,
+  write: FilePen,
 };
+
+/**
+ * Tool names come from built-ins, MCP servers, harnesses, and plugins, so the
+ * exact-name table can never be complete. Match the operation's wording first
+ * — a remote `bash` or `exec_command` should read as a terminal, not a wrench.
+ * Order matters: more specific concepts (search, audio, video) win over the
+ * generic file/agent buckets.
+ */
+const TOOL_TRACE_ICON_PATTERNS: readonly (readonly [RegExp, LucideIcon])[] = [
+  [/search|grep|glob|find_|_find|lookup/i, Search],
+  [/audio|voice|speech|transcri|mix|sound|volume/i, AudioLines],
+  [/video|frame|scene|clapper|render|movie|film/i, Video],
+  [/image|photo|ocr|screenshot|vision/i, ImageIcon],
+  [/shell|command|terminal|bash|zsh|exec|process|pty|console/i, Terminal],
+  [/schedule|calendar|cron|reminder|timer/i, CalendarClock],
+  [/folder|director|directory|path/i, FolderOpen],
+  [/todo|task_list|checklist|plan/i, ListTodo],
+  [/secret|key|token|credential|password/i, KeyRound],
+  [/browser|url|http|fetch|web|page/i, Globe],
+  [/download|upload|export|import/i, Download],
+  [/merge|combine|join/i, Combine],
+  [/split|scissor|cut|trim/i, Scissors],
+  [/agent|subagent|assistant/i, Bot],
+  [/plugin|mcp|integration|extension|tool/i, Plug],
+  [/json|schema|config|settings|manage/i, Braces],
+  [/file|document|pdf|doc|text|read|write|edit|patch|code/i, FileText],
+];
 
 const DEFAULT_TOOL_TRACE_ICON = Wrench;
 
 /** The icon that names the tool kind in trace and approval rows. */
 export function toolTraceIcon(toolName: string): LucideIcon {
-  return TOOL_TRACE_ICONS[toolName] ?? DEFAULT_TOOL_TRACE_ICON;
+  const exact = TOOL_TRACE_ICONS[toolName];
+  if (exact) {
+    return exact;
+  }
+
+  for (const [pattern, icon] of TOOL_TRACE_ICON_PATTERNS) {
+    if (pattern.test(toolName)) {
+      return icon;
+    }
+  }
+
+  return DEFAULT_TOOL_TRACE_ICON;
 }
 
 /**
@@ -145,6 +248,7 @@ export function toolObjectLabel(inputSummary: string | null | undefined) {
     "url",
     "query",
     "pattern",
+    "command",
   ] as const;
 
   for (const key of candidateKeys) {

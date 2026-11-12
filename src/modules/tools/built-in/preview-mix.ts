@@ -25,6 +25,29 @@ function formatRange(range: { start: number; end: number }) {
 }
 
 /**
+ * A compact, readable preview for the trace row. The raw tool result is a
+ * list of numbers; showing the verdict and the three levels that matter keeps
+ * the collapsed detail useful without expanding every range array.
+ */
+export function formatMixPreview(output: {
+  clipped: boolean;
+  duration: number;
+  peak: number | null;
+  rms: number | null;
+  warning: string | null;
+}) {
+  const level = (value: number | null) =>
+    value === null ? "unknown" : String(value);
+  return [
+    `Duration: ${output.duration}s`,
+    `Peak: ${level(output.peak)}`,
+    `RMS: ${level(output.rms)}`,
+    `Clipping: ${output.clipped ? "yes" : "no"}`,
+    output.warning ? `\n${output.warning}` : "\nNo clipping detected.",
+  ].join("\n");
+}
+
+/**
  * Turns mix numbers into the single actionable verdict. Pure (no native
  * imports) for unit tests; the numbers come from the offline render.
  */
@@ -148,11 +171,19 @@ export function createPreviewMixTool({
           warning: buildMixWarning(stats, [...clipWarnings, ...check.warnings]),
         };
 
+        const scene = fileId
+          ? await repository.getById(fileId).catch(() => null)
+          : null;
+
         onRecord?.(
           createRecord({
             toolName: "previewMix",
             status: "completed",
             inputSummary,
+            preview: {
+              title: scene?.displayName ?? "audio mix",
+              text: formatMixPreview(output),
+            },
             outputSummary: summarizeValue(output),
           }),
         );

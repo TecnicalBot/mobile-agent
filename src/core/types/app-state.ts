@@ -309,6 +309,15 @@ export type ToolExecutionRecord = {
     taskId: string | null;
   };
   /**
+   * Set by the `task` tool so the parent chat can present delegation as a
+   * first-class step and link to the spawned subagent chat.
+   */
+  subagent?: {
+    agentName: string;
+    conversationId: string | null;
+    description: string;
+  };
+  /**
    * Explicit "announce when done" request armed by the agent tool. Persisted
    * with the message metadata so it survives run resume without a migration.
    */

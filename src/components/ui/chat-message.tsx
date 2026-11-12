@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import * as Speech from "expo-speech";
 import {
+  ArrowUpRight,
   Bookmark,
   Brain,
   Check,
@@ -211,6 +212,7 @@ type ChatMessageProps = {
   speechContent?: string;
   message: StoredMessage;
   onEditMessage?: (content: string) => void;
+  onOpenConversation?: (conversationId: string) => void;
   onRegenerate?: (instruction: string) => void;
   onSavePrompt?: (content: string) => void;
   workspaceFiles: WorkspaceFile[];
@@ -1424,6 +1426,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
   speechContent,
   message,
   onEditMessage,
+  onOpenConversation,
   onRegenerate,
   onSavePrompt,
   workspaceFiles,
@@ -2144,6 +2147,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
                         streaming={message.status === "streaming"}
                         expanded={expandedToolRunIds.get(key)}
                         gapLabel={stepGapLabels.get(record.id ?? record.createdAt)}
+                        onOpenConversation={onOpenConversation}
                         onExpandedChange={(open) => {
                           setExpandedToolRunIds((current) => {
                             const next = new Map(current);
@@ -2943,8 +2947,36 @@ function ReasoningTraceRow({ block, streaming }: { block: ReasoningBlock; stream
  * The expanded detail of a tool trace row: media/thumbnails first, then the
  * captured content, then whatever summary fields could be recovered.
  */
-const ToolTraceDetail = memo(function ToolTraceDetail({ record }: { record: ToolExecutionRecord }) {
+const ToolTraceDetail = memo(function ToolTraceDetail({
+  onOpenConversation,
+  record,
+}: {
+  onOpenConversation?: (conversationId: string) => void;
+  record: ToolExecutionRecord;
+}) {
   const { workspaceFiles } = useContext(ChatMediaContext);
+  const theme = useTheme();
+  const subagentConversationId = record.subagent?.conversationId ?? null;
+
+  // Delegation detail is just the link into the child chat. The task result
+  // itself lives in that chat, not in a raw tool summary.
+  if (record.toolName === "task") {
+    return subagentConversationId && onOpenConversation ? (
+      <Pressable
+        accessibilityHint="Opens this subagent's chat"
+        accessibilityRole="link"
+        className="flex-row items-center gap-sp-1 self-start"
+        onPress={() => onOpenConversation(subagentConversationId)}
+        style={({ pressed }) => (pressed ? { opacity: 0.6 } : null)}
+      >
+        <Text className="font-sans text-sm font-medium text-foreground underline dark:text-foreground-dark">
+          Open chat
+        </Text>
+        <ArrowUpRight color={theme.textSecondary} size={14} />
+      </Pressable>
+    ) : null;
+  }
+
   const input = parseToolSummary(record.inputSummary);
   const output = parseToolSummary(record.outputSummary);
   const file = workspaceFiles.find((item) => item.id === (output.fileId ?? input.fileId));
@@ -2990,6 +3022,18 @@ const ToolTraceDetail = memo(function ToolTraceDetail({ record }: { record: Tool
 });
 
 function toolTraceTitle(record: ToolExecutionRecord, streaming: boolean) {
+  if (record.subagent) {
+    const { agentName, description } = record.subagent;
+    const prefix =
+      record.status === "failed"
+        ? "Failed to delegate to"
+        : record.status === "running"
+          ? "Delegating to"
+          : "Delegated to";
+    const target = `@${agentName} subagent`;
+    return description ? `${prefix} ${target} — ${description}` : `${prefix} ${target}`;
+  }
+
   if (record.status === "failed") {
     return `Failed to run ${formatToolName(record.toolName)}`;
   }
@@ -3016,6 +3060,7 @@ type ToolTraceRowProps = {
   /** Elapsed time from the previous step, when known. */
   gapLabel?: string;
   onExpandedChange: (open: boolean) => void;
+  onOpenConversation?: (conversationId: string) => void;
   record: ToolExecutionRecord;
   streaming: boolean;
 };
@@ -3093,6 +3138,7 @@ function ToolTraceRow({
   expanded,
   onExpandedChange,
   gapLabel,
+  onOpenConversation,
   record,
   streaming,
 }: ToolTraceRowProps) {
@@ -3127,7 +3173,10 @@ function ToolTraceRow({
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>
           <View className="ml-sp-2 gap-sp-1.5 border-l border-border pl-sp-3 dark:border-border-dark">
-            <ToolTraceDetail record={record} />
+            <ToolTraceDetail
+              onOpenConversation={onOpenConversation}
+              record={record}
+            />
             {record.error ? (
               <Text
                 numberOfLines={8}

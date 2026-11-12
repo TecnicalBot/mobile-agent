@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "@/core/types/app-state";
+import type { AgentConfig, ToolExecutionRecord } from "@/core/types/app-state";
 
 import {
   createTaskTool,
@@ -83,12 +83,13 @@ describe("task-tool", () => {
 
   it("spawns subagents and surfaces failures", async () => {
     const spawned: string[] = [];
+    const records: ToolExecutionRecord[] = [];
     const success = createTaskTool({
       getAgents: () => [makeAgent({ name: "helper", mode: "subagent" })],
-      onRecord: undefined,
+      onRecord: (record) => records.push(record),
       spawnSubagent: async (task) => {
         spawned.push(task.agentName);
-        return { output: "done" };
+        return { conversationId: "child-1", output: "done" };
       },
     });
 
@@ -102,6 +103,17 @@ describe("task-tool", () => {
     );
     expect(ok).toMatchObject({ ok: true, result: "done" });
     expect(spawned).toEqual(["helper"]);
+    // The task row appears while the child runs and is updated in place.
+    expect(records.map((record) => record.status)).toEqual([
+      "running",
+      "completed",
+    ]);
+    expect(records[0]?.id).toBe(records[1]?.id);
+    expect(records[1]?.subagent).toMatchObject({
+      agentName: "helper",
+      conversationId: "child-1",
+      description: "Research",
+    });
 
     const failing = createTaskTool({
       getAgents: () => [makeAgent({ name: "helper", mode: "subagent" })],

@@ -17,6 +17,7 @@ export function createRecord(input: {
   announcement?: ToolExecutionRecord["announcement"];
   mediaResult?: ToolExecutionRecord["mediaResult"];
   preview?: ToolExecutionRecord["preview"];
+  subagent?: ToolExecutionRecord["subagent"];
   id?: string;
   /** Optional captured line-diff (added/removed hunks), e.g. for the edit tool. */
   diff?: string | null;
@@ -41,6 +42,7 @@ export function createRecord(input: {
     ...(input.diff ? { diff: input.diff } : {}),
     ...(input.diffStat ? { diffStat: input.diffStat } : {}),
     ...(input.preview ? { preview: input.preview } : {}),
+    ...(input.subagent ? { subagent: input.subagent } : {}),
     ...(input.mediaResult ? { mediaResult: input.mediaResult } : {}),
     ...(input.announcement ? { announcement: input.announcement } : {}),
   } satisfies ToolExecutionRecord;

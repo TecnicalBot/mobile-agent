@@ -80,6 +80,25 @@ export function createTaskTool(input: {
             };
           }
 
+          const executionId = `task:${options.toolCallId}`;
+          const subagent = {
+            agentName: available.name,
+            conversationId: null,
+            description,
+          };
+          input.onRecord?.(
+            createRecord({
+              id: executionId,
+              toolName: "task",
+              status: "running",
+              inputSummary: summarizeValue({
+                agent: available.name,
+                description,
+              }),
+              subagent,
+            }),
+          );
+
           try {
             const result = await spawnSubagent({
               abortSignal: options.abortSignal,
@@ -90,15 +109,18 @@ export function createTaskTool(input: {
 
             input.onRecord?.(
               createRecord({
+                id: executionId,
                 toolName: "task",
                 status: "completed",
                 inputSummary: summarizeValue({
                   agent: available.name,
                   description,
                 }),
-                outputSummary: summarizeValue({
-                  chars: result.output.length,
-                }),
+                outputSummary: null,
+                subagent: {
+                  ...subagent,
+                  conversationId: result.conversationId ?? null,
+                },
               }),
             );
 
@@ -114,6 +136,7 @@ export function createTaskTool(input: {
 
             input.onRecord?.(
               createRecord({
+                id: executionId,
                 toolName: "task",
                 status: "failed",
                 inputSummary: summarizeValue({
@@ -122,6 +145,7 @@ export function createTaskTool(input: {
                 }),
                 outputSummary: null,
                 error: message,
+                subagent,
               }),
             );
 

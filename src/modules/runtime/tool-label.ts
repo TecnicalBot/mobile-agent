@@ -217,6 +217,29 @@ export function toolTraceIcon(toolName: string): LucideIcon {
  * input summary (`name`, `url`, `query`…). Returns null when the summary
  * holds nothing readable — algorithmic ids never make it into titles.
  */
+/** Human label for an approval prompt, e.g. "Run @general subagent". */
+export function toolApprovalLabel(
+  toolName: string,
+  inputSummary: string | null | undefined,
+) {
+  if (toolName === "task") {
+    if (inputSummary) {
+      try {
+        const parsed = JSON.parse(inputSummary) as { agent?: unknown };
+        if (typeof parsed.agent === "string" && parsed.agent.trim()) {
+          return `@${parsed.agent.trim()} subagent`;
+        }
+      } catch {
+        // Fall through to the generic label.
+      }
+    }
+
+    return "subagent";
+  }
+
+  return toolObjectLabel(inputSummary) ?? formatToolName(toolName);
+}
+
 export function toolObjectLabel(inputSummary: string | null | undefined) {
   if (!inputSummary) {
     return null;

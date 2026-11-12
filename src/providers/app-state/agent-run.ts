@@ -1635,7 +1635,6 @@ export async function executeClaimedAgentRun(
                   ...task,
                   abortSignal: abortController.signal,
                   parent: {
-                    autoApprove: run.autoApprove,
                     conversationId: conversation.id,
                     externalFolderSession:
                       run.externalFolderSession ??
@@ -3042,7 +3041,6 @@ const SUBAGENT_NOOP_UI: RunUiPublisher = {
 };
 
 export type SubagentParentContext = {
-  autoApprove: boolean;
   conversationId: string;
   externalFolderSession: ExternalFolderSession | null;
   fileContextSource: FileContextSource | null;
@@ -3124,18 +3122,11 @@ export async function executeSubagentTask(
     throw new Error("No active model is available to run the subagent.");
   }
 
-  const [approvalModes, approvedToolsByConversation] = await Promise.all([
-    repositories.configRepository.getConversationApprovalModes(),
-    repositories.configRepository.getApprovedToolsByConversation(),
-  ]);
-  const approvalMode: ToolApprovalMode = parent?.autoApprove
-    ? "auto"
-    : parent
-      ? (approvalModes[parent.conversationId] ?? "ask")
-      : "ask";
-  const approvedToolNames = parent
-    ? (approvedToolsByConversation[parent.conversationId] ?? [])
-    : [];
+  // Delegation is the approval. A subagent runs autonomously: asking again
+  // for every MCP/built-in tool would defeat the purpose of handing the work
+  // off, and the task call itself is already gated by the parent's policy.
+  const approvalMode: ToolApprovalMode = "auto";
+  const approvedToolNames: string[] = [];
 
   const fileContextSource =
     parent?.fileContextSource ??
@@ -3164,21 +3155,14 @@ export async function executeSubagentTask(
     title: input.description,
   });
 
-  // Persist inherited approval policy once, before the run starts, so the
-  // child's approval drawer and notification titles resolve correctly even
-  // while the parent is blocked inside the task tool.
-  if (approvalMode !== "ask") {
-    await repositories.configRepository.setConversationApprovalModes({
-      ...approvalModes,
-      [conversation.id]: approvalMode,
-    });
-  }
-  if (approvedToolNames.length > 0) {
-    await repositories.configRepository.setApprovedToolsByConversation({
-      ...approvedToolsByConversation,
-      [conversation.id]: approvedToolNames,
-    });
-  }
+  // Persist the child's autonomous policy so its approval toggle stays in
+  // sync with how it ran, including after an app restart.
+  const approvalModes =
+    await repositories.configRepository.getConversationApprovalModes();
+  await repositories.configRepository.setConversationApprovalModes({
+    ...approvalModes,
+    [conversation.id]: approvalMode,
+  });
 
   parentDeps.publishSubagentConversation?.({
     approvalMode,

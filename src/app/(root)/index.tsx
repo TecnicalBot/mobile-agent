@@ -160,8 +160,7 @@ import { detectFolderIntent } from "@/modules/chat/folder-intent";
 import { formatFileKindLabel } from "@/modules/files/file-type-label";
 import { useSharedContent } from "@/modules/share/use-shared-content";
 import {
-  formatToolName,
-  toolObjectLabel,
+  toolApprovalLabel,
   toolTraceIcon,
 } from "@/modules/runtime/tool-label";
 import { appendQuote, formatQuotedText } from "@/modules/chat/quote-text";
@@ -577,6 +576,9 @@ export default function Screen() {
         showFooter={assistantResponseFooters.has(message.id)}
         speechContent={message.status === "streaming" ? undefined : assistantResponseFooters.get(message.id)}
         onEditMessage={handleEditMessage}
+        onOpenConversation={(conversationId) => {
+          void selectConversation(conversationId);
+        }}
         onRegenerate={handleRegenerate}
         onSavePrompt={handleSavePrompt}
         workspaceFiles={workspaceFiles}
@@ -590,6 +592,7 @@ export default function Screen() {
       handleSavePrompt,
       latestUserMessageId,
       assistantResponseFooters,
+      selectConversation,
       workspaceFiles,
     ],
   );
@@ -1082,9 +1085,10 @@ function ApprovalToolCard({
   pendingToolApproval: PendingToolApproval | null;
 }) {
   const theme = useTheme();
-  const label =
-    toolObjectLabel(pendingToolApproval?.inputSummary) ??
-    formatToolName(pendingToolApproval?.toolName ?? "");
+  const label = toolApprovalLabel(
+    pendingToolApproval?.toolName ?? "",
+    pendingToolApproval?.inputSummary,
+  );
   const Icon = toolTraceIcon(pendingToolApproval?.toolName ?? "");
 
   return (

@@ -32,7 +32,6 @@ import { useAppState } from "@/hooks/use-app-state";
 import { useChat } from "@/hooks/use-chat";
 import { usePathname, useRouter } from "expo-router";
 import {
-  Bot,
   Download,
   ChevronDown,
   Edit,
@@ -60,7 +59,6 @@ import { ChatImportDrawer } from "@/components/chat/chat-import-drawer";
 import { ExportChatDrawer } from "@/components/chat/export-chat-drawer";
 import type { Conversation } from "@/core/types/app-state";
 import { cn } from "@/core/utils";
-import { resolveAgent } from "@/modules/agents/registry";
 import { useTheme } from "@/hooks/use-theme";
 import { useHarness } from "@/providers/harness-state";
 
@@ -97,7 +95,6 @@ export function AppSidebar() {
   const agentsActive = pathname === "/settings/agents";
   const { hydrating } = useAppState();
   const {
-    agents,
     conversations,
     createConversation,
     currentConversation,
@@ -176,28 +173,16 @@ export function AppSidebar() {
   );
 
   function renderConversation(conversation: (typeof conversations)[number]) {
-    const isSubagent = conversation.relationshipToParent === "subagent";
-    const parentTitle =
-      isSubagent && conversation.parentConversationId
-        ? (conversations.find(
-            (item) => item.id === conversation.parentConversationId,
-          )?.title ?? null)
-        : null;
-
     return (
       <ConversationRow
         key={conversation.id}
         active={conversation.id === currentConversationId}
-        agentName={
-          isSubagent ? resolveAgent(agents, conversation.agentId).name : null
-        }
         conversation={conversation}
         onDelete={handleDeleteConversation}
         onExport={handleExportConversation}
         onRename={handleRenameRequest}
         onSelect={handleSelectConversation}
         onTogglePin={handleTogglePin}
-        parentTitle={parentTitle}
         pinnedCount={pinnedCount}
         runStatus={
           harness.active && harness.linkedConversationId === conversation.id
@@ -549,35 +534,27 @@ export function AppSidebar() {
 
 const ConversationRow = memo(function ConversationRow({
   active,
-  agentName,
   conversation,
   onDelete,
   onExport,
   onRename,
   onSelect,
   onTogglePin,
-  parentTitle,
   pinnedCount,
   runStatus,
 }: {
   active: boolean;
-  agentName: string | null;
   conversation: Conversation;
   onDelete: (id: string) => void;
   onExport: (id: string) => void;
   onRename: (conversation: Conversation) => void;
   onSelect: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
-  parentTitle: string | null;
   pinnedCount: number;
   runStatus: string | null | undefined;
 }) {
   const theme = useTheme();
   const pinned = Boolean(conversation.pinnedAt);
-  const isSubagent = conversation.relationshipToParent === "subagent";
-  const secondaryText = active
-    ? "text-background/70 dark:text-background-dark/70"
-    : "text-muted-foreground dark:text-muted-foreground-dark";
   return (
     <SidebarMenuItem>
       <SidebarClose asChild>
@@ -586,35 +563,17 @@ const ConversationRow = memo(function ConversationRow({
           onPress={() => onSelect(conversation.id)}
         >
           <View className="min-w-0 flex-1 flex-row items-center gap-sp-2">
-            {isSubagent ? (
-              <Bot
-                color={active ? theme.background : theme.textSecondary}
-                size={14}
-              />
-            ) : null}
-            <View className="min-w-0 flex-1">
-              <Text
-                className={cn(
-                  "min-w-0 font-sans text-sm font-medium",
-                  active
-                    ? "text-background dark:text-background-dark"
-                    : "text-foreground dark:text-foreground-dark",
-                )}
-                numberOfLines={1}
-              >
-                {conversation.title}
-              </Text>
-              {isSubagent ? (
-                <Text
-                  className={cn("font-sans text-[11px]", secondaryText)}
-                  numberOfLines={1}
-                >
-                  {parentTitle
-                    ? `Subagent · ${parentTitle}`
-                    : `Subagent${agentName ? ` · @${agentName}` : ""}`}
-                </Text>
-              ) : null}
-            </View>
+            <Text
+              className={cn(
+                "min-w-0 flex-1 font-sans text-sm font-medium",
+                active
+                  ? "text-background dark:text-background-dark"
+                  : "text-foreground dark:text-foreground-dark",
+              )}
+              numberOfLines={1}
+            >
+              {conversation.title}
+            </Text>
             <View className="shrink-0 flex-row items-center justify-center gap-sp-2">
               {runStatus === "running" ||
               runStatus === "queued" ||

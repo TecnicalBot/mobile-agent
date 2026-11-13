@@ -13,7 +13,7 @@ import {
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { openExternalLink } from "@/modules/chat/open-link";
 import type { AvailableRelease } from "@/modules/updates/github-release";
-import { progressLabel, progressPercent } from "@/modules/updates/progress";
+import { progressPercent } from "@/modules/updates/progress";
 
 /**
  * "What's new" drawer shown when a newer release exists.
@@ -24,10 +24,10 @@ import { progressLabel, progressPercent } from "@/modules/updates/progress";
  * the compact banner around for this session; `Skip this version` is
  * persisted, so nothing ever comes back for that release.
  *
- * While the APK transfers, the primary action turns into the download
- * percentage (`downloadProgress`, 0..1) — no bar, no spinner. The fraction
- * stays `null` until the server reports a total size, so an unknown length
- * simply reads 0%.
+ * While the APK transfers, the primary action turns into
+ * `Downloading 42%` (`downloadProgress`, 0..1) — no bar, no spinner. The
+ * fraction stays `null` until the server reports a total size, so an unknown
+ * length simply reads 0%.
  */
 export function ReleaseNotesDrawer({
   downloadProgress = null,
@@ -94,7 +94,9 @@ export function ReleaseNotesDrawer({
               disabled={installing}
               onPress={onInstall}
             >
-              {installing ? progressLabel(downloadProgress ?? 0) : "Update now"}
+              {installing
+                ? `Downloading ${progressPercent(downloadProgress ?? 0)}%`
+                : "Update now"}
             </Button>
           </View>
           <Pressable

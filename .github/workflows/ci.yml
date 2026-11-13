@@ -37,5 +37,5 @@ jobs:
       - name: Run unit tests
         run: pnpm test
 
-      - name: Verify on-device model catalog
+      - name: Verify downloadable model catalogs
         run: pnpm catalog:verify

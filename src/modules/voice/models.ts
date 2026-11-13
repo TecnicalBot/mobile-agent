@@ -94,10 +94,20 @@ function defaultLanguageFor(engine: VoiceEngine): WhisperLanguage {
   return (english ?? options[0] ?? WHISPER_LANGUAGES[1]).id;
 }
 
+const VOICE_DIRECTORY = ["mobile-agent", "voice"] as const;
+
 function directory() {
-  const dir = new Directory(Paths.document, "mobile-agent", "voice");
+  const dir = new Directory(Paths.document, ...VOICE_DIRECTORY);
   dir.create({ intermediates: true, idempotent: true });
   return dir;
+}
+
+/**
+ * Location of a model relative to the app's files directory. Kept in sync with
+ * the native persistent downloader, which writes below that root.
+ */
+export function voiceModelRelativePath(id: WhisperModelId) {
+  return [...VOICE_DIRECTORY, `ggml-${id}.bin`].join("/");
 }
 
 export function modelFile(id: WhisperModelId) {

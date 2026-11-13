@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, Text, View } from "react-native";
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,15 @@ import {
   type VoiceEngine,
   type WhisperLanguage,
 } from "@/modules/voice/models";
+import {
+  cancelPersistentVoiceDownload,
+  getPersistentVoiceDownloadStatus,
+  isPersistentModelDownloadActive,
+  prepareVoiceDownloadNotifications,
+  startPersistentVoiceDownload,
+  supportsPersistentVoiceDownloads,
+  type PersistentModelDownloadStatus,
+} from "@/modules/voice/persistent-download";
 
 function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
@@ -48,9 +57,18 @@ export default function VoiceSettingsScreen() {
   const [language, setLanguage] = useState<WhisperLanguage>("en");
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const percentDownloaded = Math.round(
+    Math.min(Math.max(progress, 0), 1) * 100,
+  );
+  const persistentRef = useRef(false);
+  // WorkManager only exposes a new request a moment after enqueueing. Ignore
+  // history until the exact request id is known so a finished record from an
+  // earlier attempt cannot clear the button.
+  const startingRef = useRef(false);
+  const workIdRef = useRef<string | null>(null);
   const supported = Platform.OS === "android" || Platform.OS === "ios";
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!supported) return;
     const [currentEngine, catalog] = await Promise.all([
       loadVoiceEngine(),
@@ -63,17 +81,47 @@ export default function VoiceSettingsScreen() {
         .filter((model) => isModelDownloaded(model.id))
         .map((model) => model.id),
     );
-  };
+
+    // Re-attach to a download that survived leaving this screen (or an app
+    // restart) so its progress is visible when the user comes back.
+    if (!supportsPersistentVoiceDownloads()) return;
+    const statuses = await Promise.all(
+      catalog.map(async (model) => {
+        try {
+          return { model, status: await getPersistentVoiceDownloadStatus(model) };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const active = statuses.find(
+      (
+        entry,
+      ): entry is {
+        model: VoiceCatalogModel;
+        status: PersistentModelDownloadStatus;
+      } => entry !== null && isPersistentModelDownloadActive(entry.status),
+    );
+    if (active) {
+      persistentRef.current = true;
+      workIdRef.current = active.status.workId ?? null;
+      setBusy(active.model.id);
+      setProgress(active.status.progress);
+    }
+  }, [supported]);
+
   useEffect(() => {
     refresh().catch((error: unknown) =>
       Alert.alert("Voice settings", String(error)),
     );
-    // Downloads are scoped to this screen; leaving cancels unfinished files.
     return () => {
-      cancelVoiceDownload().catch(console.error);
+      // Inline downloads are scoped to this screen. WorkManager-backed ones
+      // deliberately keep running in the background.
+      if (!persistentRef.current) {
+        cancelVoiceDownload().catch(console.error);
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     if (!selectedKey || selectedKey === "system") return;
@@ -88,6 +136,66 @@ export default function VoiceSettingsScreen() {
     };
   }, [selectedKey]);
 
+  useEffect(() => {
+    if (!busy || !persistentRef.current) return;
+    const model = models.find((item) => item.id === busy);
+    if (!model) return;
+
+    let disposed = false;
+    const sync = async () => {
+      // The component already shows a spinner while start() runs; do not ask
+      // WorkManager for a status yet, or it may answer with an old cancelled
+      // record and snap the button back to "Download".
+      if (startingRef.current) return;
+      try {
+        const status = await getPersistentVoiceDownloadStatus(
+          model,
+          workIdRef.current,
+        );
+        if (disposed) return;
+        if (status.workId) workIdRef.current = status.workId;
+        setProgress(status.progress);
+        if (isPersistentModelDownloadActive(status)) return;
+
+        // WorkManager can briefly report no work right after enqueueing, before
+        // the first progress write lands. Treat "idle" as still starting so the
+        // button doesn't snap back to "Download" while the download runs.
+        if (status.state === "idle") return;
+
+        persistentRef.current = false;
+        workIdRef.current = null;
+        setBusy(null);
+        if (status.state === "succeeded") {
+          setProgress(1);
+          await refresh();
+        } else if (status.state === "failed") {
+          Alert.alert(
+            "Download failed",
+            status.error ?? "The model download failed.",
+          );
+        } else if (status.state === "cancelled") {
+          setProgress(0);
+        }
+      } catch (error) {
+        if (disposed) return;
+        persistentRef.current = false;
+        workIdRef.current = null;
+        setBusy(null);
+        Alert.alert(
+          "Voice settings",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    };
+
+    void sync();
+    const interval = setInterval(() => void sync(), 1500);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+    };
+  }, [busy, models, refresh]);
+
   const selectEngine = async (next: VoiceEngine) => {
     try {
       await saveVoiceEngine(next);
@@ -101,18 +209,73 @@ export default function VoiceSettingsScreen() {
   };
 
   const download = async (id: string) => {
+    const model = models.find((item) => item.id === id);
+    if (!model) return;
+
     setBusy(id);
     setProgress(0);
+    persistentRef.current = false;
+    startingRef.current = false;
+    workIdRef.current = null;
     try {
-      await downloadVoiceModel(id, setProgress);
-      await refresh();
+      if (supportsPersistentVoiceDownloads()) {
+        startingRef.current = true;
+        persistentRef.current = true;
+        const notificationsGranted = await prepareVoiceDownloadNotifications();
+        const status = await startPersistentVoiceDownload(model);
+        workIdRef.current = status.workId ?? null;
+        startingRef.current = false;
+        setProgress(status.progress);
+        if (status.state === "succeeded") {
+          persistentRef.current = false;
+          workIdRef.current = null;
+          setProgress(1);
+          await refresh();
+          setBusy(null);
+          return;
+        }
+        if (status.state === "failed") {
+          throw new Error(status.error ?? "The model download failed.");
+        }
+        if (!notificationsGranted) {
+          Alert.alert(
+            "Notifications are off",
+            "The download continues in the background, but its progress notification stays hidden. Enable notifications for Mobile Agent to see it.",
+          );
+        }
+      } else {
+        await downloadVoiceModel(id, setProgress);
+        await refresh();
+        setBusy(null);
+      }
     } catch (error) {
+      startingRef.current = false;
+      workIdRef.current = null;
+      persistentRef.current = false;
+      setBusy(null);
       Alert.alert(
         "Download failed",
         error instanceof Error ? error.message : String(error),
       );
-    } finally {
-      setBusy(null);
+    }
+  };
+
+  const cancelDownload = async () => {
+    if (!busy) return;
+    const persistent = persistentRef.current;
+    persistentRef.current = false;
+    startingRef.current = false;
+    try {
+      if (persistent) {
+        await cancelPersistentVoiceDownload(busy);
+        workIdRef.current = null;
+        setBusy(null);
+        setProgress(0);
+      } else {
+        await cancelVoiceDownload();
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -253,18 +416,13 @@ export default function VoiceSettingsScreen() {
                 ) : null}
 
                 {selectedModel && busy === selectedModel.id ? (
-                  <View className="gap-sp-2">
-                    <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
-                      <View
-                        className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
-                        style={{
-                          width: `${Math.max(2, Math.round(progress * 100))}%`,
-                        }}
-                      />
-                    </View>
-                    <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
-                      Downloading {Math.round(progress * 100)}%
-                    </Text>
+                  <View className="h-1.5 overflow-hidden rounded-full bg-muted dark:bg-muted-dark">
+                    <View
+                      className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
+                      style={{
+                        width: `${Math.max(2, percentDownloaded)}%`,
+                      }}
+                    />
                   </View>
                 ) : null}
               </DrawerBody>
@@ -310,7 +468,7 @@ export default function VoiceSettingsScreen() {
                         }}
                       >
                         {busy === selectedModel.id
-                          ? "Downloading…"
+                          ? `Downloading ${percentDownloaded}%`
                           : `Download ${formatBytes(selectedModel.sizeBytes)}`}
                       </Button>
                       {busy === selectedModel.id ? (
@@ -321,7 +479,7 @@ export default function VoiceSettingsScreen() {
                           className="items-center py-sp-3"
                           hitSlop={8}
                           onPress={() => {
-                            cancelVoiceDownload().catch(console.error);
+                            cancelDownload().catch(console.error);
                           }}
                           style={({ pressed }) =>
                             pressed ? { opacity: 0.6 } : null

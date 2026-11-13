@@ -1999,11 +1999,16 @@ function OnDeviceModelRow({
               }}
             />
           </View>
-          <View className="flex-row items-center justify-between gap-sp-3">
-            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+          <View className="flex-row gap-sp-2">
+            <Button
+              className="flex-1"
+              loading
+              size="sm"
+              variant="secondary"
+            >
               Downloading {progressLabel}
-            </Text>
-            <Button onPress={onCancel} size="xs" variant="outline">
+            </Button>
+            <Button onPress={onCancel} size="sm" variant="outline">
               Cancel
             </Button>
           </View>

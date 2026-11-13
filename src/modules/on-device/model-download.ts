@@ -13,6 +13,8 @@ export type PersistentModelDownloadStatus = {
   progress: number;
   state: PersistentModelDownloadState;
   totalBytes: number;
+  /** WorkManager request id, used to poll this attempt instead of history. */
+  workId?: string | null;
 };
 
 type PersistentModelDownloadNativeModule = {
@@ -21,6 +23,16 @@ type PersistentModelDownloadNativeModule = {
     modelId: string,
     expectedBytes: number,
   ): Promise<PersistentModelDownloadStatus>;
+  getFileDownloadStatus(
+    modelId: string,
+    expectedBytes: number,
+    relativePath: string,
+  ): Promise<PersistentModelDownloadStatus>;
+  getFileDownloadStatusById(
+    workId: string,
+    expectedBytes: number,
+    relativePath: string,
+  ): Promise<PersistentModelDownloadStatus>;
   prepareNotifications(): Promise<void>;
   startDownload(
     modelId: string,
@@ -28,6 +40,14 @@ type PersistentModelDownloadNativeModule = {
     sha256: string,
     expectedBytes: number,
     label: string,
+  ): Promise<PersistentModelDownloadStatus>;
+  startFileDownload(
+    modelId: string,
+    url: string,
+    sha256: string,
+    expectedBytes: number,
+    label: string,
+    relativePath: string,
   ): Promise<PersistentModelDownloadStatus>;
 };
 
@@ -101,4 +121,75 @@ export async function getPersistentModelDownloadStatus(modelId: string) {
 
 export async function cancelPersistentModelDownload(modelId: string) {
   await requireAndroidModule().cancelDownload(modelId);
+}
+
+/**
+ * True when the installed native build exposes the generic file-download API.
+ * Older builds only have the on-device `.litertlm` entry points, so callers
+ * must fall back instead of failing an over-the-air JS update.
+ */
+export function supportsPersistentFileDownloads() {
+  return (
+    Platform.OS === "android" &&
+    nativeModule !== null &&
+    typeof nativeModule.startFileDownload === "function" &&
+    typeof nativeModule.getFileDownloadStatus === "function"
+  );
+}
+
+export type PersistentFileDownloadRequest = {
+  expectedBytes: number;
+  id: string;
+  label: string;
+  /** Path relative to the app's files directory. */
+  relativePath: string;
+  /** Optional SHA-256; when absent the download is validated by size only. */
+  sha256?: string;
+  url: string;
+};
+
+function requireFileDownloadModule() {
+  if (!supportsPersistentFileDownloads()) {
+    throw new Error(
+      "Persistent file downloads require a new Android development build.",
+    );
+  }
+  return nativeModule as PersistentModelDownloadNativeModule;
+}
+
+export async function startPersistentFileDownload(
+  request: PersistentFileDownloadRequest,
+) {
+  const module = requireFileDownloadModule();
+  return module.startFileDownload(
+    request.id,
+    request.url,
+    request.sha256 ?? "",
+    request.expectedBytes,
+    request.label,
+    request.relativePath,
+  );
+}
+
+export async function getPersistentFileDownloadStatus(
+  id: string,
+  expectedBytes: number,
+  relativePath: string,
+  workId?: string | null,
+) {
+  const module = requireFileDownloadModule();
+  // Older dev builds only expose the by-name query. Keep working after an
+  // over-the-air JS update; new builds poll the exact request instead.
+  if (workId && typeof module.getFileDownloadStatusById === "function") {
+    return module.getFileDownloadStatusById(
+      workId,
+      expectedBytes,
+      relativePath,
+    );
+  }
+  return module.getFileDownloadStatus(id, expectedBytes, relativePath);
+}
+
+export async function cancelPersistentFileDownload(id: string) {
+  await requireAndroidModule().cancelDownload(id);
 }

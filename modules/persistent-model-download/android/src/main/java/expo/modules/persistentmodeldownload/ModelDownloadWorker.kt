@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
@@ -34,17 +35,20 @@ class ModelDownloadWorker(
   override suspend fun doWork(): Result {
     val modelId = inputData.getString(KEY_MODEL_ID) ?: return failure("Missing model ID")
     val url = inputData.getString(KEY_URL) ?: return failure("Missing download URL")
-    val sha256 = inputData.getString(KEY_SHA256) ?: return failure("Missing SHA256")
+    // Voice models publish no hash; an empty value keeps the size check only.
+    val sha256 = inputData.getString(KEY_SHA256).orEmpty()
     val expectedBytes = inputData.getLong(KEY_EXPECTED_BYTES, 0L)
     val label = inputData.getString(KEY_LABEL) ?: modelId
+    val relativePath =
+      inputData.getString(KEY_RELATIVE_PATH) ?: defaultTargetPath(modelId)
 
     ensureNotificationChannel(applicationContext)
-    setForeground(createForegroundInfo(label, 0L, expectedBytes))
+    setForeground(createForegroundInfo(modelId, label, 0L, expectedBytes))
 
     return withContext(Dispatchers.IO) {
       try {
-        val target = targetFile(applicationContext, modelId)
-        val partial = partialFile(applicationContext, modelId)
+        val target = targetFile(applicationContext, relativePath)
+        val partial = partialFile(applicationContext, relativePath)
         target.parentFile?.mkdirs()
 
         if (target.exists()) {
@@ -66,7 +70,7 @@ class ModelDownloadWorker(
         }
 
         var bytesDownloaded = partial.takeIf { it.exists() }?.length() ?: 0L
-        reportProgress(label, bytesDownloaded, expectedBytes, force = true)
+        reportProgress(modelId, label, bytesDownloaded, expectedBytes)
 
         val connection = openConnectionFollowingRedirects(url, bytesDownloaded)
         val resumeAt = bytesDownloaded
@@ -86,7 +90,7 @@ class ModelDownloadWorker(
           contentLength > 0 -> contentLength
           else -> expectedBytes
         }
-        reportProgress(label, bytesDownloaded, totalBytes, force = true)
+        reportProgress(modelId, label, bytesDownloaded, totalBytes)
 
         connection.inputStream.use { input ->
           FileOutputStream(partial, append).use { output ->
@@ -107,7 +111,7 @@ class ModelDownloadWorker(
               val enoughBytesPassed =
                 bytesDownloaded - lastReportedBytes >= PROGRESS_INTERVAL_BYTES
               if (enoughTimePassed || enoughBytesPassed) {
-                reportProgress(label, bytesDownloaded, totalBytes)
+                reportProgress(modelId, label, bytesDownloaded, totalBytes)
                 lastReportedAt = now
                 lastReportedBytes = bytesDownloaded
               }
@@ -117,7 +121,7 @@ class ModelDownloadWorker(
         }
         connection.disconnect()
 
-        reportProgress(label, bytesDownloaded, totalBytes, force = true)
+        reportProgress(modelId, label, bytesDownloaded, totalBytes)
 
         if (totalBytes > 0 && bytesDownloaded != totalBytes) {
           throw IOException(
@@ -146,32 +150,30 @@ class ModelDownloadWorker(
   }
 
   private suspend fun reportProgress(
+    modelId: String,
     label: String,
     bytesDownloaded: Long,
     totalBytes: Long,
-    force: Boolean = false,
   ) {
     val data = workDataOf(
       KEY_BYTES_DOWNLOADED to bytesDownloaded,
       KEY_TOTAL_BYTES to totalBytes,
     )
     setProgress(data)
-    setForeground(createForegroundInfo(label, bytesDownloaded, totalBytes))
-
-    if (force) {
-      val manager =
-        applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      manager.notify(notificationId(id.toString()), createNotification(label, bytesDownloaded, totalBytes))
-    }
+    // Let WorkManager own the notification. Posting it directly as well can
+    // resurrect it after WorkManager has removed the foreground notification,
+    // leaving a non-dismissible "Downloading..." entry behind.
+    setForeground(createForegroundInfo(modelId, label, bytesDownloaded, totalBytes))
   }
 
   private fun createForegroundInfo(
+    modelId: String,
     label: String,
     bytesDownloaded: Long,
     totalBytes: Long,
   ): ForegroundInfo {
-    val notification = createNotification(label, bytesDownloaded, totalBytes)
-    val notificationId = notificationId(id.toString())
+    val notification = createNotification(modelId, label, bytesDownloaded, totalBytes)
+    val notificationId = notificationId(modelId)
 
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       ForegroundInfo(
@@ -185,6 +187,7 @@ class ModelDownloadWorker(
   }
 
   private fun createNotification(
+    modelId: String,
     label: String,
     bytesDownloaded: Long,
     totalBytes: Long,
@@ -201,7 +204,7 @@ class ModelDownloadWorker(
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
         applicationContext,
-        notificationId(id.toString()),
+        notificationId(modelId),
         it,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
@@ -212,7 +215,7 @@ class ModelDownloadWorker(
       .setContentTitle("Downloading $label")
       .setContentText(
         if (totalBytes > 0) {
-          "${formatBytes(bytesDownloaded)} of ${formatBytes(totalBytes)}"
+          "$progress% · ${formatBytes(bytesDownloaded)} of ${formatBytes(totalBytes)}"
         } else {
           formatBytes(bytesDownloaded)
         },
@@ -232,16 +235,26 @@ class ModelDownloadWorker(
       .build()
   }
 
-  private fun success(bytesDownloaded: Long, totalBytes: Long): Result =
-    Result.success(
+  private fun success(bytesDownloaded: Long, totalBytes: Long): Result {
+    clearNotification()
+    return Result.success(
       workDataOf(
         KEY_BYTES_DOWNLOADED to bytesDownloaded,
         KEY_TOTAL_BYTES to totalBytes,
       ),
     )
+  }
 
-  private fun failure(message: String): Result =
-    Result.failure(workDataOf(KEY_ERROR to message))
+  private fun failure(message: String): Result {
+    clearNotification()
+    return Result.failure(workDataOf(KEY_ERROR to message))
+  }
+
+  private fun clearNotification() {
+    val modelId = inputData.getString(KEY_MODEL_ID) ?: return
+    NotificationManagerCompat.from(applicationContext)
+      .cancel(notificationId(modelId))
+  }
 
   private fun openConnectionFollowingRedirects(
     initialUrl: String,
@@ -333,6 +346,7 @@ class ModelDownloadWorker(
     const val KEY_SHA256 = "sha256"
     const val KEY_EXPECTED_BYTES = "expectedBytes"
     const val KEY_LABEL = "label"
+    const val KEY_RELATIVE_PATH = "relativePath"
     const val KEY_BYTES_DOWNLOADED = "bytesDownloaded"
     const val KEY_TOTAL_BYTES = "totalBytes"
     const val KEY_ERROR = "error"
@@ -349,11 +363,20 @@ class ModelDownloadWorker(
 
     fun uniqueWorkName(modelId: String) = "model-download-$modelId"
 
-    fun targetFile(context: Context, modelId: String) =
-      File(context.filesDir, "models/$modelId.litertlm")
+    /** Default layout for on-device LiteRT models. */
+    fun defaultTargetPath(modelId: String) = "models/$modelId.litertlm"
 
-    fun partialFile(context: Context, modelId: String) =
-      File(context.filesDir, "models/$modelId.litertlm.tmp")
+    fun targetFile(context: Context, relativePath: String): File {
+      val root = context.filesDir.canonicalFile
+      val file = File(root, relativePath).canonicalFile
+      require(file.path.startsWith(root.path + File.separator)) {
+        "Invalid download path"
+      }
+      return file
+    }
+
+    fun partialFile(context: Context, relativePath: String) =
+      File(targetFile(context, relativePath).path + ".tmp")
 
     fun notificationId(value: String) =
       NOTIFICATION_ID_BASE + (value.hashCode() and 0x0FFF)
@@ -365,10 +388,10 @@ class ModelDownloadWorker(
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
       val channel = NotificationChannel(
         CHANNEL_ID,
-        "Model downloads",
+        "Downloads",
         NotificationManager.IMPORTANCE_LOW,
       ).apply {
-        description = "Progress for offline AI model downloads"
+        description = "Progress for model and voice downloads"
         setSound(null, null)
         enableVibration(false)
       }

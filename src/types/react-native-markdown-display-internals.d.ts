@@ -64,3 +64,31 @@ declare module "#app-markdown-it" {
 
   export default MarkdownIt;
 }
+
+/**
+ * The token helpers `react-native-markdown-display` runs between markdown-it
+ * and its AST. Tests replay that pipeline so fixtures match what the chat
+ * renderer actually receives.
+ */
+declare module "react-native-markdown-display/src/lib/util/stringToTokens" {
+  export function stringToTokens(source: string, markdown: unknown): unknown[];
+}
+
+declare module "react-native-markdown-display/src/lib/util/cleanupTokens" {
+  export function cleanupTokens(tokens: unknown[]): unknown[];
+}
+
+declare module "react-native-markdown-display/src/lib/util/groupTextTokens" {
+  const groupTextTokens: (tokens: unknown[]) => unknown[];
+  export default groupTextTokens;
+}
+
+declare module "react-native-markdown-display/src/lib/util/omitListItemParagraph" {
+  const omitListItemParagraph: (tokens: unknown[]) => unknown[];
+  export default omitListItemParagraph;
+}
+
+declare module "react-native-markdown-display/src/lib/util/tokensToAST" {
+  const tokensToAST: (tokens: unknown[]) => unknown[];
+  export default tokensToAST;
+}

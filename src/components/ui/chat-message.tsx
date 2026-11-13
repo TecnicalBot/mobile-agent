@@ -52,7 +52,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   type StyleProp,
   Text,
   type TextStyle,
@@ -126,11 +125,11 @@ import {
 import { Loading } from "@/components/ui/loading";
 import { MathFallback } from "@/components/ui/math-fallback";
 import { Message, MessageFooter } from "@/components/ui/message";
+import { SelectableMarkdown } from "@/components/ui/selectable-markdown";
 import {
   VideoPlayerDialog,
   type VideoPlayerTarget,
 } from "@/components/ui/video-player-dialog";
-import { CHAT_TEXT_STYLE } from "@/constants/chat-typography";
 import { TraceResourceContent } from "@/components/ui/trace-resource-content";
 import { hasLegacyToolResource } from "@/modules/chat/tool-resource";
 import {
@@ -155,6 +154,11 @@ import { downloadText } from "@/core/services/download-service";
 import { cn } from "@/core/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
+import {
+  type ChatMarkdownStyles,
+  createMarkdownStyles,
+  TABLE_MIN_COLUMN_WIDTH,
+} from "@/modules/chat/markdown-styles";
 import { parseStableMarkdown } from "@/modules/chat/stable-markdown";
 import { openExternalLink } from "@/modules/chat/open-link";
 import {
@@ -217,29 +221,6 @@ type ChatMessageProps = {
   onSavePrompt?: (content: string) => void;
   workspaceFiles: WorkspaceFile[];
 };
-
-/**
- * Selectable text block for markdown inline content. Matches the library's
- * default `textgroup` output exactly, plus `selectable` and a themed
- * `selectionColor` (Android only — iOS ignores it). Only mounted when the
- * message is in select mode (see `textSelectable`), so at most one message
- * pays the native selection cost at a time.
- */
-function SelectableTextGroup({
-  children,
-  style,
-}: {
-  children: ReactNode;
-  style?: StyleProp<TextStyle>;
-}) {
-  const theme = useTheme();
-
-  return (
-    <Text selectable selectionColor={theme.backgroundSelected} style={style}>
-      {children}
-    </Text>
-  );
-}
 
 const MARKDOWN_RULES = {
   // AstRenderer also invents a new root key on every render. A stable AST
@@ -345,20 +326,6 @@ const MARKDOWN_RULES = {
   ),
   html_inline: (node) => (
     <InlineSvgBlock key={node.key} markup={htmlNodeContent(node)} />
-  ),
-} satisfies RenderRules;
-
-// Select-mode variant: every block's inline content (`textgroup`) becomes a
-// native-selectable Text covering paragraphs, headings, list items, table
-// cells and blockquotes including nested bold/italic/links. Only used for the
-// single selected message; the default path stays non-selectable for list
-// performance.
-const MARKDOWN_RULES_SELECTABLE = {
-  ...MARKDOWN_RULES,
-  textgroup: (node, children, _parent, styles) => (
-    <SelectableTextGroup key={node.key} style={styles.textgroup}>
-      {children}
-    </SelectableTextGroup>
   ),
 } satisfies RenderRules;
 
@@ -749,12 +716,6 @@ function getTableText(node: ASTNode) {
 }
 
 /**
- * Narrowest a column gets before a table starts scrolling sideways instead of
- * squeezing its text into slivers.
- */
-const TABLE_MIN_COLUMN_WIDTH = 116;
-
-/**
  * A markdown table sized to the card it sits in.
  *
  * Columns share the available width evenly — so a two-column table fills the
@@ -935,20 +896,14 @@ function computeHighlightNodes(
 }
 
 /**
- * Code text with optional syntax highlighting. Small snippets highlight
+ * Highlighted token nodes for a snippet. Small snippets highlight
  * synchronously; large ones render plain first and upgrade after paint so a
  * big fence never stalls the message list.
  */
-function SyntaxCodeText({
-  code,
-  language,
-  textColor,
-}: {
-  code: string;
-  language: string;
-  textColor: string;
-}) {
-  const theme = useTheme();
+function useHighlightedNodes(
+  code: string,
+  language: string,
+): SyntaxNode[] | null {
   const cacheKey = highlightCacheKey(code, language);
   const immediateNodes = useMemo(
     () =>
@@ -991,12 +946,25 @@ function SyntaxCodeText({
     };
   }, [code, language, cacheKey]);
 
-  const nodes =
-    code.length <= SYNC_HIGHLIGHT_LENGTH
-      ? immediateNodes
-      : deferred?.key === cacheKey
-        ? deferred.nodes
-        : null;
+  return code.length <= SYNC_HIGHLIGHT_LENGTH
+    ? immediateNodes
+    : deferred?.key === cacheKey
+      ? deferred.nodes
+      : null;
+}
+
+/** Code text inside the standalone, scrollable code card. */
+function SyntaxCodeText({
+  code,
+  language,
+  textColor,
+}: {
+  code: string;
+  language: string;
+  textColor: string;
+}) {
+  const theme = useTheme();
+  const nodes = useHighlightedNodes(code, language);
 
   return (
     <Text
@@ -1010,6 +978,27 @@ function SyntaxCodeText({
       }}
     >
       {nodes ? renderSyntaxNodes(nodes, textColor, theme) : code}
+    </Text>
+  );
+}
+
+/**
+ * The same syntax colours, but as bare spans for the message's single
+ * selectable Text — a nested `Text` keeps the fence inside the selection.
+ */
+function InlineSyntaxCode({
+  code,
+  language,
+}: {
+  code: string;
+  language: string;
+}) {
+  const theme = useTheme();
+  const nodes = useHighlightedNodes(code, language);
+
+  return (
+    <Text>
+      {nodes ? renderSyntaxNodes(nodes, theme.text, theme) : code}
     </Text>
   );
 }
@@ -1191,6 +1180,11 @@ function CopyableCodeBlock({
   );
 }
 
+/** Fences inside the selectable body keep their syntax colours as spans. */
+const renderInlineCode = (code: string, language: string) => (
+  <InlineSyntaxCode code={code} language={language} />
+);
+
 const MarkdownContent = memo(function MarkdownContent({
   content,
   onLinkPress,
@@ -1200,7 +1194,7 @@ const MarkdownContent = memo(function MarkdownContent({
   content: string;
   onLinkPress: (url: string) => boolean;
   selectable?: boolean;
-  styles: ReturnType<typeof createMarkdownStyles>;
+  styles: ChatMarkdownStyles;
 }) {
   const ast = useMemo(
     () => content.length > MARKDOWN_MAX_RENDER_LENGTH
@@ -1208,11 +1202,27 @@ const MarkdownContent = memo(function MarkdownContent({
       : parseStableMarkdown(content, MARKDOWN_PARSER),
     [content],
   );
-  if (content.length > MARKDOWN_MAX_RENDER_LENGTH) {
+  if (!ast) {
     return (
       <Text selectable={selectable} style={styles.body}>
         {content}
       </Text>
+    );
+  }
+
+  // Select mode folds every text block of the reply — including code fences
+  // and tables — into one native Text so a selection can span the whole
+  // answer, not just the paragraph or bullet it started in.
+  if (selectable) {
+    return (
+      <SelectableMarkdown
+        ast={ast}
+        markdownit={MARKDOWN_PARSER}
+        onLinkPress={onLinkPress}
+        renderCode={renderInlineCode}
+        rules={MARKDOWN_RULES}
+        styles={styles}
+      />
     );
   }
 
@@ -1221,7 +1231,7 @@ const MarkdownContent = memo(function MarkdownContent({
       markdownit={MARKDOWN_PARSER}
       mergeStyle={false}
       onLinkPress={onLinkPress}
-      rules={selectable ? MARKDOWN_RULES_SELECTABLE : MARKDOWN_RULES}
+      rules={MARKDOWN_RULES}
       style={styles}
     >
       {/* AST arrays are supported by the runtime but omitted from its React types. */}
@@ -2620,228 +2630,6 @@ function formatStepGap(
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function createMarkdownStyles(input: {
-  borderColor: string;
-  codeBackground: string;
-  inlineCodeBackground: string;
-  linkColor: string;
-  mutedText: string;
-  tableHeaderBackground: string;
-  text: string;
-}) {
-  return {
-    body: {
-      color: input.text,
-      flexShrink: 1,
-      fontFamily: "System",
-      ...CHAT_TEXT_STYLE,
-      marginBottom: 0,
-      marginTop: 0,
-      maxWidth: "100%",
-      width: "100%",
-    },
-    bullet_list: {
-      marginBottom: 12,
-      marginTop: 2,
-    },
-    bullet_list_content: {
-      flex: 1,
-    },
-    bullet_list_icon: {
-      color: input.text,
-      marginRight: 8,
-      width: 12,
-    },
-    code_block: {
-      backgroundColor: input.codeBackground,
-      borderRadius: 16,
-      color: input.text,
-      fontFamily: "monospace",
-      fontSize: 14,
-      lineHeight: 22,
-      marginBottom: 12,
-      marginTop: 6,
-      padding: 12,
-    },
-    code_inline: {
-      backgroundColor: input.inlineCodeBackground,
-      borderRadius: 8,
-      color: input.text,
-      fontFamily: "monospace",
-      fontSize: 14,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-    },
-    fence: {
-      backgroundColor: input.codeBackground,
-      borderRadius: 16,
-      color: input.text,
-      fontFamily: "monospace",
-      fontSize: 14,
-      lineHeight: 22,
-      marginBottom: 12,
-      marginTop: 6,
-      padding: 12,
-    },
-    blockquote: {
-      borderColor: input.borderColor,
-      borderLeftWidth: 3,
-      color: input.mutedText,
-      marginBottom: 12,
-      marginTop: 2,
-      paddingLeft: 12,
-    },
-    heading1: {
-      color: input.text,
-      fontSize: 24,
-      fontWeight: "700",
-      lineHeight: 32,
-      marginBottom: 8,
-      marginTop: 10,
-    },
-    heading2: {
-      color: input.text,
-      fontSize: 21,
-      fontWeight: "700",
-      lineHeight: 28,
-      marginBottom: 8,
-      marginTop: 10,
-    },
-    heading3: {
-      color: input.text,
-      fontSize: 18,
-      fontWeight: "700",
-      lineHeight: 25,
-      marginBottom: 6,
-      marginTop: 8,
-    },
-    heading4: {
-      color: input.text,
-      fontSize: 17,
-      fontWeight: "700",
-      lineHeight: 24,
-      marginBottom: 6,
-      marginTop: 8,
-    },
-    heading5: {
-      color: input.text,
-      fontSize: 16,
-      fontWeight: "700",
-      lineHeight: 23,
-      marginBottom: 4,
-      marginTop: 8,
-    },
-    heading6: {
-      color: input.mutedText,
-      fontSize: 15,
-      fontWeight: "700",
-      lineHeight: 22,
-      marginBottom: 4,
-      marginTop: 8,
-    },
-    hr: {
-      backgroundColor: input.borderColor,
-      height: 1,
-      marginBottom: 16,
-      marginTop: 16,
-    },
-    image: {
-      marginBottom: 10,
-      marginTop: 4,
-    },
-    link: {
-      color: input.linkColor,
-      textDecorationLine: "underline",
-    },
-    list_item: {
-      alignItems: "flex-start",
-      color: input.text,
-      flexDirection: "row",
-      justifyContent: "flex-start",
-      marginBottom: 5,
-      marginTop: 0,
-    },
-    ordered_list: {
-      marginBottom: 12,
-      marginTop: 2,
-    },
-    ordered_list_content: {
-      flex: 1,
-    },
-    ordered_list_icon: {
-      color: input.text,
-      marginRight: 8,
-      paddingTop: 1,
-      textAlign: "right",
-      width: 32,
-    },
-    paragraph: {
-      color: input.text,
-      fontSize: 16,
-      lineHeight: 24,
-      marginBottom: 10,
-      marginTop: 0,
-    },
-    strong: {
-      color: input.text,
-      fontWeight: "700",
-    },
-    task_list_check: {
-      color: input.codeBackground,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 15,
-    },
-    task_list_icon: {
-      alignItems: "center",
-      borderColor: input.text,
-      borderRadius: 4,
-      borderWidth: 1.5,
-      height: 18,
-      justifyContent: "center",
-      marginRight: 8,
-      marginTop: 2,
-      width: 18,
-    },
-    task_list_icon_checked: {
-      backgroundColor: input.text,
-    },
-    table: {
-      borderColor: input.borderColor,
-      borderLeftWidth: 1,
-      borderTopWidth: 1,
-    },
-    td: {
-      borderColor: input.borderColor,
-      borderRightWidth: 1,
-      color: input.text,
-      flex: 1,
-      fontSize: 14,
-      lineHeight: 20,
-      minWidth: TABLE_MIN_COLUMN_WIDTH,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-    },
-    th: {
-      backgroundColor: input.tableHeaderBackground,
-      borderColor: input.borderColor,
-      borderRightWidth: 1,
-      color: input.text,
-      flex: 1,
-      fontSize: 14,
-      fontWeight: "700",
-      lineHeight: 20,
-      minWidth: TABLE_MIN_COLUMN_WIDTH,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-    },
-    tr: {
-      borderBottomWidth: 1,
-      borderColor: input.borderColor,
-      flexDirection: "row",
-    },
-  } satisfies StyleSheet.NamedStyles<any>;
-}
 
 function TermuxRunCard({
   command,

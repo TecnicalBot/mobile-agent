@@ -9,21 +9,16 @@ import type { ASTNode } from "react-native-markdown-display";
  * to a single attributed string on iOS, so two sibling `Text`s can never share
  * a selection. A reply rendered as one `Text` per paragraph/list item can
  * therefore only ever be selected one block at a time. This module folds every
- * textual block — paragraphs, headings, lists, quotes, code fences, tables and
- * inline styling — into one newline-separated segment stream. A reply with
- * five bullets and a snippet therefore becomes one selectable run.
+ * textual block — paragraphs, headings, lists, quotes and inline styling —
+ * into one newline-separated segment stream. A reply with five bullets
+ * therefore becomes one selectable run.
  *
- * Only blocks that are not text at all (images, rendered math, raw SVG) stay
- * separate views; a selection cannot cross those, and nothing else can either.
+ * Code fences and tables keep their own card views: their header, copy button
+ * and scrolling cannot exist inside a text span, so they stay separate and a
+ * selection stops at them, exactly like images and rendered math.
  *
  * Kept free of `react-native` imports so the fold can be unit tested directly.
  */
-
-/**
- * Fences taller than this stay a collapsible code card instead of flooding the
- * message with a whole file. Typical snippets flow inline and stay selectable.
- */
-export const MAX_INLINE_CODE_LINES = 80;
 
 /** Blocks that must keep their own view instead of flowing as text. */
 const RICH_BLOCK_TYPES = new Set([
@@ -44,13 +39,10 @@ const BULLET = "•";
 const CHECKED = "☑";
 const UNCHECKED = "☐";
 const RULE = "────────";
-const TABLE_CELL_DIVIDER = " │ ";
-const TABLE_RULE_DIVIDER = "─┼─";
 
 export type SelectableSegmentStyle =
   | "body"
   | "code"
-  | "codeBlock"
   | "em"
   | "heading1"
   | "heading2"
@@ -62,9 +54,7 @@ export type SelectableSegmentStyle =
   | "muted"
   | "quoteBar"
   | "strike"
-  | "strong"
-  | "table"
-  | "tableHeader";
+  | "strong";
 
 export type SelectableSegment = {
   /** Set on link text so the renderer can attach a press handler. */
@@ -109,19 +99,6 @@ class SegmentWriter {
     }
 
     this.segments.push(segment);
-  }
-
-  code(value: string, language: string) {
-    if (!value) {
-      return;
-    }
-
-    this.segments.push({
-      key: `segment-${this.counter++}`,
-      language,
-      style: "codeBlock",
-      text: value,
-    });
   }
 
   rich(node: ASTNode) {
@@ -200,135 +177,6 @@ function imageAlt(node: ASTNode): string {
 
 function trimCode(value: string): string {
   return value.replace(/\s+$/, "");
-}
-
-/** Language tag of a fenced block, e.g. "ts" for ```ts. */
-function codeLanguage(node: ASTNode): string {
-  if (node.sourceType !== "fence") {
-    return "";
-  }
-
-  return String((node as ASTNode & { sourceInfo?: string }).sourceInfo ?? "")
-    .trim()
-    .split(/\s+/, 1)[0]
-    .toLowerCase();
-}
-
-function codeLines(value: string): string[] {
-  const trimmed = trimCode(value);
-  return trimmed ? trimmed.split("\n") : [];
-}
-
-/**
- * Appends a fence as highlighted monospace text in the same selectable run.
- * Blocks past `MAX_INLINE_CODE_LINES` stay a collapsible card so one file
- * cannot take over the message.
- */
-function appendCode(node: ASTNode, writer: SegmentWriter): boolean {
-  const lines = codeLines(node.content);
-
-  if (lines.length > MAX_INLINE_CODE_LINES) {
-    return false;
-  }
-
-  writer.code(lines.join("\n"), codeLanguage(node));
-  endBlock(writer);
-  return true;
-}
-
-type TableGrid = {
-  header: string[];
-  rows: string[][];
-};
-
-function readTable(node: ASTNode): TableGrid {
-  const grid: TableGrid = { header: [], rows: [] };
-
-  for (const section of node.children) {
-    for (const row of section.children) {
-      const cells = row.children.map((cell) =>
-        plainText(cell).replace(/\s+/g, " ").trim(),
-      );
-
-      const isHeader =
-        section.type === "thead" ||
-        (row.children.length > 0 &&
-          row.children.every((cell) => cell.type === "th"));
-
-      if (isHeader && grid.header.length === 0) {
-        grid.header = cells;
-      } else {
-        grid.rows.push(cells);
-      }
-    }
-  }
-
-  return grid;
-}
-
-/**
- * Appends a table as an aligned monospace grid. Column widths are computed from
- * the cell text so the box-drawing separators line up, and the whole grid is
- * plain text — which is what lets a selection run through it.
- */
-function appendTable(node: ASTNode, writer: SegmentWriter) {
-  const { header, rows } = readTable(node);
-  const columnCount = Math.max(
-    1,
-    header.length,
-    ...rows.map((row) => row.length),
-  );
-  const widths = Array.from({ length: columnCount }, (_, column) =>
-    Math.max(
-      header[column]?.length ?? 0,
-      ...rows.map((row) => (row[column] ?? "").length),
-    ),
-  );
-  const pad = (value: string, width: number) =>
-    value + " ".repeat(Math.max(0, width - value.length));
-  const line = (cells: string[]) =>
-    cells
-      .map((cell, column) => pad(cell ?? "", widths[column]))
-      .join(TABLE_CELL_DIVIDER)
-      .trimEnd();
-
-  if (header.length > 0) {
-    writer.text(line(header), "tableHeader");
-    writer.text(LINE_BREAK);
-    writer.text(widths.map((width) => "─".repeat(width)).join(TABLE_RULE_DIVIDER), "table");
-    writer.text(LINE_BREAK);
-  }
-
-  rows.forEach((row, index) => {
-    writer.text(line(row), "table");
-
-    if (index < rows.length - 1) {
-      writer.text(LINE_BREAK);
-    }
-  });
-
-  endBlock(writer);
-}
-
-/** Text content of a node with no markup, used for table cells. */
-function plainText(node: ASTNode): string {
-  if (node.type === "text" || node.type === "code_inline") {
-    return node.content;
-  }
-
-  if (node.type === "softbreak" || node.type === "hardbreak") {
-    return " ";
-  }
-
-  if (node.type === "image") {
-    return imageAlt(node);
-  }
-
-  if (node.children.length === 0) {
-    return node.content;
-  }
-
-  return node.children.map(plainText).join("");
 }
 
 function appendInlineNode(
@@ -556,17 +404,14 @@ function appendBlock(
       return;
     case "fence":
     case "code_block":
-      // Very tall fences fall back to the collapsible code card.
-      if (!appendCode(node, writer)) {
-        writer.rich(node);
-      }
+    case "table":
+      // Cards keep their chrome (header, copy button, scrolling), which a Text
+      // span cannot paint — so they stay separate views.
+      writer.rich(node);
       return;
     case "math_block":
       writer.text(trimCode(node.content), "code");
       endBlock(writer);
-      return;
-    case "table":
-      appendTable(node, writer);
       return;
     case "html_block":
     case "html_inline":

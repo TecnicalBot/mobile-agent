@@ -85,7 +85,6 @@ function resolveStyles(styles: ChatMarkdownStyles) {
   return {
     body: undefined,
     code: pickTextStyle(styles.code_inline),
-    codeBlock: pickTextStyle(styles.code_block),
     em: { fontStyle: "italic" },
     heading1: pickTextStyle(styles.heading1),
     heading2: pickTextStyle(styles.heading2),
@@ -98,24 +97,15 @@ function resolveStyles(styles: ChatMarkdownStyles) {
     quoteBar: { color: pickTextStyle(styles.blockquote)?.color },
     strike: { textDecorationLine: "line-through" },
     strong: pickTextStyle(styles.strong) ?? { fontWeight: "700" },
-    table: { ...pickTextStyle(styles.td), fontFamily: "monospace" },
-    tableHeader: {
-      ...pickTextStyle(styles.th),
-      fontFamily: "monospace",
-      fontWeight: "700",
-    },
   } satisfies Record<SelectableSegmentStyle, TextStyle | undefined>;
 }
 
 type ResolvedStyles = ReturnType<typeof resolveStyles>;
 
-type CodeRenderer = (code: string, language: string) => ReactNode;
-
 function renderSegments(
   segments: SelectableSegment[],
   styles: ResolvedStyles,
   onLinkPress: (url: string) => boolean,
-  renderCode?: CodeRenderer,
 ): ReactNode[] {
   return segments.map((segment) => {
     const style = styles[segment.style];
@@ -132,18 +122,6 @@ function renderSegments(
           style={style}
         >
           {segment.text}
-        </Text>
-      );
-    }
-
-    // Code keeps its syntax colours as nested spans, so the fence stays part of
-    // the same selectable Text instead of becoming a separate card.
-    if (segment.style === "codeBlock") {
-      return (
-        <Text key={segment.key} style={style}>
-          {renderCode
-            ? renderCode(segment.text, segment.language ?? "")
-            : segment.text}
         </Text>
       );
     }
@@ -193,22 +171,19 @@ const RichMarkdownBlock = memo(function RichMarkdownBlock({
 
 /**
  * Markdown body whose text is painted as one native `<Text>` per contiguous
- * run, so a selection can grow across paragraphs, headings, lists, code fences
- * and tables instead of stopping at the block the long-press started in.
+ * run, so a selection can grow across paragraphs, headings, list items and
+ * blockquotes instead of stopping at the block the long-press started in.
  */
 export const SelectableMarkdown = memo(function SelectableMarkdown({
   ast,
   markdownit,
   onLinkPress,
-  renderCode,
   rules,
   styles,
 }: {
   ast: ASTNode[];
   markdownit: MarkdownParser;
   onLinkPress: (url: string) => boolean;
-  /** Paints a fence's tokens as nested spans; omitted → plain code text. */
-  renderCode?: CodeRenderer;
   rules: RenderRules;
   styles: ChatMarkdownStyles;
 }) {
@@ -235,12 +210,7 @@ export const SelectableMarkdown = memo(function SelectableMarkdown({
             selectionColor={theme.backgroundSelected}
             style={styles.body}
           >
-            {renderSegments(
-              chunk.segments,
-              resolvedStyles,
-              onLinkPress,
-              renderCode,
-            )}
+            {renderSegments(chunk.segments, resolvedStyles, onLinkPress)}
           </Text>
         ),
       )}

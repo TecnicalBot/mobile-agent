@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import { registerChatMarkdownRules } from "@/modules/chat/markdown-rules";
 import {
   buildSelectableMarkdown,
-  MAX_INLINE_CODE_LINES,
   type SelectableMarkdownChunk,
   type SelectableSegment,
 } from "@/modules/chat/selectable-markdown";
@@ -95,70 +94,7 @@ describe("selectable markdown chunks", () => {
     );
   });
 
-  it("keeps a code fence in the same run as the prose", () => {
-    const chunks = buildSelectableMarkdown(
-      parse("Before\n\n```js\nconst x = 1;\n```\n\nAfter"),
-    );
-
-    expect(chunks).toHaveLength(1);
-    expect(textOf(chunks[0])).toBe("Before\n\nconst x = 1;\n\nAfter");
-    expect(segmentsOf(chunks)).toContainEqual(
-      expect.objectContaining({
-        language: "js",
-        style: "codeBlock",
-        text: "const x = 1;",
-      }),
-    );
-  });
-
-  it("leaves only an oversized fence to the collapsible card", () => {
-    const lines = Array.from(
-      { length: MAX_INLINE_CODE_LINES + 1 },
-      (_, index) => `line ${index}`,
-    );
-    const chunks = buildSelectableMarkdown(
-      parse(["```js", ...lines, "```"].join("\n")),
-    );
-
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].kind).toBe("rich");
-  });
-
-  it("keeps a table in the same run as the prose", () => {
-    const chunks = buildSelectableMarkdown(
-      parse(
-        [
-          "Results:",
-          "",
-          "| Name | Value |",
-          "| ---- | ----- |",
-          "| a    | 1     |",
-          "| bb   | 22    |",
-          "",
-          "Done.",
-        ].join("\n"),
-      ),
-    );
-
-    expect(chunks).toHaveLength(1);
-    expect(textOf(chunks[0])).toBe(
-      [
-        "Results:",
-        "",
-        "Name │ Value",
-        "─────┼──────",
-        "a    │ 1",
-        "bb   │ 22",
-        "",
-        "Done.",
-      ].join("\n"),
-    );
-    expect(
-      segmentsOf(chunks).map((segment) => segment.style),
-    ).toContain("tableHeader");
-  });
-
-  it("keeps a whole answer with code and a table in one selectable run", () => {
+  it("keeps code and table cards out of the text run", () => {
     const chunks = buildSelectableMarkdown(
       parse(
         [
@@ -180,7 +116,16 @@ describe("selectable markdown chunks", () => {
       ),
     );
 
-    expect(chunks).toHaveLength(1);
+    expect(chunks.map((chunk) => chunk.kind)).toEqual([
+      "text",
+      "rich",
+      "rich",
+      "text",
+    ]);
+    expect(textOf(chunks[0])).toBe("Plan\n\n• step one\n• step two");
+    expect(textOf(chunks[3])).toBe("That's it.");
+    expect(chunks[1].kind === "rich" && chunks[1].node.type).toBe("fence");
+    expect(chunks[2].kind === "rich" && chunks[2].node.type).toBe("table");
   });
 
   it("indents nested list items", () => {

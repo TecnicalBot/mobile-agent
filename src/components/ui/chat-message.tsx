@@ -982,27 +982,6 @@ function SyntaxCodeText({
   );
 }
 
-/**
- * The same syntax colours, but as bare spans for the message's single
- * selectable Text — a nested `Text` keeps the fence inside the selection.
- */
-function InlineSyntaxCode({
-  code,
-  language,
-}: {
-  code: string;
-  language: string;
-}) {
-  const theme = useTheme();
-  const nodes = useHighlightedNodes(code, language);
-
-  return (
-    <Text>
-      {nodes ? renderSyntaxNodes(nodes, theme.text, theme) : code}
-    </Text>
-  );
-}
-
 /** Soft fade over the last visible lines of a collapsed code block. */
 function CodeFade({ color }: { color: string }) {
   return (
@@ -1180,11 +1159,6 @@ function CopyableCodeBlock({
   );
 }
 
-/** Fences inside the selectable body keep their syntax colours as spans. */
-const renderInlineCode = (code: string, language: string) => (
-  <InlineSyntaxCode code={code} language={language} />
-);
-
 const MarkdownContent = memo(function MarkdownContent({
   content,
   onLinkPress,
@@ -1210,16 +1184,15 @@ const MarkdownContent = memo(function MarkdownContent({
     );
   }
 
-  // Select mode folds every text block of the reply — including code fences
-  // and tables — into one native Text so a selection can span the whole
-  // answer, not just the paragraph or bullet it started in.
+  // Select mode folds every text block of the reply into one native Text so a
+  // selection can span the whole answer, not just the paragraph or bullet it
+  // started in. Code and table cards keep their own views.
   if (selectable) {
     return (
       <SelectableMarkdown
         ast={ast}
         markdownit={MARKDOWN_PARSER}
         onLinkPress={onLinkPress}
-        renderCode={renderInlineCode}
         rules={MARKDOWN_RULES}
         styles={styles}
       />

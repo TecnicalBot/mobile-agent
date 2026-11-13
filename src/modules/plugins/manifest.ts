@@ -1,6 +1,12 @@
 const HEADER_RE = /^\/\/\s*@mobile-agent-plugin\s+({.+})\s*$/m;
 export const MAX_PLUGIN_SOURCE_SIZE = 1_048_576;
 
+export const MISSING_PLUGIN_HEADER_ERROR =
+  'Not a Mobile Agent plugin: the file must start with a manifest header, e.g. // @mobile-agent-plugin {"name":"example","version":"1.0.0"}';
+
+export const PLUGIN_FORMAT_DOCS_URL =
+  "https://github.com/TecnicalBot/mobile-agent/blob/main/catalog/plugins/README.md";
+
 export type PluginManifest = {
   author?: string;
   description?: string;
@@ -23,7 +29,7 @@ export function parsePluginManifest(source: string): PluginManifestResult {
   const raw = source.match(HEADER_RE)?.[1];
   if (!raw) {
     return {
-      error: "Missing // @mobile-agent-plugin { ... } header.",
+      error: MISSING_PLUGIN_HEADER_ERROR,
       ok: false,
     };
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { manifestToId, parsePluginManifest } from "../manifest";
+import { MISSING_PLUGIN_HEADER_ERROR, manifestToId, parsePluginManifest } from "../manifest";
 
 describe("plugin manifest", () => {
   it("parses the metadata header", () => {
@@ -22,7 +22,7 @@ describe("plugin manifest", () => {
 
   it("rejects missing required metadata", () => {
     expect(parsePluginManifest("module.exports = {}" )).toEqual({
-      error: "Missing // @mobile-agent-plugin { ... } header.",
+      error: MISSING_PLUGIN_HEADER_ERROR,
       ok: false,
     });
   });

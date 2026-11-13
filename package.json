@@ -129,6 +129,7 @@
     "web": "expo start --web",
     "test": "vitest run",
     "test:watch": "vitest",
+    "catalog:verify": "node scripts/verify-model-catalog.mjs",
     "lint": "expo lint",
     "bridges": "node tools/start-bridges.mjs",
     "postinstall": "node ./scripts/patch-ai-sdk-react-native.js"

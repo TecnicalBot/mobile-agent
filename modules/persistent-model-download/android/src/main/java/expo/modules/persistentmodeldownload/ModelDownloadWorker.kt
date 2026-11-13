@@ -48,7 +48,7 @@ class ModelDownloadWorker(
         target.parentFile?.mkdirs()
 
         if (target.exists()) {
-          return@withContext success(target.length(), expectedBytes)
+          return@withContext success(target.length(), target.length())
         }
 
         if (expectedBytes > 0 && partial.length() > expectedBytes) {
@@ -62,17 +62,31 @@ class ModelDownloadWorker(
           verifySha256(partial, sha256)
         ) {
           moveCompletedFile(partial, target)
-          return@withContext success(target.length(), expectedBytes)
+          return@withContext success(target.length(), target.length())
         }
 
         var bytesDownloaded = partial.takeIf { it.exists() }?.length() ?: 0L
         reportProgress(label, bytesDownloaded, expectedBytes, force = true)
 
         val connection = openConnectionFollowingRedirects(url, bytesDownloaded)
-        val append = bytesDownloaded > 0 && connection.responseCode == HttpURLConnection.HTTP_PARTIAL
+        val resumeAt = bytesDownloaded
+        val append = resumeAt > 0 && connection.responseCode == HttpURLConnection.HTTP_PARTIAL
         if (!append) {
           bytesDownloaded = 0L
         }
+
+        // The catalog's expectedBytes is only a hint: upstream files are
+        // occasionally re-published under the same URL, and a stale catalog
+        // value would otherwise freeze progress at a bogus percentage and fail
+        // an otherwise healthy download. Trust the server's Content-Length
+        // when it is available and let the SHA-256 check remain authoritative.
+        val contentLength = connection.contentLengthLong
+        val totalBytes = when {
+          contentLength > 0 && append -> resumeAt + contentLength
+          contentLength > 0 -> contentLength
+          else -> expectedBytes
+        }
+        reportProgress(label, bytesDownloaded, totalBytes, force = true)
 
         connection.inputStream.use { input ->
           FileOutputStream(partial, append).use { output ->
@@ -93,7 +107,7 @@ class ModelDownloadWorker(
               val enoughBytesPassed =
                 bytesDownloaded - lastReportedBytes >= PROGRESS_INTERVAL_BYTES
               if (enoughTimePassed || enoughBytesPassed) {
-                reportProgress(label, bytesDownloaded, expectedBytes)
+                reportProgress(label, bytesDownloaded, totalBytes)
                 lastReportedAt = now
                 lastReportedBytes = bytesDownloaded
               }
@@ -103,11 +117,11 @@ class ModelDownloadWorker(
         }
         connection.disconnect()
 
-        reportProgress(label, bytesDownloaded, expectedBytes, force = true)
+        reportProgress(label, bytesDownloaded, totalBytes, force = true)
 
-        if (expectedBytes > 0 && bytesDownloaded != expectedBytes) {
+        if (totalBytes > 0 && bytesDownloaded != totalBytes) {
           throw IOException(
-            "Downloaded $bytesDownloaded bytes, expected $expectedBytes bytes",
+            "Downloaded $bytesDownloaded bytes, expected $totalBytes bytes",
           )
         }
         if (!verifySha256(partial, sha256)) {
@@ -116,7 +130,7 @@ class ModelDownloadWorker(
         }
 
         moveCompletedFile(partial, target)
-        success(target.length(), expectedBytes)
+        success(target.length(), totalBytes)
       } catch (error: CancellationException) {
         throw error
       } catch (error: IOException) {

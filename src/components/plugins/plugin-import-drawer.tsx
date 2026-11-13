@@ -18,6 +18,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
+import { openExternalLink } from "@/modules/chat/open-link";
+import { PLUGIN_FORMAT_DOCS_URL } from "@/modules/plugins/manifest";
 
 const PLUGIN_PICKER_TYPES = [
   "application/javascript",
@@ -108,7 +110,7 @@ export function PluginImportDrawer({
         <DrawerHeader>
           <DrawerTitle>Import plugin</DrawerTitle>
           <DrawerDescription>
-            Pick a .js file or paste a URL to one.
+            {`Plugins are .js files that start with a // @mobile-agent-plugin manifest header. A plain tool or script is not a plugin.`}
           </DrawerDescription>
         </DrawerHeader>
         <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
@@ -154,6 +156,16 @@ export function PluginImportDrawer({
               {error}
             </Text>
           ) : null}
+
+          <Text
+            accessibilityRole="link"
+            className="font-sans text-xs text-muted-foreground underline dark:text-muted-foreground-dark"
+            onPress={() => {
+              openExternalLink(PLUGIN_FORMAT_DOCS_URL).catch(console.error);
+            }}
+          >
+            How to write a plugin
+          </Text>
         </DrawerBody>
         <DrawerFooter>
           <Button disabled onPress={() => onOpenChange(false)}>

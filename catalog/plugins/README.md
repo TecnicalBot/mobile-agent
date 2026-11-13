@@ -73,6 +73,23 @@ stores only each plugin's public HTTPS URL (same as skills); the app downloads
 the `.js` source at install time and keeps the device copy refreshed via its
 `sourceUrl`. Do not commit plugin `.js` files into this repository.
 
+## Common import problems
+
+- **`Not a Mobile Agent plugin: the file must start with a manifest header`** —
+  the imported file is a plain script, tool definition, or bundle. Add the
+  `// @mobile-agent-plugin {"name":"...","version":"..."}` line as the first
+  line of the file, then re-import it.
+- **`Plugin must assign an object with setup(api, options)`** — the file must
+  use `module.exports = { setup(api, options) { return { ...hooks }; } }`.
+  Plugins cannot use `import` or `require()` at runtime.
+- **`Plugin setup failed: ...`** — `setup()` threw while loading. Import now
+  validates the plugin before saving it, so the error points at the specific
+  hook that failed.
+- **Plugins are not tools.** A tool is one entry inside a plugin's `tool` hook;
+  it cannot be installed by itself. To add a single capability, ask the agent
+  to use its `managePlugin` tool, or wrap the code in a plugin file with the
+  header above.
+
 The in-app agent can also author plugins directly in chat (create/update/list/
 delete tools and actions, including `mutating`, `output`, and `timeoutMs`, plus
 optional system instructions) via its `managePlugin` tool — no file upload

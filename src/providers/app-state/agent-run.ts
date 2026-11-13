@@ -1900,6 +1900,13 @@ export async function executeClaimedAgentRun(
           "When the task is complete, provide a concise final response describing what you actually completed.",
         ].join("\n")
       : undefined;
+    const noToolsRuntimeSystem = runtimeTools
+      ? undefined
+      : [
+          "No tools are available in this conversation. You cannot run commands, browse or edit files, call plugins, or change anything outside this chat.",
+          "Never claim or imply that you performed such an action, and do not write fake tool calls, fake tool output, or fabricated file contents.",
+          "If the request needs an action, say plainly that the current model cannot use tools and suggest switching to a tool-capable model in Settings.",
+        ].join("\n");
     const agentDocsRuntimeSystem =
       agent.docs.length > 0
         ? [
@@ -1929,6 +1936,7 @@ export async function executeClaimedAgentRun(
         taskRuntimeSystem,
         announcementRuntimeSystem,
         toolLoopRuntimeSystem,
+        noToolsRuntimeSystem,
         ...(pluginSystemParts?.length ? pluginSystemParts : []),
       ]
         .filter((part): part is string => Boolean(part?.trim()))
@@ -2147,6 +2155,7 @@ export async function executeClaimedAgentRun(
           taskRuntimeSystem,
           announcementRuntimeSystem,
           toolLoopRuntimeSystem,
+          noToolsRuntimeSystem,
         ]
           .filter((part): part is string => Boolean(part?.trim()))
           .join("\n\n"),

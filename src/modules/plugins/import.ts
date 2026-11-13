@@ -1,6 +1,7 @@
 import type { PluginConfig } from "@/core/types/app-state";
 
 import type { Repositories } from "@/core/db/repositories/types";
+import { validatePluginSource } from "./builder";
 import { manifestToId, parsePluginManifest } from "./manifest";
 import { writePluginFile } from "./plugin-files";
 import { extractRequiredSecretKeys } from "./secret-keys";
@@ -10,9 +11,22 @@ export type PluginImportResult =
   | { ok: false; error: string };
 
 export async function fetchPluginFromUrl(url: string): Promise<string> {
-  const response = await fetch(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Enter a full HTTPS URL to a plugin .js file.");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Plugin URLs must use HTTPS.");
+  }
+
+  const response = await fetch(parsed.href);
   if (!response.ok) {
-    throw new Error(`Failed to fetch plugin: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to fetch plugin: ${response.status} ${response.statusText}. Check that the URL points to a raw .js file.`,
+    );
   }
   return response.text();
 }
@@ -26,6 +40,14 @@ export async function importPluginSource(
 
   if (!result.ok) {
     return { ok: false, error: result.error };
+  }
+
+  // Load the plugin once before storing it so a broken setup() or hook shape
+  // is reported at import time instead of silently disabling the plugin on
+  // the next app start.
+  const validation = await validatePluginSource(source);
+  if (!validation.ok) {
+    return { ok: false, error: `Plugin failed to load: ${validation.error}` };
   }
 
   const { manifest } = result;

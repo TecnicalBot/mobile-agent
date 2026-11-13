@@ -2901,6 +2901,11 @@ const ChatInput = memo(function ChatInput({
           </View>
         </View>
 
+        {!supportsTools ? (
+          <Text className="px-sp-1 font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+            {"This model can't use tools. Switch to a tool-capable model for file, web, and plugin actions."}
+          </Text>
+        ) : null}
         <ComposerTip />
       </View>
 

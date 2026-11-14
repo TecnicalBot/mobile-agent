@@ -54,6 +54,10 @@ function parseDownloadUrl(rawUrl) {
   return {
     org: parts[0],
     repo: parts[1],
+    // A pinned revision (commit sha, tag or branch) must be verified against
+    // that same revision: upstream can re-upload a file on `main` with new
+    // weights, while our URL keeps serving the pinned copy.
+    revision: parts[3] || "main",
     file: parts.slice(4).join("/"),
   };
 }
@@ -79,21 +83,24 @@ async function fetchJson(url) {
 }
 
 async function verifyEntry(entry, cache) {
-  const { org, repo, file } = parseDownloadUrl(entry.url);
+  const { org, repo, revision, file } = parseDownloadUrl(entry.url);
   const repoId = `${org}/${repo}`;
+  const cacheKey = `${repoId}@${revision}`;
 
-  if (!cache.has(repoId)) {
+  if (!cache.has(cacheKey)) {
     cache.set(
-      repoId,
-      fetchJson(`https://huggingface.co/api/models/${repoId}/tree/main`),
+      cacheKey,
+      fetchJson(
+        `https://huggingface.co/api/models/${repoId}/tree/${encodeURIComponent(revision)}`,
+      ),
     );
   }
 
-  const entries = await cache.get(repoId);
+  const entries = await cache.get(cacheKey);
   const upstream = entries.find((candidate) => candidate.path === file);
 
   if (!upstream) {
-    return [`${entry.id}: ${file} is not present in ${repoId}`];
+    return [`${entry.id}: ${file} is not present in ${repoId}@${revision}`];
   }
 
   const actualSize = upstream.lfs?.size ?? upstream.size;

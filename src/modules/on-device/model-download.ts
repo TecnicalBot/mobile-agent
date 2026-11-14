@@ -119,6 +119,65 @@ export async function getPersistentModelDownloadStatus(modelId: string) {
   return module.getDownloadStatus(modelId, model.sizeBytes);
 }
 
+/**
+ * Deletes downloaded on-device model files whose size no longer matches the
+ * catalog.
+ *
+ * The LiteRT-LM runtime treats "downloaded" as "the file exists", so a model
+ * that upstream (or we) repointed to a new file keeps loading the old weights
+ * after the catalog changes. Reconciling by size makes the catalog update
+ * self-healing instead of requiring users to delete and re-download by hand.
+ */
+export async function removeStaleOnDeviceModelFiles(
+  models: { id: string; sizeBytes: number }[],
+) {
+  if (Platform.OS !== "android" || !nativeModule) {
+    return [] as string[];
+  }
+
+  const { deleteModel, getDownloadableModels } = await import("expo-ai-kit");
+  const catalogById = new Map(models.map((model) => [model.id, model]));
+  const staleIds: string[] = [];
+
+  for (const model of await getDownloadableModels()) {
+    if (
+      model.status !== "downloaded" &&
+      model.status !== "ready" &&
+      model.status !== "loading"
+    ) {
+      continue;
+    }
+    const entry = catalogById.get(model.id);
+    if (!entry) continue;
+
+    try {
+      const status = await nativeModule.getDownloadStatus(
+        model.id,
+        entry.sizeBytes,
+      );
+      if (
+        status.state !== "succeeded" ||
+        status.bytesDownloaded !== entry.sizeBytes
+      ) {
+        staleIds.push(model.id);
+      }
+    } catch {
+      // Older builds without the persistent download module; nothing to do.
+    }
+  }
+
+  for (const modelId of staleIds) {
+    try {
+      await deleteModel(modelId);
+    } catch {
+      // Leave the file in place if it cannot be removed; the next download
+      // attempt replaces it by size.
+    }
+  }
+
+  return staleIds;
+}
+
 export async function cancelPersistentModelDownload(modelId: string) {
   await requireAndroidModule().cancelDownload(modelId);
 }

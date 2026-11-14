@@ -59,6 +59,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-ai-kit",
+        {
+          "llm": true
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to scan pairing QR codes.",

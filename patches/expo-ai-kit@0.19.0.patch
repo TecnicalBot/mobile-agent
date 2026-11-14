@@ -1,0 +1,348 @@
+diff --git a/android/src/llm/java/expo/modules/aikit/llm/AndroidLlmBackend.kt b/android/src/llm/java/expo/modules/aikit/llm/AndroidLlmBackend.kt
+index 13733b1317746064ee91c705d39e417dfa125809..68db7f81631d5530e9726cfb676a4a9b3d54b553 100644
+--- a/android/src/llm/java/expo/modules/aikit/llm/AndroidLlmBackend.kt
++++ b/android/src/llm/java/expo/modules/aikit/llm/AndroidLlmBackend.kt
+@@ -184,6 +184,7 @@ class AndroidLlmBackend(context: Context, private val events: LlmEventSink) : Ll
+   override suspend fun setModel(
+     modelId: String,
+     minRamBytes: Long,
++    contextWindow: Int,
+     backend: String,
+     generation: Map<String, Double>
+   ) {
+@@ -213,7 +214,7 @@ class AndroidLlmBackend(context: Context, private val events: LlmEventSink) : Ll
+     try {
+       val modelPath = gemmaClient.getModelFilePath(modelId)
+       gemmaClient.loadModel(
+-        modelId, modelPath, minRamBytes, backend,
++        modelId, modelPath, minRamBytes, contextWindow, backend,
+         temperature = generation["temperature"],
+         topK = generation["topK"]?.toInt(),
+         topP = generation["topP"]
+diff --git a/android/src/llm/java/expo/modules/aikit/llm/GemmaInferenceClient.kt b/android/src/llm/java/expo/modules/aikit/llm/GemmaInferenceClient.kt
+index 037fcd2a7dfadd05d01f0c8e8f8398bef0b36562..d0bd1cec3c34a879faabac3001c18eb8a851d6df 100644
+--- a/android/src/llm/java/expo/modules/aikit/llm/GemmaInferenceClient.kt
++++ b/android/src/llm/java/expo/modules/aikit/llm/GemmaInferenceClient.kt
+@@ -115,6 +115,7 @@ class GemmaInferenceClient(private val context: Context) {
+     modelId: String,
+     modelPath: String,
+     minRamBytes: Long = 0,
++    maxNumTokens: Int = 4096,
+     backend: String = "auto",
+     temperature: Double? = null,
+     topK: Int? = null,
+@@ -157,13 +158,13 @@ class GemmaInferenceClient(private val context: Context) {
+       withContext(Dispatchers.IO) {
+         val newEngine = when (backend) {
+           "gpu" -> {
+-            val config = EngineConfig(modelPath = modelPath, backend = Backend.GPU())
++            val config = EngineConfig(modelPath = modelPath, backend = Backend.GPU(), maxNumTokens = maxNumTokens)
+             val eng = Engine(config)
+             eng.initialize()
+             eng
+           }
+           "cpu" -> {
+-            val config = EngineConfig(modelPath = modelPath, backend = Backend.CPU())
++            val config = EngineConfig(modelPath = modelPath, backend = Backend.CPU(), maxNumTokens = maxNumTokens)
+             val eng = Engine(config)
+             eng.initialize()
+             eng
+@@ -171,12 +172,12 @@ class GemmaInferenceClient(private val context: Context) {
+           else -> {
+             // "auto": try GPU first, fall back to CPU
+             try {
+-              val gpuConfig = EngineConfig(modelPath = modelPath, backend = Backend.GPU())
++              val gpuConfig = EngineConfig(modelPath = modelPath, backend = Backend.GPU(), maxNumTokens = maxNumTokens)
+               val eng = Engine(gpuConfig)
+               eng.initialize()
+               eng
+             } catch (e: Exception) {
+-              val cpuConfig = EngineConfig(modelPath = modelPath, backend = Backend.CPU())
++              val cpuConfig = EngineConfig(modelPath = modelPath, backend = Backend.CPU(), maxNumTokens = maxNumTokens)
+               val eng = Engine(cpuConfig)
+               eng.initialize()
+               eng
+diff --git a/android/src/main/java/expo/modules/aikit/ExpoAiKitModule.kt b/android/src/main/java/expo/modules/aikit/ExpoAiKitModule.kt
+index 0a70beecd979d236b594419f1c6c055f60bba341..7ef9f5515cfc9a5121f52f6bb2644d113880fc93 100644
+--- a/android/src/main/java/expo/modules/aikit/ExpoAiKitModule.kt
++++ b/android/src/main/java/expo/modules/aikit/ExpoAiKitModule.kt
+@@ -314,8 +314,8 @@ class ExpoAiKitModule : Module() {
+     // Model selection & memory management
+     // ==================================================================
+ 
+-    AsyncFunction("setModel") Coroutine { modelId: String, minRamBytes: Long, backend: String, generation: Map<String, Double> ->
+-      requireLlmBackend().setModel(modelId, minRamBytes, backend, generation)
++    AsyncFunction("setModel") Coroutine { modelId: String, minRamBytes: Long, contextWindow: Int, backend: String, generation: Map<String, Double> ->
++      requireLlmBackend().setModel(modelId, minRamBytes, contextWindow, backend, generation)
+     }
+ 
+     Function("getActiveModel") {
+diff --git a/android/src/main/java/expo/modules/aikit/LlmBackend.kt b/android/src/main/java/expo/modules/aikit/LlmBackend.kt
+index d1ae7eb4854834437d089f041dcd4679204048cf..533ef4caca1c8f3ff3826c953faf5c4308ed9441 100644
+--- a/android/src/main/java/expo/modules/aikit/LlmBackend.kt
++++ b/android/src/main/java/expo/modules/aikit/LlmBackend.kt
+@@ -35,7 +35,7 @@ interface LlmBackend {
+   /** "ready", "downloaded", or "not-downloaded". */
+   fun downloadableModelStatus(modelId: String): String
+ 
+-  suspend fun setModel(modelId: String, minRamBytes: Long, backend: String, generation: Map<String, Double>)
++  suspend fun setModel(modelId: String, minRamBytes: Long, contextWindow: Int, backend: String, generation: Map<String, Double>)
+ 
+   fun activeModel(): String
+ 
+diff --git a/build/ExpoAiKitModule.d.ts b/build/ExpoAiKitModule.d.ts
+index 1038480f89f392d6a11425c011cbd4822cbc187b..b567ea81621b8830fde3c2110237f310897d851c 100644
+--- a/build/ExpoAiKitModule.d.ts
++++ b/build/ExpoAiKitModule.d.ts
+@@ -37,7 +37,7 @@ export interface ExpoAiKitNativeModule {
+     getBuiltInModels(): BuiltInModel[];
+     getDownloadableModelStatus(modelId: string): Promise<DownloadableModelStatus>;
+     getDeviceRamBytes(): number;
+-    setModel(modelId: string, minRamBytes: number, backend: string, generation: NativeGenerationConfig): Promise<void>;
++    setModel(modelId: string, minRamBytes: number, contextWindow: number, backend: string, generation: NativeGenerationConfig): Promise<void>;
+     getActiveModel(): string;
+     unloadModel(): Promise<void>;
+     downloadModel(modelId: string, url: string, sha256: string): Promise<void>;
+diff --git a/build/index.js b/build/index.js
+index cdf7c018e310e58100f39e44d002ebd71a71dfcd..28dc1b8c30242ab78ed52133d1f5dc7f8c35f792 100644
+--- a/build/index.js
++++ b/build/index.js
+@@ -1110,11 +1110,23 @@ export async function setModel(modelId, options) {
+             'getDownloadableModels(), or call deleteModel() to reclaim its storage.');
+     }
+     const minRamBytes = entry?.minRamBytes ?? 0;
++    const configuredContextWindow = entry?.contextWindow ?? 4096;
++    let contextWindow = configuredContextWindow;
++    try {
++        const deviceRamBytes = ExpoAiKitModule.getDeviceRamBytes();
++        if (deviceRamBytes > 0 && minRamBytes > 0 && deviceRamBytes < minRamBytes) {
++            const safeLimit = entry?.lowMemoryContextWindow ?? Math.min(configuredContextWindow, 4096);
++            contextWindow = Math.min(configuredContextWindow, safeLimit);
++        }
++    }
++    catch {
++        // getDeviceRamBytes is unavailable on web/tests; keep the configured window.
++    }
+     // Explicit caller choice wins; otherwise honor the registry's per-model hint.
+     const backend = options?.backend ?? entry?.preferredBackend ?? 'auto';
+     const generation = toNativeGeneration(options?.generation);
+     assertNoInferenceInFlight('change the model');
+-    await wrapNative(() => ExpoAiKitModule.setModel(modelId, minRamBytes, backend, generation));
++    await wrapNative(() => ExpoAiKitModule.setModel(modelId, minRamBytes, contextWindow, backend, generation));
+ }
+ /**
+  * Get the ID of the currently active model.
+diff --git a/build/models.d.ts b/build/models.d.ts
+index 89ef12b06a756b6d0d8ec39603033cb63285a3be..b7848acf57d1e982dfa2cd9126b4932dff43d0d8 100644
+--- a/build/models.d.ts
++++ b/build/models.d.ts
+@@ -29,6 +29,8 @@ export type ModelRegistryEntry = {
+      * real devices.
+      */
+     contextWindow: number;
++    /** Lower context used when device RAM is below minRamBytes. */
++    lowMemoryContextWindow?: number;
+     /** Minimum device RAM in bytes required to run this model */
+     minRamBytes: number;
+     /** Platforms this model can run on */
+diff --git a/build/models.js b/build/models.js
+index b4828b5ae46ab4537f7684e1bd231cb1b189c760..9bf70ef4e85da74d443b3a5b678128008d2ef912 100644
+--- a/build/models.js
++++ b/build/models.js
+@@ -17,10 +17,10 @@ export const MODEL_REGISTRY = [
+         downloadUrl: 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/3d48132a00cf76de57d926de30f5c5c5ed9b8c0d/gemma-4-E2B-it.litertlm',
+         sha256: '181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c',
+         sizeBytes: 2_588_147_712, // 2.59GB (exact, HF LFS)
+-        // Conservative limit for 4GB RAM devices.
+-        // TODO: Benchmark during Phase 2 testing.
+-        contextWindow: 8_000,
+-        minRamBytes: 2_000_000_000, // 2GB, LiteRT-LM memory-maps weights, actual RSS ~1.5GB
++        // Keep the full window but shrink the KV cache on low-RAM devices.
++        contextWindow: 32_000,
++        lowMemoryContextWindow: 2_048,
++        minRamBytes: 8_000_000_000, // Official AI Edge Gallery minimum device memory
+         supportedPlatforms: ['ios', 'android'],
+         license: 'Apache-2.0',
+     },
+@@ -32,8 +32,9 @@ export const MODEL_REGISTRY = [
+         downloadUrl: 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/71064b01bd5e2bfd9a5f9dd52df86ae4800138c1/gemma-4-E4B-it.litertlm',
+         sha256: '0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0',
+         sizeBytes: 3_659_530_240, // 3.66GB (exact, HF LFS)
+-        contextWindow: 16_000,
+-        minRamBytes: 3_000_000_000, // 3GB, LiteRT-LM memory-maps weights
++        contextWindow: 32_000,
++        lowMemoryContextWindow: 4_096,
++        minRamBytes: 12_000_000_000, // Official AI Edge Gallery minimum device memory
+         supportedPlatforms: ['ios', 'android'],
+         license: 'Apache-2.0',
+     },
+@@ -117,6 +118,12 @@ export function validateModelEntry(entry) {
+     if (!Number.isInteger(entry.contextWindow) || entry.contextWindow <= 0) {
+         errors.push('contextWindow must be a positive integer');
+     }
++    if (entry.lowMemoryContextWindow !== undefined &&
++        (!Number.isInteger(entry.lowMemoryContextWindow) ||
++            entry.lowMemoryContextWindow <= 0 ||
++            entry.lowMemoryContextWindow > entry.contextWindow)) {
++        errors.push('lowMemoryContextWindow must be a positive integer no greater than contextWindow');
++    }
+     if (!Array.isArray(entry.supportedPlatforms) || entry.supportedPlatforms.length === 0) {
+         errors.push('supportedPlatforms must list at least one of "ios" / "android"');
+     }
+diff --git a/ios/ExpoAiKitModule.swift b/ios/ExpoAiKitModule.swift
+index c53409296612f9da1a01a283c3c46f623168188b..3080281adbf85ab71d2b812ab8da1ed9b7728825 100644
+--- a/ios/ExpoAiKitModule.swift
++++ b/ios/ExpoAiKitModule.swift
+@@ -722,7 +722,7 @@ public class ExpoAiKitModule: Module {
+     // Model selection & memory management
+     // ==================================================================
+ 
+-    AsyncFunction("setModel") { (modelId: String, minRamBytes: Int, backend: String, generation: [String: Double]) async throws in
++    AsyncFunction("setModel") { (modelId: String, minRamBytes: Int, contextWindow: Int, backend: String, generation: [String: Double]) async throws in
+       // Sampling defaults for this session. Apple FM reads this per-call; Gemma
+       // applies it below at conversation creation.
+       self.generationConfig = generation
+@@ -768,6 +768,7 @@ public class ExpoAiKitModule: Module {
+       do {
+         try await self.gemmaClient.loadModel(
+           modelId: modelId,
++          maxNumTokens: contextWindow,
+           backend: backend,
+           temperature: generation["temperature"].map { Float($0) },
+           topK: generation["topK"].map { Int($0) },
+diff --git a/ios/GemmaInferenceClient.swift b/ios/GemmaInferenceClient.swift
+index 2fa9d1449af8bd5b89b723411209bfbd431d9e6e..c106ea7cd2736a767ff3043f807c1c08e87aa74b 100644
+--- a/ios/GemmaInferenceClient.swift
++++ b/ios/GemmaInferenceClient.swift
+@@ -81,6 +81,7 @@ actor GemmaInferenceClient {
+   /// defaults; if none is provided, the engine/model defaults are used.
+   func loadModel(
+     modelId: String,
++    maxNumTokens: Int = 4096,
+     backend: String,
+     temperature: Float? = nil,
+     topK: Int? = nil,
+@@ -106,7 +107,7 @@ actor GemmaInferenceClient {
+ 
+     do {
+       let newEngine = try await initializeEngine(
+-        modelPath: modelPath, cacheDir: cacheDir, backend: backend
++        modelPath: modelPath, cacheDir: cacheDir, maxNumTokens: maxNumTokens, backend: backend
+       )
+       let samplerConfig: SamplerConfig?
+       if temperature != nil || topK != nil || topP != nil || seed != nil {
+@@ -166,9 +167,9 @@ actor GemmaInferenceClient {
+   }
+ 
+   /// "auto" tries GPU first, then falls back to CPU. "gpu"/"cpu" force the backend.
+-  private func initializeEngine(modelPath: String, cacheDir: String, backend: String) async throws -> Engine {
++  private func initializeEngine(modelPath: String, cacheDir: String, maxNumTokens: Int, backend: String) async throws -> Engine {
+     func makeEngine(_ b: Backend) async throws -> Engine {
+-      let config = try EngineConfig(modelPath: modelPath, backend: b, cacheDir: cacheDir)
++      let config = try EngineConfig(modelPath: modelPath, backend: b, maxNumTokens: maxNumTokens, cacheDir: cacheDir)
+       let engine = Engine(engineConfig: config)
+       try await engine.initialize()
+       return engine
+diff --git a/src/ExpoAiKitModule.ts b/src/ExpoAiKitModule.ts
+index 4bcc1eb4922c8f6c149d3e365f45e3a7cf72c840..4255e84c53f5e7d3e28f4733bb5283fd5d6312b8 100644
+--- a/src/ExpoAiKitModule.ts
++++ b/src/ExpoAiKitModule.ts
+@@ -99,6 +99,7 @@ export interface ExpoAiKitNativeModule {
+   setModel(
+     modelId: string,
+     minRamBytes: number,
++    contextWindow: number,
+     backend: string,
+     generation: NativeGenerationConfig
+   ): Promise<void>;
+diff --git a/src/index.ts b/src/index.ts
+index e006affd3209d0ccf17342a7a84172fe00a13841..c8e54a942304a87ade5b446ffc56a104df724407 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1367,11 +1367,28 @@ export async function setModel(modelId: string, options?: SetModelOptions): Prom
+     );
+   }
+   const minRamBytes = entry?.minRamBytes ?? 0;
++  // Keep the KV cache inside the model's practical window, and shrink it
++  // further when the device is below the model's recommended RAM. LiteRT-LM
++  // allocates maxNumTokens at load, so this is the only place to cap it.
++  const configuredContextWindow = entry?.contextWindow ?? 4_096;
++  let contextWindow = configuredContextWindow;
++  try {
++    const deviceRamBytes = ExpoAiKitModule.getDeviceRamBytes();
++    if (deviceRamBytes > 0 && minRamBytes > 0 && deviceRamBytes < minRamBytes) {
++      const safeLimit =
++        entry?.lowMemoryContextWindow ?? Math.min(configuredContextWindow, 4_096);
++      contextWindow = Math.min(configuredContextWindow, safeLimit);
++    }
++  } catch {
++    // getDeviceRamBytes is unavailable on web/tests; keep the configured window.
++  }
+   // Explicit caller choice wins; otherwise honor the registry's per-model hint.
+   const backend = options?.backend ?? entry?.preferredBackend ?? 'auto';
+   const generation = toNativeGeneration(options?.generation);
+   assertNoInferenceInFlight('change the model');
+-  await wrapNative(() => ExpoAiKitModule.setModel(modelId, minRamBytes, backend, generation));
++  await wrapNative(() =>
++    ExpoAiKitModule.setModel(modelId, minRamBytes, contextWindow, backend, generation)
++  );
+ }
+ 
+ /**
+diff --git a/src/models.ts b/src/models.ts
+index eedd6b18f8847aa0ed92b4cdb9c78f695a3bb96d..c81e01169e664f8d99cc98a367636fee4b6bb808 100644
+--- a/src/models.ts
++++ b/src/models.ts
+@@ -31,6 +31,8 @@ export type ModelRegistryEntry = {
+    * real devices.
+    */
+   contextWindow: number;
++  /** Lower context used when device RAM is below minRamBytes. */
++  lowMemoryContextWindow?: number;
+   /** Minimum device RAM in bytes required to run this model */
+   minRamBytes: number;
+   /** Platforms this model can run on */
+@@ -63,10 +65,10 @@ export const MODEL_REGISTRY: ModelRegistryEntry[] = [
+       'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/3d48132a00cf76de57d926de30f5c5c5ed9b8c0d/gemma-4-E2B-it.litertlm',
+     sha256: '181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c',
+     sizeBytes: 2_588_147_712, // 2.59GB (exact, HF LFS)
+-    // Conservative limit for 4GB RAM devices.
+-    // TODO: Benchmark during Phase 2 testing.
+-    contextWindow: 8_000,
+-    minRamBytes: 2_000_000_000, // 2GB, LiteRT-LM memory-maps weights, actual RSS ~1.5GB
++    // Keep the full window but shrink the KV cache on low-RAM devices.
++    contextWindow: 32_000,
++    lowMemoryContextWindow: 2_048,
++    minRamBytes: 8_000_000_000, // Official AI Edge Gallery minimum device memory
+     supportedPlatforms: ['ios', 'android'],
+     license: 'Apache-2.0',
+   },
+@@ -79,8 +81,9 @@ export const MODEL_REGISTRY: ModelRegistryEntry[] = [
+       'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/71064b01bd5e2bfd9a5f9dd52df86ae4800138c1/gemma-4-E4B-it.litertlm',
+     sha256: '0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0',
+     sizeBytes: 3_659_530_240, // 3.66GB (exact, HF LFS)
+-    contextWindow: 16_000,
+-    minRamBytes: 3_000_000_000, // 3GB, LiteRT-LM memory-maps weights
++    contextWindow: 32_000,
++    lowMemoryContextWindow: 4_096,
++    minRamBytes: 12_000_000_000, // Official AI Edge Gallery minimum device memory
+     supportedPlatforms: ['ios', 'android'],
+     license: 'Apache-2.0',
+   },
+@@ -221,6 +224,16 @@ export function validateModelEntry(entry: ModelRegistryEntry): string[] {
+   if (!Number.isInteger(entry.contextWindow) || entry.contextWindow <= 0) {
+     errors.push('contextWindow must be a positive integer');
+   }
++  if (
++    entry.lowMemoryContextWindow !== undefined &&
++    (!Number.isInteger(entry.lowMemoryContextWindow) ||
++      entry.lowMemoryContextWindow <= 0 ||
++      entry.lowMemoryContextWindow > entry.contextWindow)
++  ) {
++    errors.push(
++      'lowMemoryContextWindow must be a positive integer no greater than contextWindow'
++    );
++  }
+   if (!Array.isArray(entry.supportedPlatforms) || entry.supportedPlatforms.length === 0) {
+     errors.push('supportedPlatforms must list at least one of "ios" / "android"');
+   } else if (!entry.supportedPlatforms.every((p) => p === 'ios' || p === 'android')) {

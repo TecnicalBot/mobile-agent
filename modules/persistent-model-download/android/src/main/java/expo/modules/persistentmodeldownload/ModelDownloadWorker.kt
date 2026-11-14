@@ -52,7 +52,12 @@ class ModelDownloadWorker(
         target.parentFile?.mkdirs()
 
         if (target.exists()) {
-          return@withContext success(target.length(), target.length())
+          val existingBytes = target.length()
+          if (expectedBytes <= 0 || existingBytes == expectedBytes) {
+            return@withContext success(existingBytes, existingBytes)
+          }
+          // Stale file from a previous catalog revision: replace it.
+          target.delete()
         }
 
         if (expectedBytes > 0 && partial.length() > expectedBytes) {

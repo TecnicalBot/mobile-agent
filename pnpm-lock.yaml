@@ -12,9 +12,9 @@ patchedDependencies:
   '@ai-sdk/mcp@2.0.7':
     hash: e6563e4483af6626fdd06be072b9c676eeb0fa60d9ab4345f3d951929cbeaf06
     path: patches/@ai-sdk__mcp@2.0.7.patch
-  expo-ai-kit@0.11.1:
-    hash: 4e6e38be719df8ef62e4eeab5f745b22f0543ddc00c03a75c62c727eb3af255b
-    path: patches/expo-ai-kit@0.11.1.patch
+  expo-ai-kit@0.19.0:
+    hash: 56c0c03c5560e8ebb06f06556498d419fb621a86ec4b176043a6c82d8dd174b3
+    path: patches/expo-ai-kit@0.19.0.patch
   react-native-css-interop@0.2.6:
     hash: 7e6d9dc1fb083529bbeab2611fa162cb394b2a623e7ea5c6a87a08d1e332dd0a
     path: patches/react-native-css-interop@0.2.6.patch
@@ -87,8 +87,8 @@ importers:
         specifier: ~57.0.27
         version: 57.0.27(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.16)(expo-router@57.0.25)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       expo-ai-kit:
-        specifier: 0.11.1
-        version: 0.11.1(patch_hash=4e6e38be719df8ef62e4eeab5f745b22f0543ddc00c03a75c62c727eb3af255b)(@ai-sdk/provider@4.0.26)(expo@57.0.27)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
+        specifier: 0.19.0
+        version: 0.19.0(patch_hash=56c0c03c5560e8ebb06f06556498d419fb621a86ec4b176043a6c82d8dd174b3)(@ai-sdk/provider@4.0.26)(expo@57.0.27)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       expo-asset:
         specifier: ~57.0.19
         version: 57.0.19(expo@57.0.27)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
@@ -2957,8 +2957,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  expo-ai-kit@0.11.1:
-    resolution: {integrity: sha512-OczQktNIwENTJHEMQReTsI1rcz4QllAjLebCaGx2K/c6mj9Zw1PHUf2XRjtSiye4zr5L2AMsE1U82NPlBPqiPQ==}
+  expo-ai-kit@0.19.0:
+    resolution: {integrity: sha512-lENBA2ABAIWh/GnH9dtvLJ92gBM92c8p4EVt4DxHDRGeuDkHA9yp9zuJmbPfRDKab8blFxmDqi/wdVpXposurw==}
     peerDependencies:
       '@ai-sdk/provider': 4.0.26
       expo: '*'
@@ -9056,7 +9056,7 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  expo-ai-kit@0.11.1(patch_hash=4e6e38be719df8ef62e4eeab5f745b22f0543ddc00c03a75c62c727eb3af255b)(@ai-sdk/provider@4.0.26)(expo@57.0.27)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3):
+  expo-ai-kit@0.19.0(patch_hash=56c0c03c5560e8ebb06f06556498d419fb621a86ec4b176043a6c82d8dd174b3)(@ai-sdk/provider@4.0.26)(expo@57.0.27)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3):
     dependencies:
       expo: 57.0.27(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.16)(expo-router@57.0.25)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       react: 19.2.3

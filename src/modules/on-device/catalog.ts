@@ -235,13 +235,13 @@ export function parseOnDeviceModelCatalog(value: unknown) {
 
 function toRegistryEntry(model: OnDeviceCatalogModel): ModelRegistryEntry {
   const {
-    backend: _backend,
+    backend,
     capabilities: _capabilities,
     minRamBasis: _minRamBasis,
     minRamSource: _minRamSource,
     ...entry
   } = model;
-  return entry;
+  return { ...entry, preferredBackend: backend };
 }
 
 export async function registerOnDeviceCatalogModels(
@@ -346,6 +346,19 @@ export async function fetchOnDeviceModelCatalogCached() {
     expiresAt: Date.now() + CATALOG_TTL_MS,
     models: result.models,
   };
+
+  // A catalog refresh is the moment a model may have been repointed at a new
+  // file. Drop any downloaded file that no longer matches its entry so the app
+  // cannot keep loading stale weights.
+  try {
+    const { removeStaleOnDeviceModelFiles } = await import(
+      "@/modules/on-device/model-download"
+    );
+    await removeStaleOnDeviceModelFiles(result.models);
+  } catch {
+    // Reconciliation is best-effort; the catalog itself still loads.
+  }
+
   return result.models;
 }
 

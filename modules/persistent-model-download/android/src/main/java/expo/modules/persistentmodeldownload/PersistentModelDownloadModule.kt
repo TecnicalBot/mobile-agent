@@ -123,11 +123,19 @@ class PersistentModelDownloadModule : Module() {
 
     ModelDownloadWorker.ensureNotificationChannel(context)
     if (targetFile.exists()) {
-      return statusMap(
-        state = "succeeded",
-        bytesDownloaded = targetFile.length(),
-        totalBytes = expectedBytes,
-      )
+      val existingBytes = targetFile.length()
+      // A catalog entry can be repointed at a different file (new weights, new
+      // size) while the old download stays on disk. Treat a size mismatch as
+      // stale and replace it instead of reporting a false success.
+      if (expectedBytes <= 0 || existingBytes == expectedBytes) {
+        return statusMap(
+          state = "succeeded",
+          bytesDownloaded = existingBytes,
+          totalBytes = expectedBytes,
+        )
+      }
+      targetFile.delete()
+      ModelDownloadWorker.partialFile(context, relativePath).delete()
     }
 
     val workManager = WorkManager.getInstance(context)
@@ -201,9 +209,21 @@ class PersistentModelDownloadModule : Module() {
   ): Map<String, Any?> {
     val target = ModelDownloadWorker.targetFile(context, relativePath)
     if (target.exists()) {
+      val existingBytes = target.length()
+      // Only a complete, current file counts as downloaded. A stale file from a
+      // previous catalog revision is reported as idle so the UI offers a fresh
+      // download instead of loading weights the runtime cannot use.
+      if (expectedBytes <= 0 || existingBytes == expectedBytes) {
+        return statusMap(
+          "succeeded",
+          existingBytes,
+          expectedBytes,
+          workId = workInfo?.id?.toString(),
+        )
+      }
       return statusMap(
-        "succeeded",
-        target.length(),
+        "idle",
+        0,
         expectedBytes,
         workId = workInfo?.id?.toString(),
       )

@@ -16,6 +16,7 @@ vi.mock("@/core/services/workspace-file-service", () => ({
 }));
 
 vi.mock("@/modules/preview/video-render", () => ({
+  MAX_VIDEO_DURATION_SECONDS: 600,
   requestVideoRender: mocks.requestVideoRender,
 }));
 

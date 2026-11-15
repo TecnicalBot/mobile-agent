@@ -23,14 +23,16 @@
  *   AudioBuffer up front (Microsoft Edge's WebAudio incremental-rendering
  *   explainer documents this: "startRendering() allocates an AudioBuffer
  *   large enough to hold the entire rendered WebAudio graph before
- *   returning"). The mix-check tool caps its checks at 45 s of timeline
- *   (~17 MB of stereo float32 output), and rendering runs faster than
- *   realtime, so the render + level computation itself is seconds. The
- *   dominant cost in a mix job is the whole-file decode of the soundtrack.
+ *   returning"). The mix check therefore renders the timeline in 45 s
+ *   windows (~17 MB of stereo float32 each) rather than one full-length
+ *   buffer, which would be ~230 MB at the 600 s scene limit. Per-window
+ *   render + level math is seconds, and the windows reuse one whole-file
+ *   decode per soundtrack — that decode is the dominant cost in a mix job,
+ *   and total window count is the only thing that grows with duration.
  *
  * 180 s therefore covers fetch + decode (of files that fit renderer memory;
- * bigger ones die of memory loudly first via `onRenderProcessGone`) plus the
- * offline render and level math, with headroom.
+ * bigger ones die of memory loudly first via `onRenderProcessGone`) plus
+ * every window's offline render and level math, with headroom.
  */
 
 export const SCENE_PREVIEW_START_TIMEOUT_MS = 15_000;

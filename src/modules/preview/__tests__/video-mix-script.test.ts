@@ -19,16 +19,11 @@ function installMixStubs(options: {
   const messages: Posted[] = [];
   const oscillators: RecordedOsc[] = [];
   const sources: RecordedSrc[] = [];
+  const renderLengths: number[] = [];
   let decodeCalls = 0;
   const realFetch = g.fetch;
 
   const fill = options.renderFill ?? 0.4;
-  const renderedSeconds = 2;
-  const renderedLength = 48000 * renderedSeconds;
-  const renderedData = [
-    new Float32Array(renderedLength).fill(fill),
-    new Float32Array(renderedLength).fill(fill),
-  ];
 
   const gainStub = () => ({
     gain: {
@@ -42,8 +37,13 @@ function installMixStubs(options: {
 
   class FakeOfflineAudioContext {
     sampleRate = 48000;
+    frameLength = 1;
     destination = {};
     __mobileAgentNoise: unknown = null;
+    constructor(_channels: number, length: number, rate: number) {
+      this.frameLength = Math.max(1, length);
+      if (rate > 0) this.sampleRate = rate;
+    }
     createGain() {
       return gainStub();
     }
@@ -131,9 +131,14 @@ function installMixStubs(options: {
       });
     }
     startRendering() {
+      renderLengths.push(this.frameLength);
+      const renderedData = [
+        new Float32Array(this.frameLength).fill(fill),
+        new Float32Array(this.frameLength).fill(fill),
+      ];
       return Promise.resolve({
         numberOfChannels: 2,
-        sampleRate: 48000,
+        sampleRate: this.sampleRate,
         getChannelData: (ch: number) => renderedData[ch],
       });
     }
@@ -168,6 +173,7 @@ function installMixStubs(options: {
     messages,
     oscillators,
     sources,
+    renderLengths,
     decodeCalls: () => decodeCalls,
     restoreFetch: () => {
       g.fetch = realFetch;
@@ -215,6 +221,18 @@ const TONE_AND_FILE = {
     ],
   },
 };
+
+function longFileScene(duration: number) {
+  return {
+    duration,
+    render: () => {},
+    audio: {
+      tracks: [
+        { file: "data:audio/wav;base64,QUJD", start: 0, duration, volume: 0.8 },
+      ],
+    },
+  };
+}
 
 describe("VIDEO_MIX_SCRIPT", () => {
   it("posts exact stats for a known render with decoded files", async () => {
@@ -306,6 +324,48 @@ describe("VIDEO_MIX_SCRIPT", () => {
         ],
       });
       expect((done?.stats as { peak: number }).peak).toBeCloseTo(0.01, 6);
+    } finally {
+      api.restoreFetch();
+    }
+  }, 10000);
+
+  it("checks long timelines in bounded windows and merges clipping across seams", async () => {
+    const api = installMixStubs({ contract: longFileScene(100), renderFill: 1.2 });
+    try {
+      api.start(100);
+      await waitForMix(api.messages);
+
+      const done = doneResult(api.messages);
+      // One decode for the whole check, one bounded render per 45 s window.
+      expect(api.decodeCalls()).toBe(1);
+      expect(api.renderLengths).toEqual([45 * 48000, 45 * 48000, 10 * 48000]);
+      // The file cue is scheduled once per window, not once globally.
+      expect(api.sources).toHaveLength(3);
+      expect(done?.stats).toMatchObject({
+        duration: 100,
+        clipped: true,
+        clippedRanges: [{ start: 0, end: 100 }],
+      });
+      expect((done?.stats as { peak: number }).peak).toBeCloseTo(1.2, 6);
+      expect((done?.stats as { rms: number }).rms).toBeCloseTo(1.2, 6);
+    } finally {
+      api.restoreFetch();
+    }
+  }, 10000);
+
+  it("reports quiet ranges in absolute time across window boundaries", async () => {
+    const api = installMixStubs({ contract: longFileScene(50), renderFill: 0.01 });
+    try {
+      api.start(50);
+      await waitForMix(api.messages);
+
+      const done = doneResult(api.messages);
+      const quiet = done?.stats.quietRanges as { start: number; end: number }[];
+      expect(quiet).toHaveLength(50);
+      expect(quiet[0]).toEqual({ start: 0, end: 1 });
+      expect(quiet[44]).toEqual({ start: 44, end: 45 });
+      expect(quiet[45]).toEqual({ start: 45, end: 46 });
+      expect(quiet.at(-1)).toEqual({ start: 49, end: 50 });
     } finally {
       api.restoreFetch();
     }

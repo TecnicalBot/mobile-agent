@@ -9,6 +9,8 @@ import {
   inlineVideoAssets,
 } from "@/modules/preview/video-assets";
 import { requestMixCheck, type MixCheckStats } from "@/modules/preview/video-mix";
+import { MIX_WINDOW_SECONDS } from "@/modules/preview/video-mix-script";
+import { MAX_VIDEO_DURATION_SECONDS } from "@/modules/preview/video-render";
 import {
   createRecord,
   summarizeValue,
@@ -90,7 +92,7 @@ export function createPreviewMixTool({
   const workspaceService = createWorkspaceFileService(repository);
   return tool({
     description:
-      "Check a video scene's audio mix before rendering it. Use this after writing the audio schedule (music, narration, ducking, effects) and before renderVideo: it renders the mix offline and reports peak/RMS levels, clipping spots with timestamps, near-silent ranges, and applied ducking, plus one actionable warning (or null when the mix is healthy). Fix volumes or duck ranges and re-check — seconds per iteration instead of a full render each time. Pass the same HTML (or scene fileId) and duration you would render.",
+      `Check a video scene's audio mix before rendering it. Use this after writing the audio schedule (music, narration, ducking, effects) and before renderVideo: it renders the mix offline and reports peak/RMS levels, clipping spots with timestamps, near-silent ranges, and applied ducking, plus one actionable warning (or null when the mix is healthy). It checks the whole timeline in bounded ${MIX_WINDOW_SECONDS} s windows, so long videos work. Fix volumes or duck ranges and re-check — seconds per iteration instead of a full render each time. Pass the same HTML (or scene fileId) and duration you would render.`,
     inputSchema: z.object({
       html: z
         .string()
@@ -107,7 +109,7 @@ export function createPreviewMixTool({
       duration: z
         .number()
         .min(1)
-        .max(45)
+        .max(MAX_VIDEO_DURATION_SECONDS)
         .optional()
         .describe(
           "Expected video length in seconds. Must match the `duration` field in the scene contract.",
@@ -140,7 +142,12 @@ export function createPreviewMixTool({
         const videoDuration = duration ?? contractDuration;
         if (!(videoDuration != null && videoDuration > 0)) {
           throw new Error(
-            "Cannot check this mix: pass `duration` (1–45 s) matching the contract's duration field.",
+            `Cannot check this mix: pass \`duration\` (1–${MAX_VIDEO_DURATION_SECONDS} s) matching the contract's duration field.`,
+          );
+        }
+        if (videoDuration > MAX_VIDEO_DURATION_SECONDS) {
+          throw new Error(
+            `The scene is ${videoDuration} s long, beyond the ${MAX_VIDEO_DURATION_SECONDS} s render limit. Fix the contract's duration field before checking the mix.`,
           );
         }
 

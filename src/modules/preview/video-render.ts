@@ -6,6 +6,13 @@ import type {
 export type { VideoExportShotPlan, VideoExportTimings };
 
 /**
+ * Longest scene the exporter accepts (contract `duration`, recorder and tool
+ * schema). Previews and mix checks share the number so a check can never offer
+ * a timeline the render would refuse.
+ */
+export const MAX_VIDEO_DURATION_SECONDS = 600;
+
+/**
  * Tool-driven video rendering queue.
  *
  * The agent renders a video by calling the `renderVideo` tool, which hands the
@@ -165,7 +172,7 @@ export function normalizeVideoPlan(value: unknown): VideoRenderPlan | null {
   if (
     duration == null ||
     duration <= 0 ||
-    duration > 600 ||
+    duration > MAX_VIDEO_DURATION_SECONDS ||
     fps == null ||
     fps < 5 ||
     fps > 60 ||

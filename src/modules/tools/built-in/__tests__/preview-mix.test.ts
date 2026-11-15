@@ -40,6 +40,12 @@ const { buildMixWarning, createPreviewMixTool, formatMixPreview } = await import
 const SCENE_6S =
   '<html><body><canvas id="c"></canvas><script>window.MOBILE_AGENT_VIDEO = { duration: 6, fps: 30, canvasId: "c", render: function () {} };</script></body></html>';
 
+const SCENE_120S =
+  '<html><body><canvas id="c"></canvas><script>window.MOBILE_AGENT_VIDEO = { duration: 120, fps: 30, canvasId: "c", render: function () {} };</script></body></html>';
+
+const SCENE_601S =
+  '<html><body><canvas id="c"></canvas><script>window.MOBILE_AGENT_VIDEO = { duration: 601, fps: 30, canvasId: "c", render: function () {} };</script></body></html>';
+
 const HEALTHY = {
   peak: 0.7,
   rms: 0.3,
@@ -213,6 +219,38 @@ describe("previewMix", () => {
     expect(mocks.onRecord).toHaveBeenCalledWith(
       expect.objectContaining({ toolName: "previewMix", status: "completed" }),
     );
+  });
+
+  it("checks the full timeline for scenes longer than 45 s", async () => {
+    const out = (await execute(makeTool(), {
+      html: SCENE_120S,
+      duration: 120,
+    })) as { peak: number };
+
+    expect(mocks.requestMixCheck).toHaveBeenCalledWith(
+      expect.stringContaining("MOBILE_AGENT_VIDEO"),
+      expect.objectContaining({ duration: 120 }),
+    );
+    expect(out.peak).toBe(0.7);
+  });
+
+  it("accepts up to the render duration limit at the schema level", () => {
+    const schema = (
+      makeTool() as unknown as {
+        inputSchema: { safeParse: (input: unknown) => { success: boolean } };
+      }
+    ).inputSchema;
+
+    expect(schema.safeParse({ duration: 120 }).success).toBe(true);
+    expect(schema.safeParse({ duration: 600 }).success).toBe(true);
+    expect(schema.safeParse({ duration: 601 }).success).toBe(false);
+  });
+
+  it("rejects a contract beyond the render limit even when duration is omitted", async () => {
+    await expect(execute(makeTool(), { html: SCENE_601S })).rejects.toThrow(
+      /beyond the 600 s render limit/,
+    );
+    expect(mocks.requestMixCheck).not.toHaveBeenCalled();
   });
 
   it("fails fast on a duration mismatch", async () => {

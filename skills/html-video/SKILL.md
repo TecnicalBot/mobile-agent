@@ -546,8 +546,9 @@ Check the mix before rendering (numbers, not taste):
 - After authoring the `audio` schedule, run **`previewMix`** on the scene:
   it renders the mix offline and reports peak/RMS, clipping spots with
   timestamps, near-silent ranges, and applied ducking, plus one actionable
-  warning (null when healthy). Fix volumes/duck ranges and re-check —
-  seconds per iteration instead of a full render each time.
+  warning (null when healthy). It covers the whole timeline in bounded 45 s
+  windows, so long videos are checked too. Fix volumes/duck ranges and
+  re-check — seconds per iteration instead of a full render each time.
 - It cannot judge taste: a weak kick or an ugly reverb still needs ears.
 
 Mixing rules:

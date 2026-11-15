@@ -16,6 +16,7 @@ import {
   renderSegments,
   type SegmentRenderResult,
 } from "@/modules/preview/render-segments";
+import { MAX_VIDEO_DURATION_SECONDS } from "@/modules/preview/video-render";
 import {
   createRecord,
   summarizeValue,
@@ -75,7 +76,7 @@ export function createRenderVideoTool({
       duration: z
         .number()
         .min(1)
-        .max(600)
+        .max(MAX_VIDEO_DURATION_SECONDS)
         .optional()
         .describe(
           "Expected video length in seconds. Must match the `duration` field in the HTML contract — the render fails fast on a mismatch instead of producing a wrong-length video. Over 45 s renders in 45 s segments, concatenated.",

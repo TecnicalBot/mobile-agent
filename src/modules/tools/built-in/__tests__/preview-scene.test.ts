@@ -49,6 +49,9 @@ const {
 const SCENE_6S =
   '<html><body><canvas id="c"></canvas><script>window.MOBILE_AGENT_VIDEO = { duration: 6, fps: 30, canvasId: "c", render: function () {} };</script></body></html>';
 
+const SCENE_120S =
+  '<html><body><canvas id="c"></canvas><script>window.MOBILE_AGENT_VIDEO = { duration: 120, fps: 30, canvasId: "c", render: function () {} };</script></body></html>';
+
 function repository(records: Record<string, object> = {}) {
   mocks.getById.mockImplementation(async (id: string) => records[id] ?? null);
   return { getById: mocks.getById } as never;
@@ -174,6 +177,35 @@ describe("previewScene", () => {
     expect(doc).not.toContain("workspace://img-1");
     expect(doc).not.toContain("workspace://vid-1");
     expect(doc).toContain("workspace://audio-1");
+  });
+
+  it("storyboards scenes longer than the 45 s render segment", async () => {
+    const out = (await execute(makeTool(), {
+      html: SCENE_120S,
+      duration: 120,
+      times: [0, 60, 119],
+    })) as { frameCount: number; times: number[] };
+
+    expect(mocks.requestScenePreview).toHaveBeenCalledWith(
+      expect.stringContaining("MOBILE_AGENT_VIDEO"),
+      expect.objectContaining({ times: [0, 60, 119] }),
+    );
+    expect(out.frameCount).toBe(3);
+    expect(out.times).toEqual([0, 60, 119]);
+  });
+
+  it("accepts the full render duration and timestamp range at the schema level", () => {
+    const schema = (
+      makeTool() as unknown as {
+        inputSchema: { safeParse: (input: unknown) => { success: boolean } };
+      }
+    ).inputSchema;
+
+    expect(schema.safeParse({ duration: 120, times: [0, 60, 119] }).success).toBe(true);
+    expect(schema.safeParse({ duration: 600, times: [599] }).success).toBe(true);
+    // Beyond what the exporter itself can render.
+    expect(schema.safeParse({ duration: 601 }).success).toBe(false);
+    expect(schema.safeParse({ times: [3601] }).success).toBe(false);
   });
 
   it("fails fast on a duration mismatch", async () => {

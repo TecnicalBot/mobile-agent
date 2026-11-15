@@ -8,6 +8,7 @@ import {
   inlineVideoAssets,
 } from "@/modules/preview/video-assets";
 import { requestScenePreview } from "@/modules/preview/video-preview";
+import { MAX_VIDEO_DURATION_SECONDS } from "@/modules/preview/video-render";
 import { createContactSheet, MAX_CONTACT_SHEET_FRAMES } from "@/modules/preview/contact-sheet";
 import {
   createRecord,
@@ -17,6 +18,13 @@ import type { WorkspaceToolFactoryParams } from "@/modules/tools/built-in/types"
 import { resolveHtml } from "@/modules/tools/built-in/render-video";
 
 const MAX_PREVIEW_FRAMES = MAX_CONTACT_SHEET_FRAMES;
+
+/**
+ * Same timestamp ceiling as `getVideoFrame` on a rendered MP4. Timestamps
+ * beyond the scene's own duration clamp with a warning (the storyboard is
+ * approximate), so a typo never fails a preview outright.
+ */
+const MAX_PREVIEW_TIME_SECONDS = 3_600;
 
 type PreviewSceneContentItem = Record<string, unknown>;
 
@@ -107,7 +115,7 @@ export function createPreviewSceneTool({
   const workspaceService = createWorkspaceFileService(repository);
   return tool({
     description:
-      "Look at a video scene before rendering it. Pass the scene HTML or fileId and optional times (up to 12). Multi-frame previews return ONE compact contact sheet with numbered timestamps by default, not separate vision images. Use layout: frames only for detailed full-resolution inspection. Vision-capable models see the image inline; otherwise use the saved image with ocr. The preview is approximate (media settles, no audio plays); the render is truth.",
+      `Look at a video scene before rendering it. Pass the scene HTML or fileId and optional times (up to 12, any timestamp in a scene up to ${MAX_VIDEO_DURATION_SECONDS} s — same as inspecting a rendered MP4). Multi-frame previews return ONE compact contact sheet with numbered timestamps by default, not separate vision images. Use layout: frames only for detailed full-resolution inspection. Vision-capable models see the image inline; otherwise use the saved image with ocr. The preview is approximate (media settles, no audio plays); the render is truth.`,
     inputSchema: z.object({
       html: z
         .string()
@@ -124,13 +132,13 @@ export function createPreviewSceneTool({
       duration: z
         .number()
         .min(1)
-        .max(45)
+        .max(MAX_VIDEO_DURATION_SECONDS)
         .optional()
         .describe(
           "Expected video length in seconds. Must match the `duration` field in the scene contract.",
         ),
       times: z
-        .array(z.number().min(0).max(45))
+        .array(z.number().min(0).max(MAX_PREVIEW_TIME_SECONDS))
         .max(MAX_PREVIEW_FRAMES)
         .optional()
         .describe(
@@ -191,7 +199,7 @@ export function createPreviewSceneTool({
         const videoDuration = duration ?? contractDuration;
         if (!(videoDuration != null && videoDuration > 0)) {
           throw new Error(
-            "Cannot storyboard this scene: pass `duration` (1–45 s) matching the contract's duration field.",
+            `Cannot storyboard this scene: pass \`duration\` (1–${MAX_VIDEO_DURATION_SECONDS} s) matching the contract's duration field.`,
           );
         }
 

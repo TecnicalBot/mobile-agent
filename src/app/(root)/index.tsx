@@ -2909,6 +2909,7 @@ const ChatInput = memo(function ChatInput({
                     hitSlop={8}
                     onPress={() => {
                       if (showStop) {
+                        KeyboardController.dismiss();
                         onStop().catch(console.error);
                         return;
                       }

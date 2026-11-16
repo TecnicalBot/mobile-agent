@@ -100,4 +100,14 @@ describe("chat keyboard padding", () => {
     expect(source).not.toContain("KeyboardAvoidingView");
     expect(source).not.toContain("composerRef.current?.blur()");
   });
+
+  it("dismisses the keyboard before stopping without waiting for cancellation", () => {
+    const source = readFileSync(
+      new URL("../app/(root)/index.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /if \(showStop\) \{\s+KeyboardController\.dismiss\(\);\s+onStop\(\)\.catch\(console\.error\);/,
+    );
+  });
 });

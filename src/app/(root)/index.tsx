@@ -164,6 +164,7 @@ import {
   toolTraceIcon,
 } from "@/modules/runtime/tool-label";
 import { appendQuote, formatQuotedText } from "@/modules/chat/quote-text";
+import { continueComposerList } from "@/modules/chat/composer-lists";
 import { getAssistantResponseFooters } from "@/modules/chat/assistant-response";
 import {
   formatUsageWindowLabel,
@@ -1416,6 +1417,10 @@ const ChatInput = memo(function ChatInput({
   // the previous value. Keep a synchronously-updated copy so pressing send
   // never reads a stale, one-character-behind prompt.
   const promptRef = useRef("");
+  // Android also echoes the pre-edit native text after we replace the draft
+  // (e.g. when inserting the next list marker). Remember what we replaced so
+  // the echo cannot undo it.
+  const pendingListEditRef = useRef<string | null>(null);
   const setPromptValue = useCallback(
     (next: string | ((current: string) => string)) => {
       const value =
@@ -1424,6 +1429,39 @@ const ChatInput = memo(function ChatInput({
       setPrompt(value);
     },
     [],
+  );
+  // Continue bullets and numbered lists on return, the way a notes app does.
+  // The markers stay in the draft because the finished message is markdown.
+  const handlePromptChange = useCallback(
+    (next: string) => {
+      // Android can replay the value the field had before our insert. Treat
+      // that exact value as the echo it is, not a user edit that undoes it.
+      if (pendingListEditRef.current === next) {
+        pendingListEditRef.current = null;
+        return;
+      }
+
+      pendingListEditRef.current = null;
+
+      const result = continueComposerList(promptRef.current, next);
+
+      if (!result) {
+        setPromptValue(next);
+        return;
+      }
+
+      pendingListEditRef.current = next;
+      setPromptValue(result.value);
+      // The value update lands on the next commit; move the caret after it so
+      // the marker we just inserted does not end up outside the selection.
+      requestAnimationFrame(() => {
+        composerRef.current?.setSelection(
+          result.selection.start,
+          result.selection.end,
+        );
+      });
+    },
+    [setPromptValue],
   );
   // Pending "Ask agent" quote: highlighted reply text waiting to be sent with
   // the next message. Shown as a preview card above the composer instead of
@@ -2767,7 +2805,7 @@ const ChatInput = memo(function ChatInput({
                     key={composerKey}
                     ref={composerRef}
                     className="min-h-0 rounded-full border-0 bg-transparent px-4 py-3 text-base dark:bg-transparent"
-                    onChangeText={setPromptValue}
+                    onChangeText={handlePromptChange}
                     onFocus={() => setComposerActionsOpen(false)}
                     onContentSizeChange={(event) => {
                       const height = Math.ceil(event.nativeEvent.contentSize.height);

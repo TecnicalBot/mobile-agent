@@ -1,6 +1,7 @@
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
+  type ExpoSpeechRecognitionOptions,
 } from "expo-speech-recognition";
 import * as Speech from "expo-speech";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,6 +18,36 @@ import { setVoiceInputActive } from "@/modules/notifications/voice-input-state";
 
 const HISTORY_LENGTH = 48;
 
+/**
+ * Native recognizers end their own session well before a user is done talking:
+ * iOS limits each request, and Android's segmented session can wrap up on
+ * service restarts. Restarting immediately after `end` (with the transcript
+ * kept in JS) turns those limits into a continuous dictation.
+ */
+const RESTART_DELAY_MS = 250;
+/** Sessions shorter than this ended for a reason (mic/service failure). */
+const INSTANT_END_MS = 1500;
+/** Stop retrying once the recognizer keeps failing immediately. */
+const MAX_INSTANT_ENDS = 3;
+
+/** Errors that a restart cannot recover from. */
+const FATAL_ERRORS = new Set([
+  "not-allowed",
+  "service-not-allowed",
+  "language-not-supported",
+]);
+
+const SYSTEM_RECOGNITION_OPTIONS: ExpoSpeechRecognitionOptions = {
+  addsPunctuation: true,
+  continuous: true,
+  interimResults: true,
+  maxAlternatives: 1,
+  volumeChangeEventOptions: {
+    enabled: true,
+    intervalMillis: 90,
+  },
+};
+
 export type VoiceInputStatus = "idle" | "starting" | "listening" | "processing";
 
 function normalizeLevel(value: number) {
@@ -28,10 +59,9 @@ function normalizeLevel(value: number) {
 /**
  * Drives the native speech recognizer for the chat composer.
  *
- * `onFinal` receives the consolidated transcript once the recognizer returns a
- * final result (either because it auto-stopped or because `finish()` was
- * called). `onCancel` fires when the user aborts or recognition ends without
- * any usable text.
+ * `onFinal` receives the consolidated transcript (either because `finish()`
+ * was called or because the recognizer could not recover). `onCancel` fires
+ * when the user aborts or recognition ends without any usable text.
  */
 export function useVoiceInput({
   onFinal,
@@ -55,6 +85,11 @@ export function useVoiceInput({
   const localModeRef = useRef(false);
   const generationRef = useRef(0);
   const processingRef = useRef(false);
+  const fatalErrorRef = useRef(false);
+  const lastErrorRef = useRef<string | null>(null);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionStartedAtRef = useRef(0);
+  const instantEndsRef = useRef(0);
 
   const onFinalRef = useRef(onFinal);
   const onCancelRef = useRef(onCancel);
@@ -78,8 +113,17 @@ export function useVoiceInput({
       return;
     }
 
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
     finishedRef.current = true;
     activeRef.current = false;
+    fatalErrorRef.current = false;
+    lastErrorRef.current = null;
+    sessionStartedAtRef.current = 0;
+    instantEndsRef.current = 0;
     setActive(false);
     setStatus("idle");
 
@@ -127,20 +171,64 @@ export function useVoiceInput({
         });
       return;
     }
+    // Between sessions there is no native request to stop, so no `end` event
+    // would ever arrive to finish the commit.
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+      commit();
+      return;
+    }
     ExpoSpeechRecognitionModule.stop();
   }, [commit]);
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
 
+  const restart = useCallback(() => {
+    if (!activeRef.current || finishedRef.current || localModeRef.current) {
+      return;
+    }
+
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    const generation = generationRef.current;
+    restartTimerRef.current = setTimeout(() => {
+      restartTimerRef.current = null;
+      if (
+        !activeRef.current ||
+        finishedRef.current ||
+        generation !== generationRef.current
+      ) {
+        return;
+      }
+      try {
+        ExpoSpeechRecognitionModule.start(SYSTEM_RECOGNITION_OPTIONS);
+      } catch {
+        commit();
+      }
+    }, RESTART_DELAY_MS);
+  }, [commit]);
+
+  const restartRef = useRef(restart);
+  restartRef.current = restart;
+
   const cancel = useCallback(() => {
     if (!activeRef.current) {
       return;
     }
 
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
     finishedRef.current = true;
     generationRef.current++;
     activeRef.current = false;
+    fatalErrorRef.current = false;
+    lastErrorRef.current = null;
+    sessionStartedAtRef.current = 0;
+    instantEndsRef.current = 0;
     setActive(false);
     setStatus("idle");
     transcriptRef.current = "";
@@ -163,6 +251,7 @@ export function useVoiceInput({
 
   useSpeechRecognitionEvent("start", () => {
     if (localModeRef.current || !activeRef.current) return;
+    sessionStartedAtRef.current = Date.now();
     setStatus((current) => (current === "processing" ? current : "listening"));
   });
 
@@ -221,6 +310,14 @@ export function useVoiceInput({
       return;
     }
 
+    lastErrorRef.current = event.error;
+    if (!FATAL_ERRORS.has(event.error)) {
+      // Transient (network, service restart, mic momentarily busy): let the
+      // `end` handler restart the session instead of ending the dictation.
+      return;
+    }
+
+    fatalErrorRef.current = true;
     if (!errorShownRef.current) {
       errorShownRef.current = true;
       Alert.alert(
@@ -233,8 +330,43 @@ export function useVoiceInput({
   });
 
   useSpeechRecognitionEvent("end", () => {
-    if (localModeRef.current) return;
-    commit();
+    if (localModeRef.current || !activeRef.current || finishedRef.current) {
+      return;
+    }
+
+    // `stop()` flags processing before asking the recognizer to finish, and
+    // fatal errors end the request for good. Any other `end` is the native
+    // recognizer wrapping up its own session mid-dictation, so keep listening.
+    if (processingRef.current || fatalErrorRef.current) {
+      commit();
+      return;
+    }
+
+    const sessionStartedAt = sessionStartedAtRef.current;
+    const lasted = sessionStartedAt ? Date.now() - sessionStartedAt : 0;
+    instantEndsRef.current =
+      lasted < INSTANT_END_MS ? instantEndsRef.current + 1 : 0;
+    if (instantEndsRef.current >= MAX_INSTANT_ENDS) {
+      // The recognizer keeps failing immediately (mic busy, service down).
+      // Retrying forever would leave the composer listening to nothing.
+      const error = lastErrorRef.current;
+      if (error && !errorShownRef.current) {
+        errorShownRef.current = true;
+        Alert.alert(
+          "Voice input unavailable",
+          `Voice input failed (${error}).`,
+        );
+      }
+      commit();
+      return;
+    }
+
+    // The session can end before the last interim is finalized; promote the
+    // live preview so those words survive the restart instead of being
+    // replaced by the fresh session's transcript.
+    committedRef.current = transcriptRef.current.trim();
+
+    restartRef.current();
   });
 
   const start = useCallback(async () => {
@@ -246,6 +378,14 @@ export function useVoiceInput({
     const generation = ++generationRef.current;
     processingRef.current = false;
     errorShownRef.current = false;
+    fatalErrorRef.current = false;
+    lastErrorRef.current = null;
+    sessionStartedAtRef.current = 0;
+    instantEndsRef.current = 0;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     setStatus("starting");
 
     // Dictation takes over the audio session; stop any message playback or
@@ -327,16 +467,7 @@ export function useVoiceInput({
 
       // System uses the device's own recognizer language, like the keyboard's
       // voice button does. Only local Whisper takes an explicit language.
-      ExpoSpeechRecognitionModule.start({
-        addsPunctuation: true,
-        continuous: true,
-        interimResults: true,
-        maxAlternatives: 1,
-        volumeChangeEventOptions: {
-          enabled: true,
-          intervalMillis: 90,
-        },
-      });
+      ExpoSpeechRecognitionModule.start(SYSTEM_RECOGNITION_OPTIONS);
     } catch (startError) {
       if (generation !== generationRef.current) return;
       activeRef.current = false;
@@ -356,6 +487,10 @@ export function useVoiceInput({
   useEffect(() => {
     const generation = generationRef;
     return () => {
+      if (restartTimerRef.current) {
+        clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
+      }
       activeRef.current = false;
       generation.current++;
       if (localModeRef.current) localRef.current?.cancel().catch(console.error);

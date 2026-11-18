@@ -2,7 +2,9 @@ import type { ToolExecutionRecord } from "@/core/types/app-state";
 
 export function summarizeValue(value: unknown) {
   const serialized =
-    typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    typeof value === "string"
+      ? value
+      : (JSON.stringify(value, null, 2) ?? String(value));
 
   return serialized.length > 240 ? `${serialized.slice(0, 240)}...` : serialized;
 }

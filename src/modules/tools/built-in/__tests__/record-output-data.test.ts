@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createRecord, TOOL_OUTPUT_DATA_LIMIT } from "../shared";
+import { createRecord, summarizeValue, TOOL_OUTPUT_DATA_LIMIT } from "../shared";
 
 describe("structured trace output", () => {
+  it("summarizes inputless tool calls without throwing", () => {
+    expect(summarizeValue(undefined)).toBe("undefined");
+    expect(summarizeValue({})).toBe("{}");
+  });
+
   it("stores the full result so a tool-specific card can render it", () => {
     const items = [
       { status: "completed", title: "Plan" },

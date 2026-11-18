@@ -1186,6 +1186,25 @@ export async function executeClaimedAgentRun(
 
   const handleToolExecutionRecord = (record: ToolExecutionRecord) => {
     if (runRegistry.isDisposed()) return;
+
+    // A generic "Running X" row is published when the SDK starts a tool call.
+    // Correlate the tool's own completion with it so the row updates in place
+    // instead of appearing only after the call finishes (or duplicating).
+    for (let i = toolExecutions.length - 1; i >= 0; i -= 1) {
+      const pending = toolExecutions[i];
+      if (
+        pending.status === "running" &&
+        pending.toolName === record.toolName &&
+        pending.id?.startsWith("sdk-tool-") &&
+        pending.id !== record.id
+      ) {
+        if (!record.id) {
+          record = { ...record, id: pending.id };
+        }
+        toolExecutions.splice(i, 1);
+      }
+    }
+
     // Built-in tools also emit records without IDs. Give them an identity
     // before anchoring, rather than sending them to an end-of-message fallback.
     record = { ...record, id: record.id ?? `${run.id}:tool:${traceOrder}` };
@@ -2501,6 +2520,62 @@ export async function executeClaimedAgentRun(
       onEvent: (eventName, data) => {
         if (runRegistry.isDisposed()) return;
         markActivity();
+
+        // The SDK fires this before invoking tool.execute. Publish a live
+        // "Running X" trace row immediately so a long or stuck tool call is
+        // visible instead of just the generic Thinking indicator.
+        if (eventName === "tool-execution-start") {
+          const call = (
+            data && typeof data === "object"
+              ? (data as {
+                  toolCall?: {
+                    toolCallId?: unknown;
+                    toolName?: unknown;
+                    input?: unknown;
+                  };
+                }).toolCall
+              : null
+          );
+          const toolCallId =
+            typeof call?.toolCallId === "string" ? call.toolCallId : null;
+          const toolName =
+            typeof call?.toolName === "string" ? call.toolName : null;
+          if (toolCallId && toolName) {
+            handleToolExecutionRecord(
+              createRecord({
+                id: `sdk-tool-${toolCallId}`,
+                toolName,
+                status: "running",
+                inputSummary: summarizeValue(call?.input),
+              }),
+            );
+          }
+          return;
+        }
+
+        // Safety net: if a tool ended without emitting its own record, drop the
+        // generic running row so it does not linger as "Running X…" forever.
+        if (eventName === "tool-execution-end") {
+          const call = (
+            data && typeof data === "object"
+              ? (data as { toolCall?: { toolCallId?: unknown } }).toolCall
+              : null
+          );
+          const toolCallId =
+            typeof call?.toolCallId === "string" ? call.toolCallId : null;
+          if (toolCallId) {
+            const index = toolExecutions.findIndex(
+              (existing) =>
+                existing.id === `sdk-tool-${toolCallId}` &&
+                existing.status === "running",
+            );
+            if (index >= 0) {
+              toolExecutions.splice(index, 1);
+              refreshAssistantState?.();
+            }
+          }
+          return;
+        }
 
         if (
           eventName !== "reasoning-start" &&

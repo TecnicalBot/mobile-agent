@@ -385,6 +385,8 @@ export function resolveAppliedSkills(input: {
 
 export function buildSkillsSystemPrompt(input: {
   loadedSkillNames?: string[];
+  /** `minimal` skips the catalog and loaded bodies to fit tiny windows. */
+  profile?: "full" | "compact" | "minimal";
   builtInToolSettings: BuiltInToolSettings;
   mcpServers: McpServerConfig[];
   skills: SkillConfig[];
@@ -393,6 +395,11 @@ export function buildSkillsSystemPrompt(input: {
     return undefined;
   }
 
+  if (input.profile === "minimal") {
+    return undefined;
+  }
+
+  const isCompact = input.profile === "compact";
   const enabledMcpServerIds = new Set(
     input.mcpServers
       .filter((server) => server.enabled)
@@ -424,7 +431,7 @@ export function buildSkillsSystemPrompt(input: {
     ].filter(Boolean);
   };
 
-  const catalog = input.skills.map((skill) => {
+  const catalog = (isCompact ? input.skills.slice(0, 40) : input.skills).map((skill) => {
     const toolNotes = buildToolNotes(skill);
     const description = [
       skill.description?.trim() ?? null,
@@ -432,11 +439,15 @@ export function buildSkillsSystemPrompt(input: {
     ]
       .filter(Boolean)
       .join(" ");
+    const boundedDescription =
+      isCompact && description.length > 180
+        ? `${description.slice(0, 177)}...`
+        : description;
 
     return [
       "  <skill>",
       `    <name>${skill.title}</name>`,
-      `    <description>${description || "No description."}</description>`,
+      `    <description>${boundedDescription || "No description."}</description>`,
       "  </skill>",
     ].join("\n");
   });

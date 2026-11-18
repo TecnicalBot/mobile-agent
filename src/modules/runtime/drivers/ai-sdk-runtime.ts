@@ -21,7 +21,10 @@ export function shouldUseStreamingAISDK() {
  */
 function buildPrepareStep(params: GenerateModelTextStreamParams) {
   const takeSteeredUserInput = params.takeSteeredUserInput;
-  if (!takeSteeredUserInput && !params.prepareMessages) return undefined;
+  const getActiveTools = params.getActiveTools;
+  if (!takeSteeredUserInput && !params.prepareMessages && !getActiveTools) {
+    return undefined;
+  }
 
   return async (options: { stepNumber: number; messages: ModelMessage[] }) => {
     const steered = options.stepNumber > 0
@@ -33,7 +36,17 @@ function buildPrepareStep(params: GenerateModelTextStreamParams) {
     const prepared = params.prepareMessages
       ? await params.prepareMessages(messages)
       : messages;
-    return prepared === options.messages ? undefined : { messages: prepared };
+    const activeTools = getActiveTools?.();
+    const next: { messages?: ModelMessage[]; activeTools?: string[] } = {};
+
+    if (prepared !== options.messages) {
+      next.messages = prepared;
+    }
+    if (activeTools) {
+      next.activeTools = activeTools;
+    }
+
+    return Object.keys(next).length > 0 ? next : undefined;
   };
 }
 
@@ -187,6 +200,9 @@ async function generateViaAISDKWithContinuation(
     const prepareStep = buildPrepareStep(params);
     const result = streamText({
       abortSignal: params.abortSignal,
+      ...(params.activeTools
+        ? { activeTools: params.activeTools as never }
+        : {}),
       headers: params.requestHeaders,
       includeRawChunks: params.model.transport === "openaiCompatible",
       model: providerModel,
@@ -428,6 +444,9 @@ export async function generateViaAISDKNonStreaming(
   const prepareStep = buildPrepareStep(params);
   const result = await generateText({
     abortSignal: params.abortSignal,
+    ...(params.activeTools
+      ? { activeTools: params.activeTools as never }
+      : {}),
     headers: params.requestHeaders,
     model: providerModel,
     messages: params.messages,

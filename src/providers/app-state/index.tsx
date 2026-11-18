@@ -107,6 +107,8 @@ import {
     resolveConversationAgent,
 } from "@/modules/agents/registry";
 import { isPlanAgent } from "@/modules/agents/permissions";
+import { parseToolModeCommand } from "@/modules/tools/tool-modes";
+import { normalizeToolFamilies } from "@/modules/tools/families";
 import {
     normalizeAgentName,
     parseAgentMarkdown,
@@ -3548,6 +3550,9 @@ Your output must be:
                 selectedMcpServerIds:
                     parsed.conversation.selectedMcpServerIds ?? null,
                 selectedSkillIds: parsed.conversation.selectedSkillIds ?? [],
+                toolFamilies: normalizeToolFamilies(
+                    parsed.conversation.toolFamilies,
+                ),
                 externalFolderSession:
                     parsed.conversation.externalFolderSession ?? null,
                 title:
@@ -5241,6 +5246,70 @@ Your output must be:
 
         const conversation =
             activeConversation ?? failSend("No active conversation available.");
+
+        // Tool-mode commands are conversation state, not prompts: persist the
+        // family set for later turns and confirm in the transcript.
+        const toolModeCommand = parseToolModeCommand(
+            cleanContent,
+            conversation.toolFamilies,
+        );
+
+        if (toolModeCommand) {
+            setError(null);
+            await ensureConversationPersisted(conversation);
+
+            const nextToolFamilies = toolModeCommand.families;
+            await repositories.conversationRepository.updateMetadata(
+                conversation.id,
+                { toolFamilies: nextToolFamilies },
+            );
+
+            const sequence =
+                await repositories.messageRepository.getNextSequence(
+                    conversation.id,
+                );
+            const timestamp = new Date().toISOString();
+            const modeUserMessage = await repositories.messageRepository.create({
+                content: cleanContent,
+                conversationId: conversation.id,
+                role: "user",
+                sequence,
+                status: "completed",
+            });
+            const modeAssistantMessage =
+                await repositories.messageRepository.create({
+                    content: toolModeCommand.message,
+                    conversationId: conversation.id,
+                    role: "assistant",
+                    sequence: sequence + 1,
+                    status: "completed",
+                });
+            const modeConversation: Conversation = {
+                ...conversation,
+                toolFamilies: nextToolFamilies,
+                updatedAt: timestamp,
+            };
+
+            setSnapshot((current) => ({
+                ...current,
+                conversations: upsertConversation(
+                    current.conversations,
+                    modeConversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === conversation.id
+                        ? modeConversation
+                        : current.currentConversation,
+                messages:
+                    current.currentConversation?.id === conversation.id
+                        ? upsertMessages(current.messages, [
+                              modeUserMessage,
+                              modeAssistantMessage,
+                          ])
+                        : current.messages,
+            }));
+            return;
+        }
 
         logMessageDebug("send-start", {
             activeConversationId: activeConversation?.id ?? null,

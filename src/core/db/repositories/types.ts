@@ -38,6 +38,7 @@ import type {
   SkillFile,
   StoredMessage,
   ToolApprovalMode,
+  ToolFamily,
   ThemeMode,
   WorkspaceFile,
   WorkspaceFileSourceKind,
@@ -102,6 +103,7 @@ export interface ConversationRepository {
     selectedMcpServerIds?: string[] | null;
     selectedSkillIds?: string[];
     title: string;
+    toolFamilies?: ToolFamily[] | null;
     updatedAt?: string;
   }): Promise<Conversation>;
   getById(id: string): Promise<Conversation | null>;
@@ -120,6 +122,7 @@ export interface ConversationRepository {
       selectedMcpServerIds?: string[] | null;
       selectedSkillIds?: string[];
       title?: string;
+      toolFamilies?: ToolFamily[] | null;
       updatedAt?: string;
     },
   ): Promise<void>;

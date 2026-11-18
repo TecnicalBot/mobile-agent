@@ -31,6 +31,13 @@ export type GenerateModelTextStreamParams = {
   sessionId?: string;
   system?: string;
   tools?: ToolSet;
+  /** Tool names enabled for the first step (AI SDK `activeTools`). */
+  activeTools?: string[];
+  /**
+   * Recomputed before every step. Lets a run expose tools discovered
+   * mid-run (`enableTools`) without rebuilding the whole request.
+   */
+  getActiveTools?: () => string[] | undefined;
   /** Recheck the context budget before every request, including tool follow-ups. */
   prepareMessages?: (messages: ModelMessage[]) => Promise<ModelMessage[]>;
   /**

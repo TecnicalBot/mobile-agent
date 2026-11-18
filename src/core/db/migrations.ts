@@ -5,7 +5,7 @@ import {
 } from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 35;
+const DATABASE_VERSION = 36;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -251,6 +251,17 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
       await db.execAsync(`
         ALTER TABLE conversations
         ADD COLUMN pinned_at TEXT;
+      `);
+    }
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "tool_families_json",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN tool_families_json TEXT;
       `);
     }
 
@@ -1675,6 +1686,25 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     `);
 
     currentVersion = 35;
+  }
+
+  if (currentVersion === 35) {
+    const conversationColumns = await db.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(conversations)",
+    );
+
+    if (
+      !conversationColumns.some(
+        (column) => column.name === "tool_families_json",
+      )
+    ) {
+      await db.execAsync(`
+        ALTER TABLE conversations
+        ADD COLUMN tool_families_json TEXT;
+      `);
+    }
+
+    currentVersion = 36;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

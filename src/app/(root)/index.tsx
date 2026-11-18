@@ -14,6 +14,8 @@ import {
   ClipboardList,
   Clock,
   Edit,
+  FileText,
+  Film,
   FolderOpen,
   Image as ImageIcon,
   Info,
@@ -157,6 +159,10 @@ import { useHarness } from "@/providers/harness-state";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 import { listPrimaryAgents, resolveAgent } from "@/modules/agents/registry";
 import { detectFolderIntent } from "@/modules/chat/folder-intent";
+import {
+  isToolModeCommandInput,
+  TOOL_MODE_COMMANDS,
+} from "@/modules/tools/tool-modes";
 import { formatFileKindLabel } from "@/modules/files/file-type-label";
 import { useSharedContent } from "@/modules/share/use-shared-content";
 import {
@@ -1893,6 +1899,29 @@ const ChatInput = memo(function ChatInput({
       }
       return;
     }
+    if (isToolModeCommandInput(cleanPrompt)) {
+      // Mode commands change the conversation toolset; they never carry
+      // attachments, and they stay usable while a run is streaming.
+      sendingRef.current = true;
+      setPromptValue("");
+      KeyboardController.dismiss();
+      try {
+        await onSend({
+          content: cleanPrompt,
+          fileContextSource: "workspace",
+          selectedFileIds: [],
+        });
+      } catch (error) {
+        setPromptValue(currentPrompt);
+        Alert.alert(
+          "Could not change tools",
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        sendingRef.current = false;
+      }
+      return;
+    }
     const folderIntent = detectFolderIntent(cleanPrompt);
     const nextFileContextSource =
       selectedFileIds.length > 0
@@ -2396,6 +2425,34 @@ const ChatInput = memo(function ChatInput({
             ? "Manage compaction in OpenCode"
             : "Summarize context now · /compact",
         },
+        ...TOOL_MODE_COMMANDS.map((mode) => ({
+          id: `tool-mode-${mode.id}`,
+          icon:
+            mode.id === "video" ? (
+              <Film color={theme.text} size={16} />
+            ) : mode.id === "docs" ? (
+              <FileText color={theme.text} size={16} />
+            ) : (
+              <X color={theme.text} size={16} />
+            ),
+          label: mode.label,
+          onPress: () => {
+            clearTriggerText();
+            onSend({
+              content: mode.command,
+              fileContextSource: "workspace",
+              selectedFileIds: [],
+            }).catch((error: unknown) =>
+              Alert.alert(
+                mode.id === "general"
+                  ? "Could not reset tools"
+                  : "Could not enable tools",
+                error instanceof Error ? error.message : String(error),
+              ),
+            );
+          },
+          subtitle: mode.subtitle,
+        })),
         {
           id: "select-skills",
           icon: <Brain color={theme.text} size={16} />,

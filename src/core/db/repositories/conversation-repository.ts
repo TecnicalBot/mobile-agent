@@ -31,6 +31,7 @@ export function createConversationRepository(
             ? input.selectedMcpServerIds
             : null,
         selectedSkillIds: input.selectedSkillIds ?? [],
+        toolFamilies: input.toolFamilies ?? null,
         externalFolderSession: input.externalFolderSession ?? null,
         parentConversationId: input.parentConversationId ?? null,
         rootConversationId: input.rootConversationId ?? null,
@@ -91,6 +92,8 @@ export function createConversationRepository(
           selectedFileIds: input.selectedFileIds ?? undefined,
           selectedMcpServerIds: input.selectedMcpServerIds,
           selectedSkillIds: input.selectedSkillIds ?? undefined,
+          toolFamilies:
+            input.toolFamilies === undefined ? undefined : input.toolFamilies,
           externalFolderSession: input.externalFolderSession,
           updatedAt: input.updatedAt ?? nowIso(),
         })

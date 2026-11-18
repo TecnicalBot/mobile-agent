@@ -54,6 +54,12 @@ export type AgentRunStatus =
   | "retrying";
 export type WorkspaceFileSourceKind = "artifact" | "created" | "imported";
 export type ExternalFolderPlatform = "android" | "ios" | "web";
+/**
+ * Groups of built-in tools a conversation can opt into. "core" is always on;
+ * "media" and "documents" are stacked on top of it with `/video` and `/docs`.
+ * Kept as a set (not an exclusive enum) so a PDF-to-video task can enable both.
+ */
+export type ToolFamily = "core" | "media" | "documents";
 export type BuiltInToolKey =
   | "workspaceListFiles"
   | "workspaceRead"
@@ -607,6 +613,11 @@ export type Conversation = {
   selectedFileIds: string[];
   selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];
+  /**
+   * Opt-in built-in tool families for this chat. Optional so older rows and
+   * existing literals default to core-only.
+   */
+  toolFamilies?: ToolFamily[] | null;
   externalFolderSession: ExternalFolderSession | null;
   /**
    * Conversation that spawned this chat, when it is a subagent session.

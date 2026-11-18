@@ -47,8 +47,20 @@ describe("buildWorkspaceSystemPrompt", () => {
     expect(prompt).toContain("sheet");
   });
 
-  it("contains no duplicated sentences", () => {
-    const seen = new Set<string>();
+  it("drops instructions for tools hidden by a tool mode", () => {
+    const prompt = buildWorkspaceSystemPrompt({
+      tools: ["read", "write", "edit", "grep", "listFiles"],
+    });
+
+    expect(prompt).toContain("grep searches");
+    expect(prompt).not.toContain("call createFile");
+    expect(prompt).not.toContain("To update an existing document");
+    expect(prompt).not.toContain("To split a pdf");
+    expect(prompt).not.toContain("To look at any file");
+    expect(prompt).not.toContain("use the downloadFile tool");
+  });
+
+  it("contains no duplicated sentences", () => {    const seen = new Set<string>();
     const duplicates: string[] = [];
 
     for (const sentence of sentences(buildWorkspaceSystemPrompt())) {

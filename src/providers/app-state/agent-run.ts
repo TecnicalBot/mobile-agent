@@ -30,6 +30,11 @@ import {
 import type { Repositories } from "@/core/db/repositories/types";
 import { compactHistory } from "@/modules/context/manual-compaction";
 import { calculateContextBudget } from "@/modules/context/overflow";
+import {
+  isPromptBudgetExceeded,
+  MIN_USABLE_CONTEXT_TOKENS,
+  resolvePromptProfile,
+} from "@/modules/context/prompt-budget";
 import { createSummaryMessage } from "@/modules/context/summarizer";
 import { estimateMessagesTokens } from "@/modules/context/token-estimator";
 import { combineUsage } from "@/modules/runtime/drivers/ai-sdk-runtime";
@@ -107,6 +112,17 @@ import {
 import { collectGeneratedVideos } from "@/modules/tools/generated-videos";
 import { persistGeneratedImages } from "@/modules/tools/generated-images";
 import {
+  buildToolDiscoverySystemPrompt,
+  createToolDiscoveryTools,
+} from "@/modules/tools/discovery";
+import {
+  filterToolsByFamilies,
+  hasToolFamily,
+  normalizeToolFamilies,
+  pickEssentialTools,
+  toolFamilyForBuiltInKey,
+} from "@/modules/tools/families";
+import {
   buildSelectedFilesInlineContext,
   buildWorkspaceSystemPrompt,
   createWorkspaceTools,
@@ -133,6 +149,7 @@ import type {
   ReasoningEffort,
   ResolvedModel,
   StoredMessage,
+  ToolFamily,
   ToolApprovalMode,
   ToolExecutionRecord,
   WorkspaceFile,
@@ -320,6 +337,75 @@ function getRetryDelayMs(
   const exponential = baseDelay * Math.pow(2, attempt);
   const jitter = Math.random() * 1000;
   return Math.min(exponential + jitter, 30000);
+}
+
+/**
+ * Resolves the window used for budgeting: an explicit model value wins, then
+ * the models.dev catalog, then the provider-specific overrides (Ollama and
+ * on-device safe limits). Runs before tool building so tiny windows can pick
+ * a smaller prompt/tool profile.
+ */
+async function resolveModelContextWindow(
+  resolvedModel: ResolvedModel,
+  onDeviceContextWindow: number | null,
+): Promise<number | null> {
+  let contextWindow: number | null = null;
+
+  try {
+    const catalog = await fetchModelsDevCatalogCached();
+    contextWindow =
+      findModelsDevModel(
+        catalog,
+        resolvedModel.providerId,
+        resolvedModel.modelId,
+      )?.contextWindow ?? null;
+  } catch {}
+
+  if (resolvedModel.contextWindow !== null) {
+    contextWindow = resolvedModel.contextWindow;
+  }
+
+  if (resolvedModel.providerFamily === "ollama") {
+    const ollamaOptions = resolvedModel.options?.ollama;
+    if (
+      ollamaOptions &&
+      typeof ollamaOptions === "object" &&
+      "contextWindow" in ollamaOptions
+    ) {
+      const configured = (ollamaOptions as { contextWindow?: unknown })
+        .contextWindow;
+      if (typeof configured === "number" && configured > 0) {
+        contextWindow = configured;
+      }
+    }
+  }
+
+  if (
+    contextWindow === null &&
+    resolvedModel.providerFamily === "on-device"
+  ) {
+    const onDeviceOptions = resolvedModel.options?.onDevice;
+    if (
+      onDeviceOptions &&
+      typeof onDeviceOptions === "object" &&
+      "contextWindow" in onDeviceOptions
+    ) {
+      const configured = (onDeviceOptions as { contextWindow?: unknown })
+        .contextWindow;
+      if (typeof configured === "number" && configured > 0) {
+        contextWindow = configured;
+      }
+    }
+  }
+
+  if (
+    resolvedModel.providerFamily === "on-device" &&
+    onDeviceContextWindow !== null
+  ) {
+    contextWindow = onDeviceContextWindow;
+  }
+
+  return contextWindow;
 }
 
 export async function executeClaimedAgentRun(
@@ -678,6 +764,58 @@ export async function executeClaimedAgentRun(
     },
   );
   const runtimeSupportsTools = onDevicePolicy.toolsEnabled;
+  const contextWindowFromCatalog = await resolveModelContextWindow(
+    resolvedModel,
+    onDevicePolicy.contextWindow,
+  );
+  /**
+   * Tiny windows (4k on-device / Ollama) cannot hold the full prompt and the
+   * whole tool catalog, so they get core tools and a trimmed system prompt.
+   */
+  const promptProfile = resolvePromptProfile({
+    contextWindow: contextWindowFromCatalog,
+  });
+  const persistedToolFamilies = normalizeToolFamilies(conversation.toolFamilies);
+  const appliedSkillIdsForRun = new Set([
+    ...conversation.selectedSkillIds,
+    ...(userMessage?.metadata?.appliedSkillIds ?? []),
+  ]);
+  const skillToolFamilies: ToolFamily[] = [];
+  for (const skill of snapshotRef.current.skills) {
+    if (!appliedSkillIdsForRun.has(skill.id)) {
+      continue;
+    }
+    for (const key of skill.recommendedBuiltInToolKeys) {
+      const family = toolFamilyForBuiltInKey(key);
+      if (family) {
+        skillToolFamilies.push(family);
+      }
+    }
+  }
+  const hasMediaAttachment = currentRunWorkspaceFiles.some(
+    (file) =>
+      isAudioMimeType(file.mimeType) || isVideoMimeType(file.mimeType),
+  );
+  const activeToolFamilies: ToolFamily[] =
+    promptProfile === "minimal"
+      ? normalizeToolFamilies([])
+      : normalizeToolFamilies([
+          ...persistedToolFamilies,
+          ...skillToolFamilies,
+          ...(hasMediaAttachment ? (["media"] as ToolFamily[]) : []),
+        ]);
+  /**
+   * A minimal profile drops every optional family no matter what the
+   * conversation asked for. The modes stay persisted, so the run only needs
+   * to explain why they are not active right now.
+   */
+  const ignoredToolModeCommands =
+    promptProfile === "minimal"
+      ? [
+          persistedToolFamilies.includes("media") ? "/video" : null,
+          persistedToolFamilies.includes("documents") ? "/docs" : null,
+        ].filter((command): command is string => command !== null)
+      : [];
 
   if (imageFiles.length > 0 && !resolvedModel.supportsImageInput) {
     const errorMessage =
@@ -1666,6 +1804,7 @@ export async function executeClaimedAgentRun(
                     selectedFileIds: run.selectedFileIds,
                     selectedMcpServerIds: conversation.selectedMcpServerIds,
                     selectedSkillIds: conversation.selectedSkillIds,
+                    toolFamilies: normalizeToolFamilies(activeToolFamilies),
                   },
                 });
               } finally {
@@ -1732,6 +1871,72 @@ export async function executeClaimedAgentRun(
     }
 
     const pluginTools = pluginSnapshot?.tools;
+    let discoverySource: ToolSet | undefined;
+    let discoveryFitCheck:
+      | ((families: ToolFamily[]) => boolean)
+      | undefined;
+    const toolDiscovery =
+      runtimeSupportsTools &&
+      !isPlanMode &&
+      !isSubagentRun &&
+      promptProfile !== "minimal" &&
+      (promptProfile !== "full" ||
+        !hasToolFamily(activeToolFamilies, "media") ||
+        !hasToolFamily(activeToolFamilies, "documents"))
+        ? createToolDiscoveryTools({
+            getCatalog: () => ({
+              all: discoverySource ?? {},
+              active: discoverySource
+                ? (filterToolsByFamilies(discoverySource, [
+                    ...activeToolFamilies,
+                  ]) as ToolSet)
+                : {},
+            }),
+            onEnableFamilies: async (families) => {
+              if (discoveryFitCheck && !discoveryFitCheck(families)) {
+                return false;
+              }
+
+              for (const family of families) {
+                if (!activeToolFamilies.includes(family)) {
+                  activeToolFamilies.push(family);
+                }
+              }
+              const nextFamilies = normalizeToolFamilies(activeToolFamilies);
+
+              try {
+                await repositories.conversationRepository.updateMetadata(
+                  conversation.id,
+                  { toolFamilies: nextFamilies },
+                );
+              } catch (error) {
+                console.warn(
+                  "Failed to persist enabled tool families.",
+                  error,
+                );
+              }
+
+              ui.publishSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((item) =>
+                  item.id === conversation.id
+                    ? { ...item, toolFamilies: nextFamilies }
+                    : item,
+                ),
+                currentConversation:
+                  current.currentConversation?.id === conversation.id
+                    ? {
+                        ...current.currentConversation,
+                        toolFamilies: nextFamilies,
+                      }
+                    : current.currentConversation,
+              }));
+
+              return true;
+            },
+            onRecord: handleToolExecutionRecord,
+          })
+        : null;
     // MCP and plugin keys are spread after the built-ins, so a same-named tool
     // silently replaces a built-in (e.g. an MCP `listFiles`). Surface that.
     const builtInToolNames = new Set([
@@ -1748,7 +1953,7 @@ export async function executeClaimedAgentRun(
       }
     }
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || secretRequestRuntime || announcementRuntime || pluginTools
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || secretRequestRuntime || announcementRuntime || toolDiscovery || pluginTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1761,6 +1966,7 @@ export async function executeClaimedAgentRun(
             ...(pluginManagementRuntime?.tools ?? {}),
             ...(secretRequestRuntime?.tools ?? {}),
             ...(announcementRuntime?.tools ?? {}),
+            ...(toolDiscovery?.tools ?? {}),
             ...(pluginTools ?? {}),
           } satisfies ToolSet)
         : undefined;
@@ -1772,6 +1978,7 @@ export async function executeClaimedAgentRun(
       ...(scheduleRuntime ? Object.keys(scheduleRuntime.tools) : []),
       ...(secretRequestRuntime ? Object.keys(secretRequestRuntime.tools) : []),
       ...(announcementRuntime ? [ANNOUNCE_WHEN_DONE_TOOL_NAME] : []),
+      ...(toolDiscovery ? Object.keys(toolDiscovery.tools) : []),
       ...(isPlanMode && mcpRuntime?.tools
         ? Object.keys(mcpRuntime.tools)
         : []),
@@ -1820,33 +2027,51 @@ export async function executeClaimedAgentRun(
             requestRunApproval(request as PendingToolApprovalRequest),
         })
       : undefined;
-    const runtimeToolsBase =
+    const allRuntimeToolsBase =
       approvedRuntimeTools || memoryRuntime?.tools
         ? ({
             ...(approvedRuntimeTools ?? {}),
             ...(memoryRuntime?.tools ?? {}),
           } satisfies ToolSet)
         : undefined;
-    const runtimeTools = isSubagentRun && runtimeToolsBase
-      ? (Object.fromEntries(
-          Object.entries(runtimeToolsBase).filter(
-            ([name]) => !SUBAGENT_DEFAULT_DENIED_TOOL_NAMES.has(name),
-          ),
-        ) as ToolSet)
-      : runtimeToolsBase;
+    const accessibleRuntimeTools =
+      isSubagentRun && allRuntimeToolsBase
+        ? (Object.fromEntries(
+            Object.entries(allRuntimeToolsBase).filter(
+              ([name]) => !SUBAGENT_DEFAULT_DENIED_TOOL_NAMES.has(name),
+            ),
+          ) as ToolSet)
+        : allRuntimeToolsBase;
+    discoverySource = accessibleRuntimeTools;
+    /**
+     * The model only sees tools from the enabled families. Everything stays
+     * in `accessibleRuntimeTools` so `findTools`/`enableTools` can widen the
+     * set mid-run without rebuilding the provider request.
+     */
+    let runtimeTools = accessibleRuntimeTools
+      ? (filterToolsByFamilies(accessibleRuntimeTools, [
+          ...activeToolFamilies,
+        ]) as ToolSet)
+      : undefined;
     const builtInRuntimeSystem =
-      run.fileContextSource === "external-folder" && builtInRuntimeTools
+      promptProfile !== "minimal" &&
+      run.fileContextSource === "external-folder" &&
+      builtInRuntimeTools
         ? buildExternalFolderSystemPrompt(
             externalFolderSession as ExternalFolderSession,
           )
         : undefined;
-    const workspaceRuntimeSystem =
+    let workspaceRuntimeSystem =
+      promptProfile !== "minimal" &&
       run.fileContextSource !== "external-folder" &&
       builtInRuntimeTools &&
       ("createFile" in builtInRuntimeTools || "write" in builtInRuntimeTools)
-        ? buildWorkspaceSystemPrompt()
+        ? buildWorkspaceSystemPrompt({
+            tools: Object.keys(runtimeTools ?? {}),
+          })
         : undefined;
     const transferRuntimeSystem =
+      promptProfile !== "minimal" &&
       builtInRuntimeTools &&
       ("exportWorkspaceFileToFolder" in builtInRuntimeTools ||
         "importFolderFileToWorkspace" in builtInRuntimeTools)
@@ -1867,6 +2092,7 @@ export async function executeClaimedAgentRun(
     );
     const skillsRuntimeSystem = buildSkillsSystemPrompt({
       loadedSkillNames: loadedSkillNames(persistedMessages),
+      profile: promptProfile,
       builtInToolSettings: snapshotRef.current.settings.builtInToolSettings,
       mcpServers: runMcpServers,
       skills: skillsForPrompt,
@@ -1909,15 +2135,17 @@ export async function executeClaimedAgentRun(
         ].join("\n")
       : undefined;
     const toolLoopRuntimeSystem = runtimeTools
-      ? [
-          "Complete the user's requested task before ending your response.",
-          "Before the first tool call, briefly tell the user what you are about to do.",
-          "An inspection or listing tool is only an intermediate step when the user requested a change.",
-          "After every tool result, evaluate what remains and continue calling the available tools until the task is complete or a concrete blocker prevents progress.",
-          "Between tool calls, give a short, useful progress update when the result changes your next action; do not expose private chain-of-thought or hidden reasoning.",
-          "Do not stop silently after a successful tool call.",
-          "When the task is complete, provide a concise final response describing what you actually completed.",
-        ].join("\n")
+      ? promptProfile === "minimal"
+        ? "Work through the task with the available tools, then give a short final answer describing what you completed. Do not claim actions you did not take."
+        : [
+            "Complete the user's requested task before ending your response.",
+            "Before the first tool call, briefly tell the user what you are about to do.",
+            "An inspection or listing tool is only an intermediate step when the user requested a change.",
+            "After every tool result, evaluate what remains and continue calling the available tools until the task is complete or a concrete blocker prevents progress.",
+            "Between tool calls, give a short, useful progress update when the result changes your next action; do not expose private chain-of-thought or hidden reasoning.",
+            "Do not stop silently after a successful tool call.",
+            "When the task is complete, provide a concise final response describing what you actually completed.",
+          ].join("\n")
       : undefined;
     const noToolsRuntimeSystem = runtimeTools
       ? undefined
@@ -1927,7 +2155,7 @@ export async function executeClaimedAgentRun(
           "If the request needs an action, say plainly that the current model cannot use tools and suggest switching to a tool-capable model in Settings.",
         ].join("\n");
     const agentDocsRuntimeSystem =
-      agent.docs.length > 0
+      promptProfile !== "minimal" && agent.docs.length > 0
         ? [
             "The following are attached reference documents for this agent. Use them as authoritative context, quoting and following them when relevant to the task.",
             ...agent.docs.map(
@@ -1936,30 +2164,202 @@ export async function executeClaimedAgentRun(
             ),
           ].join("\n\n")
         : undefined;
-    const pluginSystemParts = pluginSnapshot?.systemParts;
-    const runtimeSystem =
-      [
-        agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
-        agentDocsRuntimeSystem,
-        subagentRuntimeSystem,
-        buildCurrentDateTimeSystemPrompt(),
-        builtInRuntimeSystem,
-        workspaceRuntimeSystem,
-        transferRuntimeSystem,
-        mcpRuntime?.systemPrompt,
-        memoryRuntimeSystem,
-        skillsRuntimeSystem,
-        skillManagementRuntimeSystem,
-        pluginManagementRuntimeSystem,
-        agentManagementRuntimeSystem,
-        taskRuntimeSystem,
-        announcementRuntimeSystem,
-        toolLoopRuntimeSystem,
-        noToolsRuntimeSystem,
-        ...(pluginSystemParts?.length ? pluginSystemParts : []),
-      ]
-        .filter((part): part is string => Boolean(part?.trim()))
-        .join("\n\n") || undefined;
+    const discoveryRuntimeSystem = toolDiscovery
+      ? buildToolDiscoverySystemPrompt()
+      : undefined;
+    const pluginSystemParts =
+      promptProfile === "full" ? pluginSnapshot?.systemParts : undefined;
+    let runtimeSystem =
+      composeRuntimeSystem();
+
+    function composeRuntimeSystem() {
+      return (
+        [
+          agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+          agentDocsRuntimeSystem,
+          subagentRuntimeSystem,
+          buildCurrentDateTimeSystemPrompt(),
+          builtInRuntimeSystem,
+          workspaceRuntimeSystem,
+          transferRuntimeSystem,
+          promptProfile === "minimal" ? undefined : mcpRuntime?.systemPrompt,
+          promptProfile === "minimal" ? undefined : memoryRuntimeSystem,
+          skillsRuntimeSystem,
+          promptProfile === "minimal" ? undefined : skillManagementRuntimeSystem,
+          promptProfile === "minimal" ? undefined : pluginManagementRuntimeSystem,
+          promptProfile === "minimal" ? undefined : agentManagementRuntimeSystem,
+          promptProfile === "minimal" ? undefined : taskRuntimeSystem,
+          promptProfile === "minimal" ? undefined : announcementRuntimeSystem,
+          discoveryRuntimeSystem,
+          toolLoopRuntimeSystem,
+          noToolsRuntimeSystem,
+          ...(pluginSystemParts?.length ? pluginSystemParts : []),
+        ]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join("\n\n") || undefined
+      );
+    }
+
+    /**
+     * Last line of defense for tiny windows (4k on-device/Ollama): if the
+     * system prompt plus tool schemas still leave no room for messages, shed
+     * the optional tool families, then all tools, instead of failing.
+     */
+    const budgetFor = (tools: ToolSet | undefined, system?: string) =>
+      calculateContextBudget({
+        contextWindow: contextWindowFromCatalog,
+        model: resolvedModel,
+        systemPrompt: system,
+        tools,
+      });
+    let budget = budgetFor(runtimeTools, runtimeSystem);
+    let toolsSuppressed = false;
+    /**
+     * Set when budget pressure forces a smaller toolset than the family
+     * filter alone would produce. Once set, it is the source of truth for
+     * every subsequent request in this run.
+     */
+    let toolsOverride: ToolSet | undefined;
+    if (runtimeSupportsTools && ignoredToolModeCommands.length > 0) {
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail: `${ignoredToolModeCommands.join(" and ")} need more room than this model's ${budget.contextWindow.toLocaleString()}-token window leaves after the prompt. The modes stay on for models with a larger window.`,
+          kind: "run",
+          status: "info",
+          title: "Tool modes paused (small context)",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
+    discoveryFitCheck = (families) => {
+      if (!accessibleRuntimeTools || contextWindowFromCatalog === null) {
+        return true;
+      }
+
+      const nextFamilies = normalizeToolFamilies([
+        ...activeToolFamilies,
+        ...families,
+      ]);
+      const nextBudget = budgetFor(
+        filterToolsByFamilies(accessibleRuntimeTools, nextFamilies) as ToolSet,
+        runtimeSystem,
+      );
+
+      return nextBudget.usable >= MIN_USABLE_CONTEXT_TOKENS;
+    };
+    if (
+      contextWindowFromCatalog !== null &&
+      isPromptBudgetExceeded({
+        contextWindow: budget.contextWindow,
+        promptTokens: budget.systemTokens,
+        toolTokens: budget.toolDefinitionTokens,
+        reservedTokens: budget.reserved,
+      }) &&
+      (hasToolFamily(activeToolFamilies, "media") ||
+        hasToolFamily(activeToolFamilies, "documents"))
+    ) {
+      activeToolFamilies.splice(
+        0,
+        activeToolFamilies.length,
+        ...normalizeToolFamilies([]),
+      );
+      runtimeTools = accessibleRuntimeTools
+        ? (filterToolsByFamilies(accessibleRuntimeTools, [
+            ...activeToolFamilies,
+          ]) as ToolSet)
+        : undefined;
+      toolsOverride = runtimeTools;
+      workspaceRuntimeSystem = runtimeTools
+        ? buildWorkspaceSystemPrompt({
+            tools: Object.keys(runtimeTools),
+          })
+        : undefined;
+      runtimeSystem = composeRuntimeSystem();
+      budget = budgetFor(runtimeTools, runtimeSystem);
+
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail:
+            "Optional video/document tools were hidden to fit this model's context window. Ask for them by name if a task needs them.",
+          kind: "run",
+          status: "info",
+          title: "Tools reduced (small context)",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    if (
+      contextWindowFromCatalog !== null &&
+      isPromptBudgetExceeded({
+        contextWindow: budget.contextWindow,
+        promptTokens: budget.systemTokens,
+        toolTokens: budget.toolDefinitionTokens,
+        reservedTokens: budget.reserved,
+      }) &&
+      runtimeTools &&
+      !toolsOverride
+    ) {
+      // Core is still too big: keep only read/write/edit/search tools and a
+      // minimal prompt, so the model can still act on files.
+      runtimeTools = pickEssentialTools(runtimeTools) as ToolSet;
+      toolsOverride = runtimeTools;
+      runtimeSystem =
+        [
+          agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+          subagentRuntimeSystem,
+          buildCurrentDateTimeSystemPrompt(),
+          toolLoopRuntimeSystem,
+        ]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join("\n\n") || undefined;
+      budget = budgetFor(runtimeTools, runtimeSystem);
+
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail:
+            "Only the essential file tools are available in this model's small context window.",
+          kind: "run",
+          status: "info",
+          title: "Essential tools only (small context)",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    if (
+      contextWindowFromCatalog !== null &&
+      isPromptBudgetExceeded({
+        contextWindow: budget.contextWindow,
+        promptTokens: budget.systemTokens,
+        toolTokens: budget.toolDefinitionTokens,
+        reservedTokens: budget.reserved,
+      }) &&
+      runtimeTools
+    ) {
+      runtimeTools = undefined;
+      toolsSuppressed = true;
+      runtimeSystem =
+        [
+          agent.prompt?.trim() || BASE_AGENT_SYSTEM_PROMPT,
+          subagentRuntimeSystem,
+          buildCurrentDateTimeSystemPrompt(),
+          noToolsRuntimeSystem,
+        ]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join("\n\n") || undefined;
+
+      pushTimelineEvent(
+        createExecutionTimelineEvent({
+          detail:
+            "This model's context window is too small for tool schemas, so this run has no tools. Switch to a model with a larger window to act on files.",
+          kind: "run",
+          status: "info",
+          title: "Tools disabled (small context)",
+          createdAt: new Date().toISOString(),
+        }),
+      );
+    }
 
     if (
       resolvedModel.providerFamily === "on-device" &&
@@ -1977,63 +2377,6 @@ export async function executeClaimedAgentRun(
           createdAt: new Date().toISOString(),
         }),
       );
-    }
-
-    let contextWindowFromCatalog: number | null = null;
-    try {
-      const catalog = await fetchModelsDevCatalogCached();
-      contextWindowFromCatalog =
-        findModelsDevModel(
-          catalog,
-          resolvedModel.providerId,
-          resolvedModel.modelId,
-        )?.contextWindow ?? null;
-    } catch {}
-
-    if (resolvedModel.contextWindow !== null) {
-      contextWindowFromCatalog = resolvedModel.contextWindow;
-    }
-
-    if (
-      resolvedModel.providerFamily === "ollama"
-    ) {
-      const ollamaOptions = resolvedModel.options?.ollama;
-      if (
-        ollamaOptions &&
-        typeof ollamaOptions === "object" &&
-        "contextWindow" in ollamaOptions
-      ) {
-        const ctx = (ollamaOptions as { contextWindow?: unknown })
-          .contextWindow;
-        if (typeof ctx === "number" && ctx > 0) {
-          contextWindowFromCatalog = ctx;
-        }
-      }
-    }
-
-    if (
-      contextWindowFromCatalog === null &&
-      resolvedModel.providerFamily === "on-device"
-    ) {
-      const onDeviceOptions = resolvedModel.options?.onDevice;
-      if (
-        onDeviceOptions &&
-        typeof onDeviceOptions === "object" &&
-        "contextWindow" in onDeviceOptions
-      ) {
-        const contextWindow = (onDeviceOptions as { contextWindow?: unknown })
-          .contextWindow;
-        if (typeof contextWindow === "number" && contextWindow > 0) {
-          contextWindowFromCatalog = contextWindow;
-        }
-      }
-    }
-
-    if (
-      resolvedModel.providerFamily === "on-device" &&
-      onDevicePolicy.contextWindow !== null
-    ) {
-      contextWindowFromCatalog = onDevicePolicy.contextWindow;
     }
 
     let summaryUsage: LanguageModelUsage | undefined;
@@ -2058,17 +2401,27 @@ export async function executeClaimedAgentRun(
         : generateContextSummary;
 
     const prepareRuntimeMessages = async (messages: ModelMessage[]) => {
+      // Recompute the visible tools on every request so tools enabled by
+      // `enableTools` mid-run are reflected in follow-up steps.
+      const toolsForRequest = toolsSuppressed
+        ? undefined
+        : (toolsOverride ??
+          (accessibleRuntimeTools
+            ? (filterToolsByFamilies(accessibleRuntimeTools, [
+                ...activeToolFamilies,
+              ]) as ToolSet)
+            : runtimeTools));
       const contextResult = await prepareMessagesForLLMWithSummary({
         contextWindow: contextWindowFromCatalog,
         messages,
         model: resolvedModel,
         systemPrompt: runtimeSystem,
-        tools: runtimeTools,
+        tools: toolsForRequest,
         generateSummary,
       });
       if (
         resolvedModel.providerFamily === "on-device" &&
-        runtimeTools &&
+        toolsForRequest &&
         contextResult.budget.usable === 0
       ) {
         throw new Error(
@@ -2612,7 +2965,26 @@ export async function executeClaimedAgentRun(
       sessionId: run.id,
       system: runtimeSystem,
       takeSteeredUserInput,
-      tools: runtimeTools,
+      // Inactive family tools ride along so `enableTools` can activate them
+      // from the next step without rebuilding the request. `activeTools`
+      // keeps their schemas out of the provider call until then.
+      tools: toolsSuppressed
+        ? undefined
+        : (toolsOverride ?? accessibleRuntimeTools ?? runtimeTools),
+      ...(runtimeTools ? { activeTools: Object.keys(runtimeTools) } : {}),
+      ...(accessibleRuntimeTools || toolsOverride
+        ? {
+            getActiveTools: () =>
+              toolsSuppressed
+                ? []
+                : Object.keys(
+                    toolsOverride ??
+                      filterToolsByFamilies(accessibleRuntimeTools ?? {}, [
+                        ...activeToolFamilies,
+                      ]),
+                  ),
+          }
+        : {}),
     });
     // Attach an early handler so React Native doesn't report the abort
     // rejection as unhandled in the window before we await it below.
@@ -3135,6 +3507,7 @@ export type SubagentParentContext = {
   selectedFileIds: string[];
   selectedMcpServerIds: string[] | null;
   selectedSkillIds: string[];
+  toolFamilies?: ToolFamily[] | null;
 };
 
 export type SubagentTaskInput = {
@@ -3237,6 +3610,7 @@ export async function executeSubagentTask(
     selectedMcpServerIds: parent?.selectedMcpServerIds ?? null,
     selectedSkillIds: parent?.selectedSkillIds ?? [],
     title: input.description,
+    toolFamilies: parent?.toolFamilies ?? null,
   });
 
   // Persist the child's autonomous policy so its approval toggle stays in

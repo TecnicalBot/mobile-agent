@@ -49,6 +49,62 @@ describe("conversation lineage", () => {
   });
 });
 
+describe("conversation tool families", () => {
+  it("persists tool families when a chat is created", async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const db = {
+      insert: () => ({
+        values: async (input: Record<string, unknown>) => {
+          inserted.push(input);
+        },
+      }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [inserted[0]],
+          }),
+        }),
+      }),
+    };
+    const repository = createConversationRepository(
+      db as unknown as AppDatabase,
+    );
+
+    const conversation = await repository.create({
+      id: "chat",
+      title: "Make a video",
+      toolFamilies: ["core", "media"],
+    });
+
+    expect(inserted[0]).toMatchObject({ toolFamilies: ["core", "media"] });
+    expect(conversation.toolFamilies).toEqual(["core", "media"]);
+  });
+
+  it("clears tool families when the reset command persists core explicitly", async () => {
+    const row: Record<string, unknown> = { toolFamilies: ["core", "media"] };
+    const db = {
+      update: () => ({
+        set: (patch: Record<string, unknown>) => ({
+          where: async () => {
+            for (const [key, value] of Object.entries(patch)) {
+              if (value !== undefined) row[key] = value;
+            }
+          },
+        }),
+      }),
+    };
+    const repository = createConversationRepository(
+      db as unknown as AppDatabase,
+    );
+
+    await repository.updateMetadata("chat", { toolFamilies: ["core"] });
+    expect(row.toolFamilies).toEqual(["core"]);
+
+    await repository.updateMetadata("chat", { toolFamilies: null });
+    expect(row.toolFamilies).toBeNull();
+  });
+});
+
 describe("conversation metadata patches", () => {
   it("does not restore a stale file selection during a background title update", async () => {
     const row: Record<string, unknown> = { title: "Old", selectedFileIds: ["image-1"] };

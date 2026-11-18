@@ -25,6 +25,7 @@ import type {
   ProviderFamily,
   ReasoningEffort,
   ScheduleRunStatus,
+  ToolFamily,
   WorkspaceFileSourceKind,
 } from "@/core/types/app-state";
 
@@ -52,6 +53,9 @@ export const conversations = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    toolFamilies: text("tool_families_json", { mode: "json" }).$type<
+      ToolFamily[] | null
+    >(),
     externalFolderSession: text("external_folder_session_json", { mode: "json" })
       .$type<ExternalFolderSession | null>(),
     parentConversationId: text("parent_conversation_id"),

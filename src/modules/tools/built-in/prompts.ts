@@ -5,7 +5,7 @@ import {
   isTextWorkspaceFile,
 } from "@/core/services/workspace-file-service";
 
-export function buildWorkspaceSystemPrompt() {
+function buildFullWorkspaceSystemPrompt() {
   return [
     "The shared workspace contains user-visible files.",
     "Answer in chat by default. Only create a workspace file when the user explicitly asks to create, save, or export a file.",
@@ -21,6 +21,71 @@ export function buildWorkspaceSystemPrompt() {
     "To look at any file (images, PDFs, audio, or any other file), call viewFile with the fileId. This passes the file bytes to the model — use it to describe, compare, or read all files from listFiles. Do not use read for images or other binary files (text/docs only) and do not use ocr when the user wants the actual file content.",
     "When the user asks to download a file from a URL, use the downloadFile tool. Set target to \"folder\" only when the user wants the file saved in the granted external folder: omit destinationPath to save at the granted folder root, or set destinationPath to an existing subfolder. Otherwise downloadFile saves into the workspace. downloadFile never creates folders.",
   ].join("\n");
+}
+
+/**
+ * Workspace instructions scoped to the tools the model can actually see.
+ * Document paragraphs are long; leaving them in a core-only chat wastes
+ * thousands of tokens, so each is dropped when its tool family is off.
+ */
+export function buildWorkspaceSystemPrompt(input?: { tools?: string[] }) {
+  const prompt = buildFullWorkspaceSystemPrompt();
+
+  if (!input?.tools) {
+    return prompt;
+  }
+
+  const tools = new Set(input.tools);
+  const hasAny = (names: string[]) => names.some((name) => tools.has(name));
+
+  return prompt
+    .split("\n")
+    .filter((line) => {
+      if (line.includes("call createFile") && !tools.has("createFile")) {
+        return false;
+      }
+
+      if (
+        line.startsWith("To update an existing document") &&
+        !tools.has("updateDocument")
+      ) {
+        return false;
+      }
+
+      if (line.startsWith("grep searches") && !tools.has("grep")) {
+        return false;
+      }
+
+      if (
+        line.startsWith("To split a pdf") &&
+        !hasAny([
+          "splitPdf",
+          "mergePdfs",
+          "splitDocument",
+          "mergeDocuments",
+        ])
+      ) {
+        return false;
+      }
+
+      if (line.startsWith("To read text that is locked") && !tools.has("ocr")) {
+        return false;
+      }
+
+      if (line.startsWith("To look at any file") && !tools.has("viewFile")) {
+        return false;
+      }
+
+      if (
+        line.startsWith("When the user asks to download") &&
+        !tools.has("downloadFile")
+      ) {
+        return false;
+      }
+
+      return true;
+    })
+    .join("\n");
 }
 
 export async function buildSelectedFilesInlineContext(input: {

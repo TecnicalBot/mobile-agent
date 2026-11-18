@@ -125,23 +125,23 @@ function parseStoredContent(
   return message.content;
 }
 
+/**
+ * Stored reasoning blocks are plain text captured for the on-device trace.
+ * They carry no provider signature or encrypted content, so no provider can
+ * replay them as reasoning items: the AI SDK drops unsigned reasoning parts
+ * (OpenAI Responses warns "Non-OpenAI reasoning parts are not supported", and
+ * Anthropic warns "unsupported reasoning metadata"). Reasoning is display-only
+ * here - replaying it would only spam warnings and burn context on every turn.
+ */
 function buildAssistantContent(
-  message: StoredMessage,
   parsedContent: string | Record<string, unknown>[],
   evidence: string,
 ) {
-  const reasoningParts = (message.metadata?.reasoning ?? [])
-    .filter((block) => block.text.trim())
-    .map((block) => ({
-      type: "reasoning",
-      text: block.text,
-    }));
-
-  if (reasoningParts.length === 0 && !evidence) {
+  if (!evidence) {
     return parsedContent;
   }
 
-  const content: Record<string, unknown>[] = [...reasoningParts];
+  const content: Record<string, unknown>[] = [];
 
   if (typeof parsedContent === "string") {
     if (parsedContent.trim()) {
@@ -153,7 +153,7 @@ function buildAssistantContent(
   } else {
     content.push(...parsedContent);
   }
-  if (evidence) content.push({ type: "text", text: evidence });
+  content.push({ type: "text", text: evidence });
 
   return content;
 }
@@ -183,7 +183,10 @@ export async function convertStoredMessagesToModelMessages(input: {
     if (message.role === "assistant") {
       converted.push({
         role: message.role,
-        content: buildAssistantContent(message, parsedContent, mediaEvidenceForMessage(message, input.workspaceFilesById)),
+        content: buildAssistantContent(
+          parsedContent,
+          mediaEvidenceForMessage(message, input.workspaceFilesById),
+        ),
       } as ModelMessage);
       continue;
     }

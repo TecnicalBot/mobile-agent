@@ -209,6 +209,36 @@ describe("convertStoredMessagesToModelMessages media passthrough", () => {
     expect(result.unsupportedAttachments).toEqual(files);
   });
 
+  it("does not replay stored reasoning as unsigned model input parts", async () => {
+    const result = await convertStoredMessagesToModelMessages({
+      messages: [{
+        ...userMessage([]),
+        id: "assistant-1",
+        role: "assistant",
+        content: "Done.",
+        metadata: {
+          reasoning: [{
+            id: "reasoning-1",
+            text: "**Inspecting final frames batch**",
+            startedAt: "2026-10-14T00:00:01.000Z",
+            completedAt: "2026-10-14T00:00:02.000Z",
+          }],
+        } as StoredMessage["metadata"],
+      }],
+      supportsImageInput: true,
+      supportsAudioInput: true,
+      supportsVideoInput: true,
+      workspaceFilesById: new Map(),
+    });
+
+    expect(result.messages).toHaveLength(1);
+    expect(JSON.stringify(result.messages)).not.toContain("reasoning");
+    expect(result.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "Done.",
+    });
+  });
+
   it("carries prior transcript evidence into a follow-up instead of declaring old attachments unseen", async () => {
     const original = audio();
     const result = await convertStoredMessagesToModelMessages({

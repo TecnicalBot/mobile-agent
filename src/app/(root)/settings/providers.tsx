@@ -1,4 +1,5 @@
 import * as Crypto from "expo-crypto";
+import * as Device from "expo-device";
 import { useRouter } from "expo-router";
 import { Check, ChevronLeft, ChevronRight, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,6 +45,7 @@ import {
   preparePersistentModelDownloadNotifications,
   startPersistentModelDownload,
   type PersistentModelDownloadState,
+  type PersistentModelDownloadStatus,
 } from "@/modules/on-device/model-download";
 import { cn } from "@/core/utils";
 import {
@@ -61,6 +63,11 @@ type ProviderListItem = {
   models: CuratedModelDefinition[];
   provider: ProviderConfig;
   value: string;
+};
+
+type DownloadStatusSnapshot = {
+  modelId: string;
+  status: PersistentModelDownloadStatus;
 };
 
 export default function SettingsProvidersScreen() {
@@ -234,11 +241,23 @@ export default function SettingsProvidersScreen() {
         const modelIds = onDeviceModelIdsRef.current;
         if (modelIds.length === 0) return;
 
-        const statuses = await Promise.all(
-          modelIds.map(async (modelId) => ({
-            modelId,
-            status: await getPersistentModelDownloadStatus(modelId),
-          })),
+        const statuses = (
+          await Promise.all(
+            modelIds.map(async (modelId) => {
+              try {
+                return {
+                  modelId,
+                  status: await getPersistentModelDownloadStatus(modelId),
+                };
+              } catch {
+                // One unknown or unavailable model must not freeze progress
+                // reporting for every other download in the list.
+                return null;
+              }
+            }),
+          )
+        ).filter(
+          (entry): entry is DownloadStatusSnapshot => entry !== null,
         );
         if (disposed) {
           return;
@@ -268,7 +287,7 @@ export default function SettingsProvidersScreen() {
 
         setDownloadProgress((current) => {
           const next = { ...current };
-          for (const modelId of modelIds) {
+          for (const { modelId } of statuses) {
             delete next[modelId];
           }
           return { ...next, ...activeProgress };
@@ -550,13 +569,34 @@ export default function SettingsProvidersScreen() {
     return "auto" as const;
   };
 
-  const activateOnDeviceModel = async (modelId: string) => {
+  /**
+   * "auto" loads with the GPU first, but the LiteRT GPU delegate copies the
+   * whole graph into memory. On a device that only has the model's minimum
+   * RAM, that copy pushes the process over the limit and Android kills the
+   * app mid-load. The CPU path memory-maps the weights instead, so a
+   * below-spec device gets a slower load that survives.
+   */
+  const resolveLoadBackend = (
+    modelId: string,
+    info?: DownloadableModel | null,
+  ) => {
+    const configured = getOnDeviceBackend(modelId);
+    if (configured !== "auto") {
+      return configured;
+    }
+    return info && !info.meetsRequirements ? "cpu" : configured;
+  };
+
+  const activateOnDeviceModel = async (
+    modelId: string,
+    info?: DownloadableModel | null,
+  ) => {
     setOnDeviceError(null);
 
     try {
       const { setModel } = await import("expo-ai-kit");
       await setModel(modelId, {
-        backend: getOnDeviceBackend(modelId),
+        backend: resolveLoadBackend(modelId, info),
       });
       await updateProvider("on-device", { enabled: true });
       await selectModel(createModelRef("on-device", modelId));
@@ -665,7 +705,7 @@ export default function SettingsProvidersScreen() {
                 currentModel?.ref === createModelRef("on-device", modelId)
               ) {
                 await setModel(remaining[0].id, {
-                  backend: getOnDeviceBackend(remaining[0].id),
+                  backend: resolveLoadBackend(remaining[0].id, remaining[0]),
                 });
                 await selectModel(createModelRef("on-device", remaining[0].id));
               } else {
@@ -1262,9 +1302,34 @@ export default function SettingsProvidersScreen() {
                                 false
                               }
                               onActivate={() => {
-                                void runAction(`model:${model.id}`, () =>
-                                  activateOnDeviceModel(model.id),
-                                );
+                                const load = () => {
+                                  void runAction(`model:${model.id}`, () =>
+                                    activateOnDeviceModel(model.id, info),
+                                  ).catch((error) => {
+                                    setOnDeviceError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "The model could not be loaded.",
+                                    );
+                                  });
+                                };
+
+                                if (info && !info.meetsRequirements) {
+                                  Alert.alert(
+                                    "Load with less memory?",
+                                    `${model.label} recommends at least ${formatBytes(info.minRamBytes)} of RAM, and this device reports ${formatBytes(Device.totalMemory ?? 0)}. Loading may be slow or close the app, so it will use the CPU backend.`,
+                                    [
+                                      { style: "cancel", text: "Cancel" },
+                                      {
+                                        onPress: load,
+                                        text: "Load anyway",
+                                      },
+                                    ],
+                                  );
+                                  return;
+                                }
+
+                                load();
                               }}
                               onCancel={() => {
                                 void cancelOnDeviceDownload(model.id).catch(
@@ -1962,7 +2027,9 @@ function OnDeviceModelRow({
     info?.status === "downloaded" ||
     info?.status === "loading" ||
     info?.status === "ready";
-  const progressLabel = `${Math.round((downloadProgress ?? 0) * 100)}%`;
+  const percent =
+    downloadProgress === undefined ? null : Math.round(downloadProgress * 100);
+  const progressLabel = percent === null ? "Starting..." : `${percent}%`;
 
   return (
     <View className="gap-sp-3 px-sp-4 py-sp-3">
@@ -1995,18 +2062,15 @@ function OnDeviceModelRow({
             <View
               className="h-full rounded-full bg-foreground dark:bg-foreground-dark"
               style={{
-                width: `${Math.max(2, Math.round((downloadProgress ?? 0) * 100))}%`,
+                width: `${Math.max(2, percent ?? 0)}%`,
               }}
             />
           </View>
           <View className="flex-row gap-sp-2">
-            <Button
-              className="flex-1"
-              loading
-              size="sm"
-              variant="secondary"
-            >
-              Downloading {progressLabel}
+            <Button className="flex-1" loading size="sm" variant="secondary">
+              {percent === null
+                ? "Downloading..."
+                : `Downloading ${progressLabel}`}
             </Button>
             <Button onPress={onCancel} size="sm" variant="outline">
               Cancel
@@ -2035,6 +2099,12 @@ function OnDeviceModelRow({
               Delete
             </Button>
           </View>
+          {info && !info.meetsRequirements ? (
+            <Text className="font-sans text-xs text-destructive dark:text-destructive-dark">
+              Recommended RAM: at least {formatBytes(info.minRamBytes)}. Loads
+              use the CPU backend and may be slow or close the app.
+            </Text>
+          ) : null}
           {memoryConstrained && toolsSupported ? (
             <View className="flex-row items-center gap-sp-2 px-1">
               <Text className="flex-1 font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">

@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentPropsWithoutRef, ComponentRef, ReactNode } from "react";
-import { forwardRef } from "react";
+import { Children, forwardRef } from "react";
 import { ActivityIndicator, Pressable, Text } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
@@ -103,6 +103,9 @@ export const Button = forwardRef<ComponentRef<typeof Pressable>, ButtonProps>(
     ref,
   ) => {
     const theme = useTheme();
+    const childNodes = Children.toArray(children);
+    const isTextOnly =
+      childNodes.length > 0 && childNodes.every(isPrimitiveChild);
     const isDisabled = disabled || loading;
     const indicatorColor =
       variant === "default"
@@ -131,11 +134,11 @@ export const Button = forwardRef<ComponentRef<typeof Pressable>, ButtonProps>(
         ) : (
           leftIcon
         )}
-        {isPrimitiveChild(children) ? (
+        {isTextOnly ? (
           <Text
             className={cn(buttonTextVariants({ size, variant }), textClassName)}
           >
-            {children}
+            {childNodes.join("")}
           </Text>
         ) : (
           children

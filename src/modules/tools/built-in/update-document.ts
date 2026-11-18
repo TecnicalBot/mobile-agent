@@ -74,6 +74,7 @@ export function createUpdateDocumentTool({
               status: "completed",
               inputSummary,
               outputSummary: summarizeValue(output),
+              outputData: output,
             }),
           );
 
@@ -113,6 +114,7 @@ export function createUpdateDocumentTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+              outputData: output,
           }),
         );
 

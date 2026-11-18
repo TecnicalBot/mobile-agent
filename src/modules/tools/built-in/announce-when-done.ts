@@ -93,6 +93,7 @@ export function createAnnounceWhenDoneTool(input: {
                 ? summarizeValue({ message: request.message })
                 : "Default announcement",
               outputSummary: "Announcement armed for when this run finishes.",
+              outputData: { message: request.message },
               announcement: request,
             }),
           );

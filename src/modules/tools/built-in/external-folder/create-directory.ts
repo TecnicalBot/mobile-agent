@@ -28,6 +28,7 @@ export function createCreateDirectoryTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

@@ -109,4 +109,19 @@ describe("shared tool trace previews", () => {
       buildToolPreview({ fallbackTitle: "shell", input: { command: "pwd" } }),
     ).toEqual({ title: "pwd" });
   });
+
+  it("never uses a pasted blob as a trace-row title", () => {
+    expect(
+      buildToolPreview({
+        fallbackTitle: "write",
+        input: { content: "x".repeat(500), path: "/repo/long.txt" },
+      }).title,
+    ).toBe("/repo/long.txt");
+    expect(
+      buildToolPreview({
+        fallbackTitle: "write",
+        input: { content: "x".repeat(500) },
+      }).title,
+    ).toBe("write");
+  });
 });

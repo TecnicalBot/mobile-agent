@@ -99,6 +99,7 @@ export function createSecretRequestTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ status }),
+                outputData: { status, key: args.key },
               }),
             );
 

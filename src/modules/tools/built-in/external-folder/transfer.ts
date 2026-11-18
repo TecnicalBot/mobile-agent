@@ -93,6 +93,7 @@ export function createTransferTools(params: TransferToolFactoryParams) {
               status: "completed",
               inputSummary,
               outputSummary: summarizeValue(result),
+              outputData: result,
             }),
           );
 
@@ -164,6 +165,7 @@ export function createTransferTools(params: TransferToolFactoryParams) {
               status: "completed",
               inputSummary,
               outputSummary: summarizeValue(result),
+              outputData: result,
             }),
           );
 

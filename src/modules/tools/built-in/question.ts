@@ -80,6 +80,7 @@ export function createQuestionTool(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue(output),
+                outputData: { items: request.items, answers },
               }),
             );
 

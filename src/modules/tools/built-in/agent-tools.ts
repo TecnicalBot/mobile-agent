@@ -122,6 +122,7 @@ export function createAgentTools(input: {
                   agents: catalog,
                   count: catalog.length,
                 }),
+                outputData: { agents: catalog, count: catalog.length },
               }),
             );
 
@@ -166,6 +167,7 @@ export function createAgentTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ deleted: existing.name }),
+                outputData: { deleted: existing.name },
               }),
             );
 
@@ -229,6 +231,7 @@ export function createAgentTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ created: agent.name }),
+                outputData: { created: agent.name },
               }),
             );
 
@@ -275,6 +278,7 @@ export function createAgentTools(input: {
                   ? serializeAgentToMarkdown(next)
                   : null,
               }),
+              outputData: { updated: existing.name },
             }),
           );
 

@@ -288,6 +288,12 @@ export type ToolExecutionRecord = {
     truncated?: boolean;
     images?: { uri: string; title: string }[];
   };
+  /**
+   * Full structured tool result, kept alongside the 240-char `outputSummary`
+   * so the trace can render a tool-specific card instead of a text dump.
+   * Bounded by `createRecord` before it is persisted in message metadata.
+   */
+  outputData?: unknown;
   id?: string;
   toolName: string;
   status: "running" | "completed" | "failed";

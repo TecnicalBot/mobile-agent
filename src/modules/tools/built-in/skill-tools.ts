@@ -257,6 +257,7 @@ export function createSkillTools(input: {
                 replaced: Boolean(existing),
                 files: relatedFiles.length,
               }),
+              outputData: { name: skill?.title, replaced: Boolean(existing), files: relatedFiles.length },
             }),
           );
 
@@ -348,6 +349,7 @@ export function createSkillTools(input: {
                   count: catalog.length,
                   skills: catalog,
                 }),
+                outputData: { count: catalog.length, skills: catalog },
               }),
             );
 
@@ -376,6 +378,7 @@ export function createSkillTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ deleted: skill.title }),
+                outputData: { deleted: skill.title },
               }),
             );
 
@@ -420,6 +423,7 @@ export function createSkillTools(input: {
                   created: skill.title,
                   sourceMarkdown: serializeSkillToMarkdown(skill),
                 }),
+                outputData: { created: skill.title },
               }),
             );
 
@@ -473,6 +477,7 @@ export function createSkillTools(input: {
                 updated: skill.title,
                 sourceMarkdown: next ? serializeSkillToMarkdown(next) : null,
               }),
+              outputData: { updated: skill.title },
             }),
           );
 

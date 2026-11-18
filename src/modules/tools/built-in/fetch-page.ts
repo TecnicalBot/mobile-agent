@@ -197,6 +197,7 @@ export function createFetchPageTool({
               chars: output.text.length,
               truncated: output.truncated,
             }),
+            outputData: output,
           }),
         );
 

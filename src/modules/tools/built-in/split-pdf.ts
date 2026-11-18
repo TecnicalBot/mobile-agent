@@ -82,6 +82,7 @@ export function createSplitPdfTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+          outputData: output,
           }),
         );
 

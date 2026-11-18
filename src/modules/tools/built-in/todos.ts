@@ -92,6 +92,7 @@ export function createTodosTool(input: {
                     title: item.title,
                   })),
                 }),
+                outputData: { count: next.length, items: next },
               }),
             );
 

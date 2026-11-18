@@ -76,6 +76,7 @@ export function createExternalGlobTool({
               count: matchingPaths.length,
               files: formatGlobFiles(matchingPaths),
             }),
+            outputData: output,
           }),
         );
 

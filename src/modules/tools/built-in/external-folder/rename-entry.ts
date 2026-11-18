@@ -29,6 +29,7 @@ export function createRenameEntryTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

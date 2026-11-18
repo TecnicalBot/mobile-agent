@@ -149,6 +149,7 @@ export function createScheduleTools(input: {
               status: "completed",
               inputSummary: summarizeValue({ title: args.title, frequency: args.frequency }),
               outputSummary: summarizeValue(result),
+              outputData: result,
             }),
           );
 
@@ -181,6 +182,7 @@ export function createScheduleTools(input: {
               status: "completed",
               inputSummary: summarizeValue({}),
               outputSummary: summarizeValue({ count: result.length }),
+              outputData: { count: result.length, schedules: result },
             }),
           );
 
@@ -242,6 +244,7 @@ export function createScheduleTools(input: {
               status: "completed",
               inputSummary: summarizeValue({ id, ...changes }),
               outputSummary: summarizeValue(result),
+              outputData: result,
             }),
           );
 
@@ -270,6 +273,7 @@ export function createScheduleTools(input: {
               status: "completed",
               inputSummary: summarizeValue({ id, title: current.title }),
               outputSummary: summarizeValue({ id, canceled: true }),
+              outputData: { id, canceled: true, title: current.title },
             }),
           );
 

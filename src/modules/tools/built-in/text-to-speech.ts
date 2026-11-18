@@ -96,6 +96,7 @@ export function createTextToSpeechTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

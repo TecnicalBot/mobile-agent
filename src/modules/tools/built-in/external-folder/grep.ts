@@ -129,6 +129,7 @@ export function createExternalGrepTool({
               truncated: output.truncated,
               matches: formatGrepMatches(matches, includeContent),
             }),
+            outputData: output,
           }),
         );
 

@@ -29,6 +29,7 @@ export function createMoveEntryTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

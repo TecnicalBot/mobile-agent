@@ -44,16 +44,9 @@ import {
   Wrench,
 } from "lucide-react-native";
 
-export function formatToolName(toolName: string) {
-  if (!toolName) {
-    return "Tool";
-  }
+import { formatToolName } from "./tool-name";
 
-  return toolName
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[-_.]+/g, " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase());
-}
+export { formatToolName } from "./tool-name";
 
 /**
  * The sentence verb for a tool's trace row. Write it as what already

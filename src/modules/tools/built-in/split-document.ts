@@ -143,6 +143,7 @@ export function createSplitDocumentTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

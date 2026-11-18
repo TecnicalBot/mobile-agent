@@ -90,6 +90,7 @@ export function createBrowserTool({ onRecord, repository }: WorkspaceToolFactory
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
             preview,
           }),
         );

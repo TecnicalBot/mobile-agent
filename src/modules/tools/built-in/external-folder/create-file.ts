@@ -32,6 +32,7 @@ export function createExternalCreateFileTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

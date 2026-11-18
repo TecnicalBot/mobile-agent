@@ -29,6 +29,7 @@ export function createDeleteEntryTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

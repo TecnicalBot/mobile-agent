@@ -97,6 +97,7 @@ export function createMergeDocumentsTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

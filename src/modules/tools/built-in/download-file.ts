@@ -108,6 +108,7 @@ export function createDownloadFileTool({
               status: "completed",
               inputSummary,
               outputSummary: summarizeValue(output),
+              outputData: output,
             }),
           );
 
@@ -141,6 +142,7 @@ export function createDownloadFileTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

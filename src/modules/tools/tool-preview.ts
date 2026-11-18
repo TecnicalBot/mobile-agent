@@ -19,6 +19,18 @@ function previewString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * A title is a short target label, not a blob of tool content. Skip fields
+ * that look like pasted output and bound the ones we do show, matching the
+ * renderer's own `toolObjectLabel` filter.
+ */
+function usableTitle(value: string | null): string | null {
+  if (!value || value.length > 200) {
+    return null;
+  }
+  return value.length > 48 ? `${value.slice(0, 48)}…` : value;
+}
+
 /** A short, human-readable target for the trace row. */
 export function toolPreviewTitle(fallback: string, input: unknown): string {
   if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
@@ -43,11 +55,11 @@ export function toolPreviewTitle(fallback: string, input: unknown): string {
           "title",
         ];
   for (const key of preferred) {
-    const value = previewString(record[key]);
+    const value = usableTitle(previewString(record[key]));
     if (value) return value;
   }
   for (const value of Object.values(record)) {
-    const text = previewString(value);
+    const text = usableTitle(previewString(value));
     if (text) return text;
   }
   return fallback;

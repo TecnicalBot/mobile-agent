@@ -34,6 +34,7 @@ export function createExternalWriteTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+            outputData: output,
           }),
         );
 

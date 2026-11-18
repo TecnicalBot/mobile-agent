@@ -79,6 +79,7 @@ export function createMergePdfsTool({
             status: "completed",
             inputSummary,
             outputSummary: summarizeValue(output),
+          outputData: output,
           }),
         );
 

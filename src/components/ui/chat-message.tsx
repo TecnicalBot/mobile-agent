@@ -131,11 +131,12 @@ import {
   type VideoPlayerTarget,
 } from "@/components/ui/video-player-dialog";
 import { TraceResourceContent } from "@/components/ui/trace-resource-content";
-import { hasLegacyToolResource } from "@/modules/chat/tool-resource";
 import {
-  formatSummaryLines,
-  parseToolSummary,
-} from "@/modules/chat/tool-summary";
+  ToolTraceCard,
+  toolCardShowsText,
+} from "@/components/ui/tool-preview-cards";
+import { hasLegacyToolResource } from "@/modules/chat/tool-resource";
+import { parseToolSummary } from "@/modules/chat/tool-summary";
 import { buildAssistantParts } from "@/modules/chat/assistant-parts";
 import { splitSpeechText } from "@/modules/chat/assistant-response";
 import {
@@ -2693,7 +2694,9 @@ function ReasoningTraceRow({ block, streaming }: { block: ReasoningBlock; stream
         <TraceCollapsibleTrigger>
           <TraceLine status={running ? "running" : undefined}>
             <TraceIcon><Brain color={theme.textSecondary} size={16} /></TraceIcon>
-            <TraceTitle>{running ? "Thinking…" : `Thought for ${formatReasoningDuration([block])}`}</TraceTitle>
+            <TraceTitle className="text-muted-foreground dark:text-muted-foreground-dark">
+              {running ? "Thinking…" : `Thought for ${formatReasoningDuration([block])}`}
+            </TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>
@@ -2705,8 +2708,8 @@ function ReasoningTraceRow({ block, streaming }: { block: ReasoningBlock; stream
 }
 
 /**
- * The expanded detail of a tool trace row: media/thumbnails first, then the
- * captured content, then whatever summary fields could be recovered.
+ * The expanded detail of a tool trace row: a purpose-built card for the tool's
+ * result when one exists, then media, diffs and captured text.
  */
 const ToolTraceDetail = memo(function ToolTraceDetail({
   onOpenConversation,
@@ -2745,39 +2748,29 @@ const ToolTraceDetail = memo(function ToolTraceDetail({
   const title = preview?.title ?? file?.displayName ?? toolObjectLabel(record.inputSummary);
   const uri = preview?.uri ?? (file ? resolveWorkspaceFile(file.relativePath).uri : undefined);
   const isImage = preview?.mimeType?.startsWith("image/") || (file && getFilePreviewKind(file) === "image");
+  const hasResource = !preview && hasLegacyToolResource(record) && !isImage;
   const text = preview?.text ?? (typeof output.content === "string" ? output.content : typeof output.contentPreview === "string" ? output.contentPreview : null);
-  // Unknown/custom tools retain a readable result rather than losing diagnostics.
-  // Summaries are truncated JSON, so recover scalars and list values instead of rendering nothing.
-  const summary = formatSummaryLines(record.outputSummary).join("\n");
-  const inputLines = formatSummaryLines(record.inputSummary);
-  const plainOutput = record.outputSummary && !/^[\s]*[\[{]/.test(record.outputSummary) ? record.outputSummary : null;
-  // Last resort for tools whose summary is structured but could not be
-  // salvaged: show the captured output rather than claiming nothing exists.
-  const rawOutput = record.outputSummary?.trim() || null;
   const images = preview?.images ?? [];
-  const noPreviewDetail = record.status === "running"
-    ? "Waiting for output…"
-    : [inputLines.length > 0 ? `Input: ${inputLines.join(", ")}` : null, "No content preview was captured for this tool call."]
-        .filter((line): line is string => line !== null)
-        .join("\n");
+  const card = !record.diff && !hasResource ? <ToolTraceCard record={record} /> : null;
+  // Cards that already show the result must not be followed by the same text
+  // again in a code block; file cards intentionally keep the captured content.
+  const textNode = text && !(card && toolCardShowsText(record.toolName)) ? (
+    <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }}>
+      <CodeBlock className="text-muted-foreground dark:text-muted-foreground-dark" size="sm"><CodeBlockContent>{text}</CodeBlockContent></CodeBlock>
+    </ScrollView>
+  ) : null;
   return (
     <View className="gap-sp-2">
+      {card}
       {uri && isImage ? <MarkdownImage key={uri} alt={title || "Viewed image"} uri={uri} /> : null}
       {images.map((image) => <MarkdownImage key={image.uri} alt={image.title} uri={image.uri} />)}
-      {record.diff ? <TraceDiffBlock diff={record.diff} /> : hasLegacyToolResource(record) && !isImage ? (
+      {record.diff ? (
+        <TraceDiffBlock diff={record.diff} />
+      ) : hasResource ? (
         <TraceResourceContent key={record.id ?? record.createdAt} record={record} />
-      ) : text ? (
-        <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }}>
-          <CodeBlock size="sm"><CodeBlockContent>{text}</CodeBlockContent></CodeBlock>
-        </ScrollView>
-      ) : summary || plainOutput ? <Text selectable className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">{summary || plainOutput}</Text> : rawOutput ? (
-        <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }}>
-          <CodeBlock size="sm"><CodeBlockContent>{rawOutput}</CodeBlockContent></CodeBlock>
-        </ScrollView>
-      ) : !record.error && !(uri && isImage) && images.length === 0 ? (
-        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">{noPreviewDetail}</Text>
-      ) : null}
-      {preview?.truncated || (!preview && text) ? <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">Partial content captured for this step.</Text> : null}
+      ) : textNode ?? (record.status === "running" && !record.error ? (
+        <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">Waiting for output…</Text>
+      ) : null)}
     </View>
   );
 });
@@ -2924,7 +2917,11 @@ function ToolTraceRow({
               {/* eslint-disable-next-line react-hooks/static-components -- stable module-level lucide icon, no internal hooks */}
               <Icon color={theme.textSecondary} size={16} />
             </TraceIcon>
-            <TraceTitle>{toolTraceTitle(record, streaming)}</TraceTitle>
+            <TraceTitle
+              className={status === "error" ? undefined : "text-muted-foreground dark:text-muted-foreground-dark"}
+            >
+              {toolTraceTitle(record, streaming)}
+            </TraceTitle>
             {record.diffStat ? (
               <TraceDescription className="font-mono">
                 {record.diffStat}

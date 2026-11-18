@@ -247,6 +247,7 @@ export function createPluginTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ count: catalog.length }),
+                outputData: { count: catalog.length, plugins: catalog },
               }),
             );
 
@@ -273,6 +274,7 @@ export function createPluginTools(input: {
                 status: "completed",
                 inputSummary,
                 outputSummary: summarizeValue({ deleted: existing.name }),
+                outputData: { deleted: existing.name },
               }),
             );
 
@@ -350,6 +352,15 @@ export function createPluginTools(input: {
                 requiredSecrets,
                 secretsMissing,
               }),
+              outputData: {
+                name: result.plugin.name,
+                version: result.plugin.version,
+                wasUpdate: result.wasUpdate,
+                tools: validation.toolCount,
+                actions: validation.actionCount,
+                requiredSecrets,
+                secretsMissing,
+              },
             }),
           );
 

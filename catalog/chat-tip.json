@@ -2,6 +2,7 @@
   "version": 1,
   "enabled": true,
   "parts": [
-    { "text": "Use @ for files and folders, / for commands." }
+    { "text": "Use @ for files, / for commands. " },
+    { "text": "/video and /docs add tool modes; /general resets." }
   ]
 }

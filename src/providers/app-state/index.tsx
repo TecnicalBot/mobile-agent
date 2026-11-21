@@ -98,6 +98,11 @@ import {
     SKILL_FILE_MAX_TOTAL_BYTES,
 } from "@/modules/skills/skill-files";
 import {
+    importSkillBatch as runSkillBatchImport,
+    type SkillBatchImportInput,
+    type SkillBatchImportResult,
+} from "@/modules/skills/skill-batch-import";
+import {
     DEFAULT_CATALOG_SEED_VERSION,
     DEFAULT_CATALOG_SEED_VERSION_KEY,
     seedDefaultEntries,
@@ -321,6 +326,9 @@ type AppStateContextValue = {
             size: number | null;
         }[];
     }) => Promise<SkillConfig>;
+    importSkillBatch: (
+        inputs: SkillBatchImportInput[],
+    ) => Promise<SkillBatchImportResult>;
     exportSkillMarkdown: (skillId: string) => string;
     addSkillFiles: (
         skillId: string,
@@ -672,6 +680,7 @@ const CONFIG_KEYS = [
     "deletePlugin",
     "disconnectOpenAIOAuth",
     "importSkillMarkdown",
+    "importSkillBatch",
     "importPlugin",
     "exportSkillMarkdown",
     "runPluginAction",
@@ -3340,6 +3349,22 @@ Your output must be:
         await hydrate();
         return skill;
     },
+        [hydrate],
+    );
+
+    const importSkillBatch = useCallback(
+        async (inputs: SkillBatchImportInput[]) => {
+            const result = await runSkillBatchImport(
+                repositoriesRef.current.skillRepository,
+                inputs,
+            );
+
+            if (result.imported.length > 0) {
+                await hydrate();
+            }
+
+            return result;
+        },
         [hydrate],
     );
 
@@ -6062,6 +6087,7 @@ Your output must be:
             deletePlugin,
             disconnectOpenAIOAuth,
             importSkillMarkdown,
+            importSkillBatch,
             importPlugin,
             exportSkillMarkdown,
             runPluginAction: (pluginId, name, args, onProgress) =>
@@ -6111,7 +6137,7 @@ Your output must be:
             refreshWorkspaceFiles,
             workspaceFiles: snapshot.workspaceFiles,
         }),
-        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, writeMemory],
+        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillBatch, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, writeMemory],
     );
     const appValue = useMemo(
         (): AppContextValue => ({
@@ -6191,6 +6217,7 @@ export function useConfig() {
         createSkill: config.createSkill,
         importPlugin: config.importPlugin,
         importSkillMarkdown: config.importSkillMarkdown,
+        importSkillBatch: config.importSkillBatch,
         exportSkillMarkdown: config.exportSkillMarkdown,
         pluginActions: config.pluginActions,
         pluginTools: config.pluginTools,

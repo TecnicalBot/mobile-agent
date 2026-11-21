@@ -136,6 +136,7 @@ beforeEach(() => {
 describe("renderSegments", () => {
   it("renders short timelines as one job with no segment args", async () => {
     const out = await renderSegments({
+      conversationId: "chat-short",
       contractDuration: 20,
       documentHtml: DOC,
       sourceFileId: "src-1",
@@ -144,7 +145,7 @@ describe("renderSegments", () => {
     expect(mocks.requestVideoRender).toHaveBeenCalledTimes(1);
     expect(mocks.requestVideoRender).toHaveBeenCalledWith(
       DOC,
-      expect.objectContaining({ segment: undefined }),
+      expect.objectContaining({ segment: undefined, conversationId: "chat-short" }),
     );
     expect(mocks.concatSegments).not.toHaveBeenCalled();
     expect(out.uri).toBe("file:///cache/job-seg-0.mp4");
@@ -161,6 +162,7 @@ describe("renderSegments", () => {
   it("splits long timelines into 45 s jobs and concatenates", async () => {
     const progress: number[] = [];
     const out = await renderSegments({
+      conversationId: "chat-long",
       contractDuration: 65,
       documentHtml: DOC,
       sourceFileId: "src-2",
@@ -168,6 +170,9 @@ describe("renderSegments", () => {
     });
 
     expect(mocks.requestVideoRender).toHaveBeenCalledTimes(2);
+    for (const [, options] of mocks.requestVideoRender.mock.calls) {
+      expect(options.conversationId).toBe("chat-long");
+    }
     const segments = mocks.requestVideoRender.mock.calls.map(
       (call) => (call[1] as { segment: { offset: number; length: number } }).segment,
     );
@@ -512,12 +517,16 @@ describe("shot-aware incremental rendering", () => {
   it("re-encodes only the edited shot and reuses the other segment", async () => {
     mocks.probeVideoPlan.mockResolvedValue(plan("a1", "b1"));
     const first = await renderSegments({
+      conversationId: "chat-shots",
       contractDuration: 20,
       documentHtml: SHOT_DOC,
       sourceFileId: "ignored",
     });
 
     expect(mocks.requestVideoRender).toHaveBeenCalledTimes(2);
+    for (const [, options] of mocks.requestVideoRender.mock.calls) {
+      expect(options.conversationId).toBe("chat-shots");
+    }
     expect(mocks.concatSegments).toHaveBeenCalledTimes(1);
     expect(first.incremental).toEqual({
       shots: 2,

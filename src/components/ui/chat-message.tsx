@@ -174,7 +174,7 @@ import { createDrizzleDb } from "@/core/db/repositories/shared";
 import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import { buildPreviewDocument } from "@/modules/preview/html-document";
 import {
-  getVideoRenderStatus,
+  getVideoRenderStatusForConversation,
   subscribeVideoRenderStatus,
 } from "@/modules/preview/video-render";
 import { getVideoPoster, toPlayableFileUri } from "@/modules/preview/video-poster";
@@ -362,14 +362,20 @@ const MarkdownContainerWidthContext = createContext(0);
  * re-render this row, not the whole message.
  */
 const StreamingIndicator = memo(function StreamingIndicator({
+  conversationId,
   idle,
 }: {
+  conversationId: string;
   idle: ReactNode;
 }) {
+  const getStatus = useCallback(
+    () => getVideoRenderStatusForConversation(conversationId),
+    [conversationId],
+  );
   const status = useSyncExternalStore(
     subscribeVideoRenderStatus,
-    getVideoRenderStatus,
-    getVideoRenderStatus,
+    getStatus,
+    getStatus,
   );
 
   if (!status) {
@@ -2225,7 +2231,10 @@ const ChatMessageContent = memo(function ChatMessageContent({
                     </View>
                   ) : null}
                   {message.status === "streaming" && !hasRunningTermuxRun ? (
-                    <StreamingIndicator idle={STREAMING_IDLE_ELEMENT} />
+                    <StreamingIndicator
+                      conversationId={message.conversationId}
+                      idle={STREAMING_IDLE_ELEMENT}
+                    />
                   ) : null}
                 </View>
               </MarkdownContainerWidthContext.Provider>

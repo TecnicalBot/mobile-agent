@@ -2,6 +2,8 @@ import type { WorkspaceRepository } from "@/core/db/database";
 import type { ToolExecutionRecord } from "@/core/types/app-state";
 
 export type WorkspaceToolFactoryParams = {
+  /** Owning chat, captured when the run creates its tools (not the visible chat). */
+  conversationId?: string;
   onProgress?: (progress: {
     bytesWritten: number;
     totalBytes: number;

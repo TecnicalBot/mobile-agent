@@ -304,11 +304,16 @@ export function VideoRenderHost() {
           const percent = Math.floor(cappedVisible * 1000) / 10;
           if (percent !== lastPercentRef.current) {
             lastPercentRef.current = percent;
-            setVideoRenderStatus({ finishing: false, progress: cappedVisible });
+            setVideoRenderStatus({
+              conversationId: job.conversationId,
+              finishing: false,
+              progress: cappedVisible,
+            });
           }
         },
         onFinishing: () =>
           setVideoRenderStatus({
+            conversationId: job.conversationId,
             finishing: true,
             progress: Math.min(0.99, (job.progressBase ?? 0) + (job.progressSpan ?? 1)),
           }),
@@ -341,6 +346,7 @@ export function VideoRenderHost() {
 
       openSceneDocument(job);
       setVideoRenderStatus({
+        conversationId: job.conversationId,
         finishing: false,
         progress: job.progressBase ?? 0,
       });

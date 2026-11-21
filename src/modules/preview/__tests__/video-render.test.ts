@@ -1,11 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   hasVideoRenderHost,
+  getVideoRenderStatus,
+  getVideoRenderStatusForConversation,
   normalizeVideoPlan,
   probeVideoPlan,
   requestVideoRender,
+  setVideoRenderStatus,
   subscribeVideoRender,
+  subscribeVideoRenderStatus,
   type VideoJob,
 } from "@/modules/preview/video-render";
 
@@ -43,6 +48,19 @@ describe("requestVideoRender", () => {
     unsubscribe();
   });
 
+  it("keeps the owning conversation on the queued job", async () => {
+    const unsubscribe = subscribeVideoRender((job) => {
+      if (job.kind !== "render") throw new Error("expected a render job");
+      expect(job.conversationId).toBe("chat-a");
+      job.resolve({ uri: "file:///cache/v.mp4", sizeBytes: 42, hasAudio: false, audioWarnings: [] });
+    });
+    try {
+      await requestVideoRender(CONTRACT_HTML, { conversationId: "chat-a" });
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("rejects immediately when the signal is already aborted", async () => {
     const unsubscribe = subscribeVideoRender(() => {});
     const controller = new AbortController();
@@ -64,6 +82,57 @@ describe("requestVideoRender", () => {
       /only available on Android/,
     );
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("conversation-scoped video progress", () => {
+  afterEach(() => setVideoRenderStatus(null));
+
+  it("shows progress only in the owning chat while preserving the global lock", () => {
+    const status = { conversationId: "chat-a", progress: 0.42, finishing: false };
+    setVideoRenderStatus(status);
+    expect(getVideoRenderStatusForConversation("chat-a")).toBe(status);
+    expect(getVideoRenderStatusForConversation("chat-b")).toBeNull();
+    expect(getVideoRenderStatus()).toBe(status);
+
+    setVideoRenderStatus({ ...status, progress: 0.99, finishing: true });
+    expect(getVideoRenderStatusForConversation("chat-a")?.finishing).toBe(true);
+    expect(getVideoRenderStatusForConversation("chat-b")).toBeNull();
+    setVideoRenderStatus(null);
+    expect(getVideoRenderStatusForConversation("chat-a")).toBeNull();
+  });
+
+  it("does not attribute a manual or bridge export to any chat", () => {
+    setVideoRenderStatus({ progress: 0.5, finishing: false });
+    expect(getVideoRenderStatus()).not.toBeNull();
+    expect(getVideoRenderStatusForConversation("chat-a")).toBeNull();
+    expect(getVideoRenderStatusForConversation("chat-b")).toBeNull();
+  });
+
+  it("notifies subscribers as ownership changes between queued chats", () => {
+    const observed: (number | undefined)[] = [];
+    const unsubscribe = subscribeVideoRenderStatus(() => {
+      observed.push(getVideoRenderStatusForConversation("chat-b")?.progress);
+    });
+    try {
+      setVideoRenderStatus({ conversationId: "chat-a", progress: 0.5, finishing: false });
+      setVideoRenderStatus(null);
+      setVideoRenderStatus({ conversationId: "chat-b", progress: 0, finishing: false });
+      setVideoRenderStatus({ conversationId: "chat-b", progress: 0.25, finishing: false });
+      setVideoRenderStatus(null);
+      expect(observed).toEqual([undefined, undefined, 0, 0.25, undefined]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("scopes streaming rows to their message's chat instead of the visible chat", () => {
+    const source = readFileSync(
+      new URL("../../../components/ui/chat-message.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("conversationId={message.conversationId}");
+    expect(source).toContain("getVideoRenderStatusForConversation(conversationId)");
   });
 });
 

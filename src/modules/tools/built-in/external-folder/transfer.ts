@@ -137,13 +137,14 @@ export function createTransferTools(params: TransferToolFactoryParams) {
         try {
           const sourceName =
             path.split("/").filter(Boolean).pop() ?? "imported-file";
-          const { bytes, mimeType } = await folderService.readBytesFile(
-            params.session,
-            path,
-          );
-          const imported = await workspaceService.importBytesFile({
-            bytes,
-            mimeType,
+          const source = folderService.getFile(params.session, path);
+          // Use the same native copy as direct chat attachments. Reading all
+          // bytes first duplicates large media in the JS/native heaps and OOMs.
+          const imported = await workspaceService.importDocument({
+            uri: source.uri,
+            lastModified: source.lastModified ?? Date.now(),
+            mimeType: source.type || undefined,
+            size: source.size,
             name: destinationName || sourceName,
           });
 

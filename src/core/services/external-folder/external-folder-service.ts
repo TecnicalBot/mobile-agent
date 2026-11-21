@@ -302,6 +302,10 @@ export function createExternalFolderService() {
 
       return typeof maxChars === "number" ? text.slice(0, maxChars) : text;
     },
+    /** Resolve within the grant without allocating the file's contents. */
+    getFile(session: ExternalFolderSession, path: string) {
+      return resolveFile(session, path);
+    },
     async readBytesFile(session: ExternalFolderSession, path: string) {
       const file = resolveFile(session, path);
 

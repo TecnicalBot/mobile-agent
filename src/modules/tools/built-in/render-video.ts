@@ -40,6 +40,7 @@ export type { SegmentRenderResult };
  * just hands the document over and waits for the encoded file.
  */
 export function createRenderVideoTool({
+  conversationId,
   onProgress,
   onRecord,
   repository,
@@ -143,6 +144,7 @@ export function createRenderVideoTool({
 
         const result = await renderSegments({
           abortSignal,
+          conversationId,
           contractDuration,
           documentHtml,
           onProgress,

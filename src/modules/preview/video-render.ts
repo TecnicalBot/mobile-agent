@@ -61,6 +61,7 @@ export type VideoRenderPlan = {
 export type VideoRenderJob = {
   kind: "render";
   id: string;
+  conversationId?: string;
   html: string;
   signal?: AbortSignal;
   onProgress?: (progress: number) => void;
@@ -108,6 +109,8 @@ let jobCounter = 0;
 
 /** Live progress for the active render, consumed by the in-chat indicator. */
 export type VideoRenderStatus = {
+  /** Absent for manual/bridge exports, which must not label an arbitrary chat. */
+  conversationId?: string;
   /** 0–1 recording progress. */
   progress: number;
   /** True once frames are done and the file is being finalized. */
@@ -119,6 +122,12 @@ const statusListeners = new Set<() => void>();
 
 export function getVideoRenderStatus(): VideoRenderStatus | null {
   return activeStatus;
+}
+
+export function getVideoRenderStatusForConversation(
+  conversationId: string,
+): VideoRenderStatus | null {
+  return activeStatus?.conversationId === conversationId ? activeStatus : null;
 }
 
 export function subscribeVideoRenderStatus(listener: () => void): () => void {
@@ -211,6 +220,7 @@ export function normalizeVideoPlan(value: unknown): VideoRenderPlan | null {
 export function requestVideoRender(
   html: string,
   options: {
+    conversationId?: string;
     signal?: AbortSignal;
     onProgress?: (progress: number) => void;
     segment?: { offset: number; length: number };
@@ -249,6 +259,7 @@ export function requestVideoRender(
     const job: VideoRenderJob = {
       kind: "render",
       id: `video-render-${++jobCounter}`,
+      conversationId: options.conversationId,
       html,
       onProgress: options.onProgress,
       signal: options.signal,

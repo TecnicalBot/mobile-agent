@@ -53,6 +53,7 @@ function makeTool() {
     audioWarnings: [],
   });
   return createRenderVideoTool({
+    conversationId: "chat-a",
     repository: {} as never,
     onRecord: mocks.onRecord,
   });
@@ -89,6 +90,10 @@ describe("renderVideo source persistence", () => {
       sourceFileId: "source-1",
       sourceLink: "workspace://source-1",
     });
+    expect(mocks.requestVideoRender).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ conversationId: "chat-a" }),
+    );
   });
 
   it("still saves the source when the duration check fails", async () => {

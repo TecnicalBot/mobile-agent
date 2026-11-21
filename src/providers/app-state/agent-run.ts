@@ -1581,6 +1581,7 @@ export async function executeClaimedAgentRun(
             );
 
             const workspaceDiscoveryTools = createWorkspaceTools({
+              conversationId: run.conversationId,
               repository: repositories.workspaceRepository,
               onRecord: handleToolExecutionRecord,
               // Without this, long renders in folder chats never reset the
@@ -1612,6 +1613,7 @@ export async function executeClaimedAgentRun(
             );
           } else {
             const workspaceTools = createWorkspaceTools({
+              conversationId: run.conversationId,
               repository: repositories.workspaceRepository,
               session: activeFolderSession,
               onRecord: handleToolExecutionRecord,

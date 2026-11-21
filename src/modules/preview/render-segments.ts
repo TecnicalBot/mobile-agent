@@ -264,6 +264,7 @@ export function planShotSegments(
  */
 export async function renderSegments(options: {
   abortSignal?: AbortSignal;
+  conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
@@ -295,6 +296,7 @@ export async function renderSegments(options: {
     if (plan && plan.shots.length > 0) {
       return renderPlannedTimeline({
         abortSignal,
+        conversationId: options.conversationId,
         documentHtml,
         onProgress,
         plan,
@@ -304,6 +306,7 @@ export async function renderSegments(options: {
 
   return renderLegacyTimeline({
     abortSignal,
+    conversationId: options.conversationId,
     contractDuration,
     documentHtml,
     onProgress,
@@ -313,6 +316,7 @@ export async function renderSegments(options: {
 
 async function renderLegacyTimeline(options: {
   abortSignal?: AbortSignal;
+  conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
@@ -332,6 +336,7 @@ async function renderLegacyTimeline(options: {
     pinnedEncoder?: string,
   ) => {
     return requestVideoRender(documentHtml, {
+      conversationId: options.conversationId,
       signal: abortSignal,
       onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
       segment: segment,
@@ -518,6 +523,7 @@ async function renderLegacyTimeline(options: {
  */
 async function renderPlannedTimeline(options: {
   abortSignal?: AbortSignal;
+  conversationId?: string;
   documentHtml: string;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
   plan: VideoRenderPlan;
@@ -554,6 +560,7 @@ async function renderPlannedTimeline(options: {
     pinnedEncoder?: string,
   ) =>
     requestVideoRender(documentHtml, {
+      conversationId: options.conversationId,
       signal: abortSignal,
       onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
       segment,

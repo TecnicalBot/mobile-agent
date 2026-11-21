@@ -581,6 +581,7 @@ export default function Screen() {
           !harness.active && message.id === latestUserMessageId && !currentConversationBusy
         }
         message={message}
+        runStatus={currentConversationRunStatus}
         showFooter={assistantResponseFooters.has(message.id)}
         speechContent={message.status === "streaming" ? undefined : assistantResponseFooters.get(message.id)}
         onEditMessage={handleEditMessage}
@@ -595,6 +596,7 @@ export default function Screen() {
     [
       harness.active,
       currentConversationBusy,
+      currentConversationRunStatus,
       handleEditMessage,
       handleRegenerate,
       handleSavePrompt,

@@ -228,6 +228,39 @@ describe("Antigravity transcript updates", () => {
     expect(assistant.metadata?.toolRunAnchors).toHaveLength(1);
   });
 
+  it("closes reasoning when a tool starts so it does not keep thinking", () => {
+    let state = createAntigravitySessionState({
+      result: sessionResult(),
+      cwd: "/tmp/project",
+    });
+    state = beginAntigravityTurn(state, "Inspect this");
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "Let me look." },
+    });
+    expect(state.messages[1].metadata?.reasoning?.[0].completedAt).toBeNull();
+
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tool-1",
+      title: "Read file",
+      status: "in_progress",
+    });
+    expect(state.messages[1].metadata?.reasoning?.[0].completedAt).toBeTruthy();
+
+    // A later status update must not close a newer thought.
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "Now checking the result." },
+    });
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-1",
+      status: "completed",
+    });
+    expect(state.messages[1].metadata?.reasoning?.[1].completedAt).toBeNull();
+  });
+
   it("keeps a detached turn in one assistant message", () => {
     let state = createAntigravitySessionState({
       result: sessionResult(),

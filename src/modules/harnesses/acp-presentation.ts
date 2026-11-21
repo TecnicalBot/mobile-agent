@@ -235,6 +235,12 @@ function updateToolExecution(
   const existing = (current.metadata?.toolExecutions ?? []).find(
     (execution) => execution.id === executionID,
   );
+  // A new tool ends the preceding thought. A background tool's later update
+  // must not close a newer reasoning phase.
+  const toolState =
+    phase === "call" || !existing
+      ? closeOpenReasoning(assistant.state, createdAt)
+      : assistant.state;
   const contentParts = tool.content ? toolContentParts(tool.content) : [];
   // An empty update must not erase output from an earlier notification.
   const content = contentParts.length ? contentParts : null;
@@ -306,7 +312,7 @@ function updateToolExecution(
         ...(current.metadata?.toolRunAnchors ?? []),
         { executionId: executionID, textOffset: current.content.length },
       ];
-  const next = replaceMessage(assistant.state, messageID, (message) => ({
+  const next = replaceMessage(toolState, messageID, (message) => ({
     ...message,
     metadata: {
       ...message.metadata,

@@ -1,5 +1,5 @@
 import type { LanguageModelUsage, ModelMessage, ToolSet } from "ai";
-import { updateReasoningPhase } from "@/modules/runtime/reasoning-stream";
+import { closeReasoningPhases, updateReasoningPhase } from "@/modules/runtime/reasoning-stream";
 import type { RefObject } from "react";
 
 import {
@@ -1324,6 +1324,7 @@ export async function executeClaimedAgentRun(
 
   const handleToolExecutionRecord = (record: ToolExecutionRecord) => {
     if (runRegistry.isDisposed()) return;
+    if (record.status === "running") closeReasoningPhases(activeReasoning);
 
     // A generic "Running X" row is published when the SDK starts a tool call.
     // Correlate the tool's own completion with it so the row updates in place
@@ -2863,6 +2864,7 @@ export async function executeClaimedAgentRun(
       onDelta: (delta) => {
         if (runRegistry.isDisposed()) return;
         markActivity();
+        closeReasoningPhases(activeReasoning);
         assistantText += delta;
         void pluginSnapshot?.dispatch("message:delta", {
           conversationId: run.conversationId,
@@ -2875,6 +2877,15 @@ export async function executeClaimedAgentRun(
       onEvent: (eventName, data) => {
         if (runRegistry.isDisposed()) return;
         markActivity();
+
+        if (
+          eventName === "tool-input-start" ||
+          eventName === "tool-execution-start" ||
+          eventName === "text-start" ||
+          eventName === "step-end"
+        ) {
+          if (closeReasoningPhases(activeReasoning)) refreshAssistantState?.();
+        }
 
         // The SDK fires this before invoking tool.execute. Publish a live
         // "Running X" trace row immediately so a long or stuck tool call is

@@ -36,7 +36,7 @@ export const Loading = forwardRef<
       iconClassName,
       size = 16,
       color,
-      label = "Thinking",
+      label = "Waiting for response…",
       ...props
     },
     ref,

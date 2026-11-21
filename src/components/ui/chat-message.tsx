@@ -138,6 +138,12 @@ import {
 import { hasLegacyToolResource } from "@/modules/chat/tool-resource";
 import { parseToolSummary } from "@/modules/chat/tool-summary";
 import { buildAssistantParts } from "@/modules/chat/assistant-parts";
+import {
+  groupAssistantParts,
+  toolTraceGroupTitle,
+  type ToolAssistantPart,
+} from "@/modules/chat/tool-trace-groups";
+import { getMessageActivity, type MessageActivity } from "@/modules/chat/message-activity";
 import { splitSpeechText } from "@/modules/chat/assistant-response";
 import {
   isTextWorkspaceFile,
@@ -145,6 +151,7 @@ import {
   resolveWorkspaceFile,
 } from "@/core/services/workspace-file-service";
 import type {
+  AgentRunStatus,
   GeneratedImageAttachment,
   ReasoningBlock,
   StoredMessage,
@@ -216,6 +223,7 @@ type ChatMessageProps = {
   showFooter?: boolean;
   speechContent?: string;
   message: StoredMessage;
+  runStatus?: AgentRunStatus | null;
   onEditMessage?: (content: string) => void;
   onOpenConversation?: (conversationId: string) => void;
   onRegenerate?: (instruction: string) => void;
@@ -356,17 +364,17 @@ const ChatMediaContext = createContext<{
 const MarkdownContainerWidthContext = createContext(0);
 
 /**
- * The trailing indicator for a streaming message. It renders the idle spinner
- * by default and swaps to a live "Rendering video…" label while the app-level
+ * The trailing indicator only labels known work or a neutral waiting phase.
+ * Swaps to a live "Rendering video…" label while the app-level
  * render host is recording — subscribed in isolation so progress ticks only
  * re-render this row, not the whole message.
  */
 const StreamingIndicator = memo(function StreamingIndicator({
   conversationId,
-  idle,
+  activity,
 }: {
   conversationId: string;
-  idle: ReactNode;
+  activity: MessageActivity;
 }) {
   const getStatus = useCallback(
     () => getVideoRenderStatusForConversation(conversationId),
@@ -378,23 +386,19 @@ const StreamingIndicator = memo(function StreamingIndicator({
     getStatus,
   );
 
-  if (!status) {
-    return <>{idle}</>;
+  if (status) {
+    return (
+      <Loading
+        label={
+          status.finishing
+            ? "Finalizing video"
+            : `Rendering video ${Math.round(status.progress * 100)}%`
+        }
+      />
+    );
   }
-
-  return (
-    <Loading
-      label={
-        status.finishing
-          ? "Finalizing video"
-          : `Rendering video ${Math.round(status.progress * 100)}%`
-      }
-    />
-  );
+  return activity.kind === "waiting" ? <Loading label={activity.label} /> : null;
 });
-
-// Hoisted so the streaming row doesn't allocate a fresh element per token.
-const STREAMING_IDLE_ELEMENT = <Loading />;
 
 function MarkdownImage({ alt, uri }: { alt: string; uri: string }) {
   const { onPreviewImage, workspaceFiles } = useContext(ChatMediaContext);
@@ -1415,6 +1419,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
   showFooter = true,
   speechContent,
   message,
+  runStatus,
   onEditMessage,
   onOpenConversation,
   onRegenerate,
@@ -1837,12 +1842,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
   const todoActive =
     message.status === "streaming" &&
     todoList.some((task) => task.status === "in_progress");
-  const termuxRuns = (message.metadata?.toolExecutions ?? []).filter(
-    (execution) => Boolean(execution.termux),
-  );
-  const hasRunningTermuxRun = termuxRuns.some(
-    (run) => run.status === "running" && message.status === "streaming",
-  );
+  const activity = getMessageActivity(message, runStatus);
   const pluginOutputs = message.metadata?.pluginOutputs ?? [];
   const toolExecutions = message.metadata?.toolExecutions ?? [];
   // Elapsed-time labels for the trace rows' `TraceDescription` — the number
@@ -1867,6 +1867,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
     }
   });
   const assistantParts = buildAssistantParts(message.content, message.metadata);
+  const groupedParts = groupAssistantParts(assistantParts);
   const generatedImages = message.metadata?.generatedImages ?? [];
   const generatedVideos = message.metadata?.generatedVideos ?? [];
   // Videos the model already embedded inline with `![name](workspace://id)`
@@ -1888,6 +1889,37 @@ const ChatMessageContent = memo(function ChatMessageContent({
       : memoryEvents.length === 1
         ? getMemoryEventLabel(memoryEvents[0].kind)
         : `${memoryEvents.length} memory updates`;
+
+  const setTraceExpanded = (key: string, open: boolean) => {
+    setExpandedToolRunIds((current) => {
+      const next = new Map(current);
+      next.set(key, open);
+      return next;
+    });
+  };
+  const renderToolPart = (part: ToolAssistantPart) => {
+    const record = part.record;
+    const key = record.id ?? part.key;
+    return record.termux ? (
+      <TermuxRunCard
+        key={part.key}
+        command={record.termux.command}
+        output={record.termux.output}
+        taskId={record.termux.taskId}
+        running={record.status === "running" && message.status === "streaming"}
+      />
+    ) : (
+      <ToolTraceRow
+        key={part.key}
+        record={record}
+        streaming={message.status === "streaming"}
+        expanded={expandedToolRunIds.get(key)}
+        gapLabel={stepGapLabels.get(record.id ?? record.createdAt)}
+        onOpenConversation={onOpenConversation}
+        onExpandedChange={(open) => setTraceExpanded(key, open)}
+      />
+    );
+  };
 
   return (
     <Message align={align}>
@@ -2099,7 +2131,7 @@ const ChatMessageContent = memo(function ChatMessageContent({
                     </Trace>
                   ) : null}
 
-                  {assistantParts.map((part) => {
+                  {groupedParts.map((part) => {
                     if (part.kind === "text") {
                       return part.text.trim() ? (
                         <MarkdownContent
@@ -2116,37 +2148,23 @@ const ChatMessageContent = memo(function ChatMessageContent({
                         <ReasoningTraceRow
                           key={`${message.id}-${part.key}`}
                           block={part.block}
-                          streaming={message.status === "streaming"}
+                          active={activity.kind === "reasoning" && activity.reasoningId === part.block.id}
                         />
                       );
                     }
-                    const record = part.record;
-                    const key = record.id ?? part.key;
-                    return record.termux ? (
-                      <TermuxRunCard
-                        key={part.key}
-                        command={record.termux.command}
-                        output={record.termux.output}
-                        taskId={record.termux.taskId}
-                        running={record.status === "running" && message.status === "streaming"}
-                      />
-                    ) : (
-                      <ToolTraceRow
-                        key={part.key}
-                        record={record}
-                        streaming={message.status === "streaming"}
-                        expanded={expandedToolRunIds.get(key)}
-                        gapLabel={stepGapLabels.get(record.id ?? record.createdAt)}
-                        onOpenConversation={onOpenConversation}
-                        onExpandedChange={(open) => {
-                          setExpandedToolRunIds((current) => {
-                            const next = new Map(current);
-                            next.set(key, open);
-                            return next;
-                          });
-                        }}
-                      />
-                    );
+                    if (part.kind === "tool-group") {
+                      return (
+                        <ToolTraceGroupRow
+                          key={part.key}
+                          parts={part.parts}
+                          expanded={expandedToolRunIds.get(part.key) ?? false}
+                          onExpandedChange={(open) => setTraceExpanded(part.key, open)}
+                        >
+                          {part.parts.map(renderToolPart)}
+                        </ToolTraceGroupRow>
+                      );
+                    }
+                    return renderToolPart(part);
                   })}
                   {pluginOutputs.length > 0 ? (
                     <View className="gap-sp-2">
@@ -2230,10 +2248,10 @@ const ChatMessageContent = memo(function ChatMessageContent({
                       ))}
                     </View>
                   ) : null}
-                  {message.status === "streaming" && !hasRunningTermuxRun ? (
+                  {message.status === "streaming" ? (
                     <StreamingIndicator
                       conversationId={message.conversationId}
-                      idle={STREAMING_IDLE_ELEMENT}
+                      activity={activity}
                     />
                   ) : null}
                 </View>
@@ -2693,23 +2711,66 @@ function TermuxRunCard({
 
 // —─── Tool trace rows (shadcn `Trace` pattern) ─────────────────────────────
 
-function ReasoningTraceRow({ block, streaming }: { block: ReasoningBlock; streaming: boolean }) {
+function ReasoningTraceRow({ block, active }: { block: ReasoningBlock; active: boolean }) {
   const theme = useTheme();
   const [open, setOpen] = useState<boolean>();
-  const running = streaming && block.completedAt === null;
+  const running = active;
   return (
     <Trace>
       <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
         <TraceCollapsibleTrigger>
-          <TraceLine status={running ? "running" : undefined}>
-            <TraceIcon><Brain color={theme.textSecondary} size={16} /></TraceIcon>
+          <TraceLine>
+            {running ? <Loading label="Thinking…" /> : (
+              <>
+                <TraceIcon><Brain color={theme.textSecondary} size={16} /></TraceIcon>
+                <TraceTitle className="text-muted-foreground dark:text-muted-foreground-dark">
+                  {block.completedAt ? `Thought for ${formatReasoningDuration([block])}` : "Thought"}
+                </TraceTitle>
+              </>
+            )}
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        {block.text || !running ? (
+          <TraceCollapsibleContent>
+            <Text selectable className="ml-sp-2 border-l border-border pl-sp-3 font-sans text-sm text-muted-foreground dark:border-border-dark dark:text-muted-foreground-dark">{block.text || "No reasoning text was recorded for this step."}</Text>
+          </TraceCollapsibleContent>
+        ) : null}
+      </TraceCollapsible>
+    </Trace>
+  );
+}
+
+function ToolTraceGroupRow({
+  parts,
+  expanded,
+  onExpandedChange,
+  children,
+}: {
+  parts: ToolAssistantPart[];
+  expanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const theme = useTheme();
+  const Icon = toolTraceIcon(parts[0].record.toolName);
+  return (
+    <Trace>
+      <TraceCollapsible open={expanded} onOpenChange={onExpandedChange}>
+        <TraceCollapsibleTrigger>
+          <TraceLine>
+            <TraceIcon>
+              {/* eslint-disable-next-line react-hooks/static-components -- stable module-level lucide icon */}
+              <Icon color={theme.textSecondary} size={16} />
+            </TraceIcon>
             <TraceTitle className="text-muted-foreground dark:text-muted-foreground-dark">
-              {running ? "Thinking…" : `Thought for ${formatReasoningDuration([block])}`}
+              {toolTraceGroupTitle(parts)}
             </TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent>
-          <Text selectable className="ml-sp-2 border-l border-border pl-sp-3 font-sans text-sm text-muted-foreground dark:border-border-dark dark:text-muted-foreground-dark">{block.text || (running ? "Thinking…" : "No reasoning text was recorded for this step.")}</Text>
+        <TraceCollapsibleContent keepMounted>
+          <View className="ml-sp-2 gap-sp-1.5 border-l border-border pl-sp-3 dark:border-border-dark">
+            {children}
+          </View>
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>

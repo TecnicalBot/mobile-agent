@@ -1,5 +1,20 @@
 import type { ReasoningBlock } from "@/core/types/app-state";
 
+/** Some providers omit reasoning-end before switching to text or tools. */
+export function closeReasoningPhases(
+  active: Map<string, ReasoningBlock>,
+  now = new Date().toISOString(),
+) {
+  let changed = false;
+  for (const block of active.values()) {
+    if (block.completedAt === null) {
+      block.completedAt = now;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** Providers may reuse a reasoning ID on every model/tool step. */
 export function updateReasoningPhase(
   blocks: ReasoningBlock[],
@@ -23,6 +38,6 @@ export function updateReasoningPhase(
     active.set(event.id, block);
   }
   if (event.kind === "reasoning-delta" && typeof event.text === "string") block.text += event.text;
-  if (event.kind === "reasoning-end") block.completedAt = now;
+  if (event.kind === "reasoning-end") block.completedAt ??= now;
   return block;
 }

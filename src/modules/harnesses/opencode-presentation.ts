@@ -187,18 +187,19 @@ export function presentOpenCodeMessages(
     else
       message.content.forEach((part, index) => {
         if (part.type === "text") content += part.text;
-        else if (part.type === "reasoning")
+        else if (part.type === "reasoning") {
+          const completedAt = part.time?.completed ?? message.time.completed;
           reasoning.push({
             id: `${storedMessageID}:reasoning:${index}`,
             text: part.text,
             textOffset: content.length,
             traceOrder: index,
-            startedAt: createdAt,
-            completedAt: part.time?.completed
-              ? new Date(part.time.completed).toISOString()
+            startedAt: new Date(part.time?.created ?? message.time.created).toISOString(),
+            completedAt: completedAt !== undefined
+              ? new Date(completedAt).toISOString()
               : null,
           });
-        else {
+        } else {
           const state = part.state;
           toolRunAnchors.push({
             executionId: part.id,

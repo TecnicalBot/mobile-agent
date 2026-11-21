@@ -379,6 +379,30 @@
       "transport": "http",
       "authMode": "oauth",
       "oauthMode": "proxy"
+    },
+    {
+      "id": "deepwiki",
+      "label": "DeepWiki",
+      "description": "Read documentation and ask questions about public GitHub repositories without signing in.",
+      "url": "https://mcp.deepwiki.com/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "openai-developer-docs",
+      "label": "OpenAI Developer Docs",
+      "description": "Search and read official OpenAI API, ChatGPT, and Codex documentation. Documentation only; does not call models.",
+      "url": "https://developers.openai.com/mcp",
+      "transport": "http",
+      "authMode": "none"
+    },
+    {
+      "id": "aws-knowledge",
+      "label": "AWS Knowledge",
+      "description": "Search official AWS documentation, code examples, architecture guidance, and regional service availability.",
+      "url": "https://knowledge-mcp.global.api.aws",
+      "transport": "http",
+      "authMode": "none"
     }
   ]
 }

@@ -131,6 +131,80 @@ describe("fetchSkillFiles (non-GitHub source)", () => {
 });
 
 describe("fetchSkillFiles extraFiles", () => {
+  it("discovers more than 20 references from a single explicit entry point", async () => {
+    const dir = "skills/foo";
+    const references = Array.from({ length: 34 }, (_, i) => ({
+      name: `rule-${i}.md`,
+      path: `${dir}/references/rule-${i}.md`,
+      type: "file",
+    }));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) {
+          const entries = url.includes("/references?")
+            ? references
+            : [
+                { name: "SKILL.md", path: `${dir}/SKILL.md`, type: "file" },
+                { name: "references", path: `${dir}/references`, type: "dir" },
+              ];
+
+          return Response.json(entries);
+        }
+
+        return new Response("# Rule", {
+          headers: { "Content-Type": "text/markdown" },
+        });
+      }),
+    );
+
+    const files = await fetchSkillFiles({
+      sourceUrl: `https://raw.githubusercontent.com/acme/repo/main/${dir}/SKILL.md`,
+      extraFiles: [
+        `https://raw.githubusercontent.com/acme/repo/main/${references[0].path}`,
+      ],
+    });
+
+    const importedReferences = files.filter((file) =>
+      file.path.startsWith(`${dir}/references/`),
+    );
+
+    expect(importedReferences.map((file) => file.path).sort()).toEqual(
+      references.map((file) => file.path).sort(),
+    );
+  });
+
+  it("fetches explicit extras when GitHub directory discovery is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) {
+          return new Response("", { status: 403 });
+        }
+
+        return new Response("# Guide", {
+          headers: { "Content-Type": "text/markdown" },
+        });
+      }),
+    );
+
+    const files = await fetchSkillFiles({
+      sourceUrl:
+        "https://raw.githubusercontent.com/acme/repo/main/skills/foo/SKILL.md",
+      extraFiles: [
+        "https://raw.githubusercontent.com/acme/repo/main/skills/foo/references/guide.md",
+      ],
+    });
+
+    expect(files).toEqual([
+      expect.objectContaining({
+        path: "skills/foo/references/guide.md",
+        content: "# Guide",
+      }),
+    ]);
+  });
+
   it("merges extra file URLs into a GitHub skill", async () => {
     vi.stubGlobal(
       "fetch",

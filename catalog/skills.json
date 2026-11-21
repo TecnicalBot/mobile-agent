@@ -374,6 +374,70 @@
       "source": "TecnicalBot/mobile-agent",
       "sourceUrl": "https://github.com/TecnicalBot/mobile-agent/tree/main/skills/html-video",
       "extraFiles": []
+    },
+    {
+      "id": "frontend-design",
+      "label": "frontend-design",
+      "description": "Create distinctive websites, interfaces, and interactive HTML with intentional typography, color, layout, and motion.",
+      "url": "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md",
+      "author": "Anthropic",
+      "source": "anthropics/skills",
+      "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/frontend-design",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "web-design-guidelines",
+      "label": "web-design-guidelines",
+      "description": "Review web interfaces for accessibility, usability, interaction, and visual design issues using Vercel's Web Interface Guidelines.",
+      "url": "https://raw.githubusercontent.com/vercel-labs/agent-skills/main/skills/web-design-guidelines/SKILL.md",
+      "author": "Vercel",
+      "source": "vercel-labs/agent-skills",
+      "sourceUrl": "https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/vercel-labs/agent-skills/main/skills/web-design-guidelines/references/command.md"
+      ]
+    },
+    {
+      "id": "doc-coauthoring",
+      "label": "doc-coauthoring",
+      "description": "Co-author proposals, specifications, decision documents, and guides through context gathering, iterative drafting, and reader testing.",
+      "url": "https://raw.githubusercontent.com/anthropics/skills/main/skills/doc-coauthoring/SKILL.md",
+      "author": "Anthropic",
+      "source": "anthropics/skills",
+      "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/doc-coauthoring",
+      "extraFiles": []
+    },
+    {
+      "id": "internal-comms",
+      "label": "internal-comms",
+      "description": "Write status reports, leadership updates, newsletters, FAQs, and incident reports with structured communication templates.",
+      "url": "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/SKILL.md",
+      "author": "Anthropic",
+      "source": "anthropics/skills",
+      "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/internal-comms",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/LICENSE.txt",
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/examples/3p-updates.md",
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/examples/company-newsletter.md",
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/examples/faq-answers.md",
+        "https://raw.githubusercontent.com/anthropics/skills/main/skills/internal-comms/examples/general-comms.md"
+      ]
+    },
+    {
+      "id": "supabase-postgres-best-practices",
+      "label": "supabase-postgres-best-practices",
+      "description": "Design safer Postgres schemas, migrations, indexes, and row-level security policies, and diagnose slow queries with guidance maintained by Supabase.",
+      "url": "https://raw.githubusercontent.com/supabase/agent-skills/main/skills/supabase-postgres-best-practices/SKILL.md",
+      "author": "Supabase",
+      "source": "supabase/agent-skills",
+      "sourceUrl": "https://github.com/supabase/agent-skills/tree/main/skills/supabase-postgres-best-practices",
+      "extraFiles": [
+        "https://raw.githubusercontent.com/supabase/agent-skills/main/skills/supabase-postgres-best-practices/references/_sections.md",
+        "https://raw.githubusercontent.com/supabase/agent-skills/main/skills/supabase-postgres-best-practices/references/query-missing-indexes.md",
+        "https://raw.githubusercontent.com/supabase/agent-skills/main/skills/supabase-postgres-best-practices/references/query-partial-indexes.md"
+      ]
     }
   ]
 }

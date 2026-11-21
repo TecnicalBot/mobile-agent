@@ -171,3 +171,21 @@ Only catalog HTTPS URLs are accepted; credentials are never embedded in
 catalog entries. Keep `extraFiles` in sync with the upstream directory layout
 (references, rules, scripts, agents) so imports match what the source project
 publishes.
+
+### Import compatibility
+
+- Keep the schema `version` at `1` and leave `defaultInstalled` unset for
+  opt-in additions. Both catalogs support at most 100 entries.
+- Match each skill's `label` to its upstream frontmatter `name` and check that
+  its upstream description fits the importer's 1024-character limit.
+- Each catalog entry supports at most 20 explicit `extraFiles`. When a GitHub
+  skill has file references or explicit extras, the importer also discovers
+  supporting files recursively in that skill's directory. Imports are limited
+  to 50 supporting files, 200,000 bytes per file, and 1,000,000 bytes in total.
+- Supabase's Postgres skill uses directory discovery for its full rule set;
+  its three explicitly listed reference files remain available if GitHub's
+  directory API is unavailable. Do not truncate larger skills to fit the
+  limits without checking which instructions or dependencies would be lost.
+- Verify upstream URLs, licenses, required tools, and supporting files before
+  adding a skill. Desktop Python, browser, or CLI dependencies are not
+  automatically available on the phone.

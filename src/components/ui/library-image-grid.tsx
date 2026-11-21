@@ -4,16 +4,15 @@ import { ImageOff } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-import { resolveWorkspaceFile } from "@/core/services/workspace-file-service";
-import type { WorkspaceFile } from "@/core/types/app-state";
+import type { LibraryFile } from "@/modules/files/library-catalog";
 import { useTheme } from "@/hooks/use-theme";
 import { useWorkspaceThumbnail } from "@/hooks/use-workspace-thumbnail";
 
 const FALLBACK_BLURHASH = "LEHV6nWB2yk8pyo0adR*.7kCMdnj";
 
 type GalleryProps = {
-  files: WorkspaceFile[];
-  onOpen: (file: WorkspaceFile) => void;
+  files: LibraryFile[];
+  onOpen: (file: LibraryFile) => void;
 };
 
 export function LibraryImageGrid(props: GalleryProps) {
@@ -27,17 +26,18 @@ export function LibraryImageGrid(props: GalleryProps) {
       contentContainerStyle={{ paddingBottom: 16 }}
       renderItem={({ item, index }) => <ImageTile file={item} index={index} gallery={props} />}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
     />
   );
 }
 
-function ImageTile({ file, index, gallery }: { file: WorkspaceFile; index: number; gallery: GalleryProps }) {
+function ImageTile({ file, index, gallery }: { file: LibraryFile; index: number; gallery: GalleryProps }) {
   return <LoadedImageTile key={`${file.id}:${file.updatedAt}`} file={file} index={index} gallery={gallery} />;
 }
 
-function LoadedImageTile({ file, index, gallery }: { file: WorkspaceFile; index: number; gallery: GalleryProps }) {
+function LoadedImageTile({ file, index, gallery }: { file: LibraryFile; index: number; gallery: GalleryProps }) {
   const theme = useTheme();
-  const uri = resolveWorkspaceFile(file.relativePath).uri;
+  const uri = file.uri;
   const cacheKey = `${file.id}:${file.updatedAt}`;
   // One bounded decode for both aspect ratio and display. The old path
   // decoded a 96px image for measurement, then loaded the original again.

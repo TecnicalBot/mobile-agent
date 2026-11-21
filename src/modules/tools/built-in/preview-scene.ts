@@ -248,6 +248,7 @@ export function createPreviewSceneTool({
         for (const frame of images) {
           const bytes = base64ToBytes(frame.base64);
           const saved = await workspaceService.createDocumentFile({
+            isIntermediate: true,
             bytes,
             mimeType: "image/jpeg",
             name: useSheet ? `${baseName}-contact-sheet.jpg` : `${baseName}-preview-${frame.time}s.jpg`,

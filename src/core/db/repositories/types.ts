@@ -210,6 +210,8 @@ export interface AgentRunRepository {
 }
 
 export interface WorkspaceRepository {
+  /** Capture the owning chat when tools are created, never the currently visible chat. */
+  forConversation?(conversationId: string): WorkspaceRepository;
   create(input: {
     displayName: string;
     id?: string;
@@ -218,6 +220,7 @@ export interface WorkspaceRepository {
     relativePath: string;
     size?: number | null;
     sourceKind: WorkspaceFileSourceKind;
+    isIntermediate?: boolean;
     sourceMarkdown?: string | null;
     /** JSON snapshot of original document styling (docx), captured on import. */
     sourceSpec?: string | null;

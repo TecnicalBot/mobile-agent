@@ -36,6 +36,12 @@ export function createWorkspaceTools(
     session?: ExternalFolderSession | null;
   },
 ) {
+  if (params.conversationId) {
+    params = {
+      ...params,
+      repository: params.repository.forConversation?.(params.conversationId) ?? params.repository,
+    };
+  }
   return {
     tools: {
       analyzeAudio: createAnalyzeAudioTool(params),

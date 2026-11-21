@@ -122,7 +122,7 @@ export function createVideoFrameTool({
           const sheet = await createContactSheet(frames, abortSignal);
           const binary = atob(sheet.base64);
           const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-          const saved = await workspaceService.createDocumentFile({ bytes, mimeType: "image/jpeg", name: `${baseName}-contact-sheet.jpg` });
+          const saved = await workspaceService.createDocumentFile({ isIntermediate: true, bytes, mimeType: "image/jpeg", name: `${baseName}-contact-sheet.jpg` });
           const text = `Contact sheet of "${record.displayName}": ${timestamps.length} frames, left-to-right, top-to-bottom (${timestamps.map((t, i) => `${i + 1}=${t}s`).join(", ")}). Saved as workspace://${saved.id}. Use time (or a single value in times) for a full-resolution closer look; thumbnails cannot verify fine details or motion.` +
             (supportsImageInput ? "" : " Your model cannot display images; use the ocr tool on the saved sheet or ask the user what they see.");
           const output: VideoFrameOutput = { text, fileId: saved.id, link: `workspace://${saved.id}`, times: timestamps, frameCount: timestamps.length, width: sheet.width, height: sheet.height, inlineImage: supportsImageInput, image: supportsImageInput ? bytes : null };
@@ -150,6 +150,7 @@ export function createVideoFrameTool({
         }
 
         const saved = await workspaceService.createDocumentFile({
+          isIntermediate: true,
           bytes,
           mimeType: "image/jpeg",
           name: `${baseName}-frame-${timestamp}s.jpg`,

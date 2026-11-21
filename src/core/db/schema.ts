@@ -155,10 +155,23 @@ export const workspaceFiles = sqliteTable(
     sourceMarkdown: text("source_markdown"),
     /** JSON snapshot of the original document styling (docx), stored on import. */
     sourceSpec: text("source_spec"),
+    isIntermediate: integer("is_intermediate", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [uniqueIndex("workspace_files_relative_path_unique").on(table.relativePath)],
+);
+
+export const workspaceFileConversations = sqliteTable(
+  "workspace_file_conversations",
+  {
+    fileId: text("file_id").notNull().references(() => workspaceFiles.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.fileId, table.conversationId] }),
+    index("idx_workspace_file_conversations_chat").on(table.conversationId),
+  ],
 );
 
 export const documentSections = sqliteTable(
@@ -469,4 +482,5 @@ export const schema = {
   schedules,
   skills,
   workspaceFiles,
+  workspaceFileConversations,
 };

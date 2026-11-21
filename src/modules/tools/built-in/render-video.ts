@@ -115,6 +115,7 @@ export function createRenderVideoTool({
         const outputName = normalizeName(name);
         const sourceFile = await workspaceService.createTextFile({
           content: rawHtml,
+          isIntermediate: true,
           mimeType: "text/html",
           name: sourceName(outputName),
         });

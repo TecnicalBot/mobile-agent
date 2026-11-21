@@ -4333,10 +4333,15 @@ Your output must be:
 
     const importFiles = useCallback(async (assets: DocumentPickerAsset[]) => {
         const importedFiles: WorkspaceFile[] = [];
+        const repository = repositoriesRef.current.workspaceRepository;
+        const conversationId = snapshotRef.current.currentConversation?.id;
+        const service = conversationId && repository.forConversation
+            ? createWorkspaceFileService(repository.forConversation(conversationId))
+            : workspaceServiceRef.current;
 
         for (const asset of assets) {
             importedFiles.push(
-                await workspaceServiceRef.current.importDocument(asset),
+                await service.importDocument(asset),
             );
         }
 

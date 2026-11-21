@@ -5,7 +5,7 @@ import {
 } from "@/modules/agents/agent-markdown";
 import { serializeSkillToMarkdown } from "@/modules/skills/skill-markdown";
 
-const DATABASE_VERSION = 36;
+const DATABASE_VERSION = 37;
 
 const CORE_SCHEMA_REPAIR_SQL = `
   PRAGMA journal_mode = WAL;
@@ -1705,6 +1705,23 @@ export async function migrateAppDatabase(db: SQLiteDatabase) {
     }
 
     currentVersion = 36;
+  }
+
+  if (currentVersion === 36) {
+    const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(workspace_files)");
+    if (!columns.some((column) => column.name === "is_intermediate")) {
+      await db.execAsync("ALTER TABLE workspace_files ADD COLUMN is_intermediate INTEGER NOT NULL DEFAULT 0;");
+    }
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS workspace_file_conversations (
+        file_id TEXT NOT NULL REFERENCES workspace_files(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL,
+        PRIMARY KEY (file_id, conversation_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_workspace_file_conversations_chat
+      ON workspace_file_conversations(conversation_id);
+    `);
+    currentVersion = 37;
   }
 
   await db.execAsync(`PRAGMA user_version = ${currentVersion}`);

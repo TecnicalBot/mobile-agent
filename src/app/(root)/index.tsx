@@ -644,9 +644,28 @@ export default function Screen() {
                 <Edit color={theme.text} size={22} />
               </Button>
             </View>
-            <Button
-              accessibilityLabel="Chat info"
-              onPress={() => {
+            <View className="flex-row items-center">
+              {currentConversation ? (
+                <Button
+                  accessibilityLabel="Chat media and files"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/library",
+                      params: {
+                        conversationId:
+                          harness.linkedConversationId ?? currentConversation.id,
+                      },
+                    })
+                  }
+                  size="icon"
+                  variant="ghost"
+                >
+                  <FolderOpen color={theme.text} size={20} />
+                </Button>
+              ) : null}
+              <Button
+                accessibilityLabel="Chat info"
+                onPress={() => {
                 setInfoDrawerOpen(true);
               }}
               size="icon"
@@ -654,6 +673,7 @@ export default function Screen() {
             >
               <Info color={theme.text} size={20} />
             </Button>
+            </View>
           </View>
 
           <View className="relative flex-1">

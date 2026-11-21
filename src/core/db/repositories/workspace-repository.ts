@@ -1,12 +1,26 @@
 import * as Crypto from "expo-crypto";
-import { and, asc, desc, eq, ne, notLike } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, notLike } from "drizzle-orm";
 
-import { documentSections, workspaceFiles } from "@/core/db/schema";
+import { documentSections, workspaceFileConversations, workspaceFiles } from "@/core/db/schema";
 import { nowIso } from "@/core/db/repositories/shared";
 import type { AppDatabase, WorkspaceRepository } from "@/core/db/repositories/types";
+import type { WorkspaceFile } from "@/core/types/app-state";
 
-export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository {
+export function createWorkspaceRepository(db: AppDatabase, conversationId?: string): WorkspaceRepository {
+  const linked = new Set<string>();
+  const link = async (files: WorkspaceFile[]) => {
+    if (!conversationId) return;
+    const pending = files.filter((file) => !linked.has(file.id));
+    if (pending.length === 0) return;
+    await db.insert(workspaceFileConversations)
+      .values(pending.map((file) => ({ fileId: file.id, conversationId })))
+      .onConflictDoNothing();
+    for (const file of pending) linked.add(file.id);
+  };
   return {
+    forConversation(id) {
+      return createWorkspaceRepository(db, id);
+    },
     async create(input) {
       const id = input.id ?? Crypto.randomUUID();
       const timestamp = nowIso();
@@ -21,6 +35,7 @@ export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository 
         sourceKind: input.sourceKind,
         sourceMarkdown: input.sourceMarkdown ?? null,
         sourceSpec: input.sourceSpec ?? null,
+        isIntermediate: input.isIntermediate ?? false,
         createdAt: timestamp,
         updatedAt: timestamp,
       });
@@ -33,26 +48,31 @@ export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository 
         throw new Error("Failed to create workspace file");
       }
 
+      await link([row]);
       return row;
     },
     async getById(id) {
-      return (
+      const row = (
         (
           await db.select().from(workspaceFiles).where(eq(workspaceFiles.id, id)).limit(1)
         )[0] ?? null
       );
+      if (row) await link([row]);
+      return row;
     },
     async getByIds(ids) {
       if (ids.length === 0) {
         return [];
       }
 
-      const rows = await db.select().from(workspaceFiles);
+      const rows = await db.select().from(workspaceFiles).where(inArray(workspaceFiles.id, ids));
       const idSet = new Set(ids);
 
-      return rows
+      const files = rows
         .filter((row) => idSet.has(row.id))
         .sort((left, right) => ids.indexOf(left.id) - ids.indexOf(right.id));
+      await link(files);
+      return files;
     },
     async list() {
       return db
@@ -68,10 +88,12 @@ export function createWorkspaceRepository(db: AppDatabase): WorkspaceRepository 
         .orderBy(desc(workspaceFiles.updatedAt));
     },
     async deleteAll() {
+      await db.delete(workspaceFileConversations);
       await db.delete(documentSections);
       await db.delete(workspaceFiles);
     },
     async delete(id) {
+      await db.delete(workspaceFileConversations).where(eq(workspaceFileConversations.fileId, id));
       await db.delete(documentSections).where(eq(documentSections.fileId, id));
       await db.delete(workspaceFiles).where(eq(workspaceFiles.id, id));
     },

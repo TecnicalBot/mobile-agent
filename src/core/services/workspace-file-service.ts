@@ -404,6 +404,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
     },
     async createTextFile(input: {
       content: string;
+      isIntermediate?: boolean;
       mimeType?: string | null;
       name: string;
     }) {
@@ -428,6 +429,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
         relativePath,
         size: file.size ?? input.content.length,
         sourceKind: "created",
+        isIntermediate: input.isIntermediate,
       });
     },
     async createManagedTextFile(input: {
@@ -499,6 +501,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
     },
     async createDocumentFile(input: {
       bytes: Uint8Array;
+      isIntermediate?: boolean;
       mimeType: string;
       name: string;
       sourceMarkdown?: string | null;
@@ -525,6 +528,7 @@ export function createWorkspaceFileService(repository: WorkspaceRepository) {
         relativePath,
         size: file.size ?? input.bytes.byteLength,
         sourceKind: "created",
+        isIntermediate: input.isIntermediate,
         sourceMarkdown: input.sourceMarkdown ?? null,
         sourceSpec: input.sourceSpec ?? null,
       });

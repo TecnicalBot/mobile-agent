@@ -78,11 +78,11 @@ describe("renderVideo source persistence", () => {
       duration: 6,
     })) as Record<string, unknown>;
 
-    expect(mocks.createTextFile).toHaveBeenCalledWith({
+    expect(mocks.createTextFile).toHaveBeenCalledWith(expect.objectContaining({
       content: HTML_6S,
       mimeType: "text/html",
       name: "clip.source.html",
-    });
+    }));
     expect(output).toMatchObject({
       fileId: "video-1",
       duration: 6,

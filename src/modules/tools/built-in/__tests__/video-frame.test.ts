@@ -144,6 +144,7 @@ describe("getVideoFrame", () => {
       { time: 12000, quality: 0.9 },
     );
     expect(mocks.createDocumentFile).toHaveBeenCalledWith({
+      isIntermediate: true,
       bytes: new Uint8Array([0xff, 0xd8, 0xff, 0x00]),
       mimeType: "image/jpeg",
       name: "clip-frame-12s.jpg",

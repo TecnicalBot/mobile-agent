@@ -654,6 +654,8 @@ export type WorkspaceFile = {
   size: number | null;
   relativePath: string;
   sourceKind: WorkspaceFileSourceKind;
+  /** Preview stills and render sources stay available without cluttering the library. */
+  isIntermediate?: boolean;
   /** Markdown/plain-text source the document (docx/pdf/pptx/xlsx) was generated from, used to regenerate it on update. */
   sourceMarkdown: string | null;
   /** JSON snapshot of the document's original styling (docx), captured on import so updates keep the look. */

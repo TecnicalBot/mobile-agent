@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # The guard diffs the whole pushed range, so it needs the push's
           # "before" commit even when it is several commits behind the tip.
@@ -72,13 +72,13 @@ jobs:
 
       - name: Set up pnpm
         if: steps.guard.outputs.safe == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.29.2
 
       - name: Set up Node.js
         if: steps.guard.outputs.safe == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

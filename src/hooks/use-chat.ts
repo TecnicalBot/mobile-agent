@@ -111,6 +111,23 @@ export function useChat() {
     sendMessage: harness.sendMessage,
     stopSending: harness.stop,
     createConversation: async (input?: { agentId?: string | null }) => {
+      // A harness model is selected: start another harness chat. Falling back
+      // to the direct provider here would silently send later prompts to the
+      // API (for OpenCode, the Zen API) instead of the harness.
+      if (harness.active && !input?.agentId) {
+        if (harness.sessionID) {
+          try {
+            await harness.detachConversation();
+          } catch (error) {
+            console.error(
+              "Could not copy the harness transcript locally",
+              error,
+            );
+          }
+        }
+        await harness.newChat();
+        return;
+      }
       if (harness.sessionID) {
         try {
           await harness.detachConversation();

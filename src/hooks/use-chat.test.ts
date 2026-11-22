@@ -215,7 +215,17 @@ describe("linked conversation switching", () => {
     ).toBeLessThan(state.harness.deactivate.mock.invocationCallOrder[0]);
   });
 
-  it("deactivates the harness and creates a normal chat for a new conversation", async () => {
+  it("keeps the harness selected when starting a new conversation", async () => {
+    const chat = useChat();
+    await chat.createConversation();
+
+    expect(state.harness.detachConversation).toHaveBeenCalledTimes(1);
+    expect(state.harness.newChat).toHaveBeenCalledTimes(1);
+    expect(state.harness.deactivate).not.toHaveBeenCalled();
+    expect(state.direct.createConversation).not.toHaveBeenCalled();
+  });
+
+  it("deactivates the harness and creates a normal chat for a local agent", async () => {
     const chat = useChat();
     await chat.createConversation({ agentId: "local-agent" });
 

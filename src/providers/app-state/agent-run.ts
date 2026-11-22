@@ -137,6 +137,7 @@ import type {
   FileContextSource,
   MemoryEvent,
   MessageMetadata,
+  ModelRef,
   PendingInput,
   PendingQuestionnaireAnswer,
   PendingQuestionnaireRequest,
@@ -154,6 +155,7 @@ import type {
   ToolExecutionRecord,
   WorkspaceFile,
 } from "@/core/types/app-state";
+import { parseModelRef } from "@/core/types/app-state";
 import {
   BASE_AGENT_SYSTEM_PROMPT,
   REQUEST_INACTIVITY_TIMEOUT_MS,
@@ -1785,6 +1787,7 @@ export async function executeClaimedAgentRun(
       runtimeSupportsTools && !isPlanMode && !isSubagentRun
         ? createTaskTool({
             getAgents: () => snapshotRef.current.agents,
+            getModels: () => snapshotRef.current.resolvedConfig.activeModels,
             onRecord: handleToolExecutionRecord,
             spawnSubagent: async (task) => {
               // The parent is blocked inside the tool call, so it must keep
@@ -1794,6 +1797,7 @@ export async function executeClaimedAgentRun(
                 return await deps.spawnSubagent({
                   ...task,
                   abortSignal: abortController.signal,
+                  model: task.model ?? null,
                   parent: {
                     conversationId: conversation.id,
                     externalFolderSession:
@@ -2128,7 +2132,7 @@ export async function executeClaimedAgentRun(
           .join("\n")
       : undefined;
     const taskRuntimeSystem = taskRuntime && runtimeSupportsTools && !isPlanMode
-      ? `You can delegate work with the task tool.\n\n${describeSubagentCatalog(snapshotRef.current.agents)}\n\nDelegate when a subagent's specialty fits part of the work or for isolated multi-step research. Write self-contained prompts; the subagent cannot see this conversation. Wait for its result before continuing dependent work.`
+      ? `You can delegate work with the task tool.\n\n${describeSubagentCatalog(snapshotRef.current.agents, snapshotRef.current.resolvedConfig.activeModels)}\n\nDelegate when a subagent's specialty fits part of the work or for isolated multi-step research. Write self-contained prompts; the subagent cannot see this conversation. Wait for its result before continuing dependent work.`
       : undefined;
     const announcementRuntimeSystem = announcementRuntime
       ? [
@@ -3527,6 +3531,8 @@ export type SubagentTaskInput = {
   abortSignal?: AbortSignal;
   agentName: string;
   description: string;
+  /** Optional model ref chosen by the delegating model. */
+  model?: string | null;
   /** Chat context the delegated task inherits from its parent run. */
   parent?: SubagentParentContext;
   prompt: string;
@@ -3574,7 +3580,7 @@ export async function executeSubagentTask(
   }
 
   const parent = input.parent;
-  const modelRef = agentModel
+  let modelRef = agentModel
     ? {
         modelId: agentModel.modelId,
         providerId: agentModel.providerId,
@@ -3587,6 +3593,26 @@ export async function executeSubagentTask(
             providerId: snapshot.resolvedConfig.currentModel.providerId,
           }
         : null;
+
+  if (input.model) {
+    let requested: { providerId: string; modelId: string };
+    try {
+      requested = parseModelRef(input.model as ModelRef);
+    } catch {
+      requested = { providerId: "", modelId: "" };
+    }
+    const selected = snapshot.resolvedConfig.availableModels.find(
+      (model) =>
+        model.providerId === requested.providerId &&
+        model.modelId === requested.modelId,
+    );
+    if (!selected) {
+      throw new Error(
+        `Model "${input.model}" is not available for the subagent. Pick a ref from the task tool's model list.`,
+      );
+    }
+    modelRef = { modelId: selected.modelId, providerId: selected.providerId };
+  }
 
   if (!modelRef) {
     throw new Error("No active model is available to run the subagent.");

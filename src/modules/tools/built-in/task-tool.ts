@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type {
   AgentConfig,
+  ResolvedModel,
   ToolExecutionRecord,
 } from "@/core/types/app-state";
 import { listSubagents } from "@/modules/agents/registry";
@@ -13,7 +14,23 @@ export type SubagentTaskResult = {
   output: string;
 };
 
-export function describeSubagentCatalog(agents: AgentConfig[]) {
+export function describeModelCatalog(models: ResolvedModel[]) {
+  if (models.length === 0) return "Available models: none.";
+  const groups = new Map<string, string[]>();
+  for (const model of models) {
+    const group = groups.get(model.providerLabel) ?? [];
+    group.push(`- ${model.ref} (${model.label})`);
+    groups.set(model.providerLabel, group);
+  }
+  return `Available models (pass the full ref as "model"):\n${[...groups]
+    .map(([provider, entries]) => `${provider}:\n${entries.join("\n")}`)
+    .join("\n")}`;
+}
+
+export function describeSubagentCatalog(
+  agents: AgentConfig[],
+  models: ResolvedModel[] = [],
+) {
   const subagents = listSubagents(agents).map((agent) => ({
     description: agent.description ?? "",
     name: agent.name,
@@ -27,26 +44,28 @@ export function describeSubagentCatalog(agents: AgentConfig[]) {
     .map(
       (agent) => `- ${agent.name}: ${agent.description || "(no description)"}`,
     )
-    .join("\n")}`;
+    .join("\n")}\n\n${describeModelCatalog(models)}`;
 }
 
 export function createTaskTool(input: {
   getAgents: () => AgentConfig[];
+  getModels?: () => ResolvedModel[];
   onRecord?: (record: ToolExecutionRecord) => void;
   spawnSubagent: (task: {
     abortSignal?: AbortSignal;
     agentName: string;
     description: string;
+    model?: string | null;
     prompt: string;
   }) => Promise<SubagentTaskResult>;
 }) {
-  const { getAgents, spawnSubagent } = input;
+  const { getAgents, getModels = () => [], spawnSubagent } = input;
 
   return {
     tools: {
       task: tool({
         description:
-          "Delegate a task to a specialized subagent and wait for its result. Use this when a subagent's specialty matches part of the current work, or to research complex questions and execute multi-step units of work in isolation. Provide a short description, the target subagent_type, and the full prompt for the subagent. The subagent cannot see this conversation; include everything it needs in the prompt. Its final response is returned to you.",
+          `Delegate a task to a specialized subagent and wait for its result. Use this when a subagent's specialty matches part of the current work, or to research complex questions and execute multi-step units of work in isolation. Provide a short description, the target subagent_type, and the full prompt for the subagent. Set "model" to the full ref of any model the subagent should use; omit it to inherit the current model. The subagent cannot see this conversation; include everything it needs in the prompt. Its final response is returned to you.\n\n${describeModelCatalog(getModels())}`,
         inputSchema: z.object({
           description: z
             .string()
@@ -54,6 +73,15 @@ export function createTaskTool(input: {
             .min(1)
             .max(200)
             .describe("A short (3-5 words) description of the task"),
+          model: z
+            .string()
+            .trim()
+            .min(1)
+            .max(256)
+            .optional()
+            .describe(
+              "Optional full model ref (provider/model) for the subagent. Omit to use the current model.",
+            ),
           prompt: z
             .string()
             .trim()
@@ -67,7 +95,7 @@ export function createTaskTool(input: {
             .max(64)
             .describe("The name of the subagent to use for this task"),
         }),
-        execute: async ({ description, prompt, subagent_type }, options) => {
+        execute: async ({ description, model, prompt, subagent_type }, options) => {
           const available = listSubagents(getAgents()).find(
             (agent) =>
               agent.name === subagent_type || agent.id === subagent_type,
@@ -76,7 +104,7 @@ export function createTaskTool(input: {
           if (!available) {
             return {
               ok: false,
-              error: `Unknown subagent "${subagent_type}". ${describeSubagentCatalog(getAgents())}`,
+              error: `Unknown subagent "${subagent_type}". ${describeSubagentCatalog(getAgents(), getModels())}`,
             };
           }
 
@@ -104,6 +132,7 @@ export function createTaskTool(input: {
               abortSignal: options.abortSignal,
               agentName: available.name,
               description,
+              model,
               prompt,
             });
 

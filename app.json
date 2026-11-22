@@ -1,21 +1,18 @@
 {
   "expo": {
-    "name": "Mobile Agent",
-    "slug": "mobile-agent",
+    "name": "Field Console",
+    "slug": "field-console",
     "version": "2.2.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile-agent",
+    "scheme": "fieldconsole",
     "userInterfaceStyle": "automatic",
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "updates": {
-      "url": "https://u.expo.dev/7944daea-4e83-4c42-8bb5-604ac6ec6ea8"
-    },
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.tecnicalbot.mobileagent",
+      "bundleIdentifier": "com.trashgaming087stack.fieldconsole",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -49,7 +46,7 @@
         "monochromeImage": "./assets/images/icon.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.tecnicalbot.mobileagent"
+      "package": "com.trashgaming087stack.fieldconsole"
     },
     "web": {
       "output": "server",
@@ -142,11 +139,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "7944daea-4e83-4c42-8bb5-604ac6ec6ea8"
-      }
-    },
-    "owner": "tecnicalbot"
+      "router": {}
+    }
   }
 }

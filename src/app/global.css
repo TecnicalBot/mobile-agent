@@ -13,48 +13,48 @@
     "SF Pro Rounded", "Hiragino Maru Gothic ProN", Meiryo, "MS PGothic",
     sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
-  --radius: 16px;
-  --background: #F7F7F9;
-  --foreground: #000000;
-  --card: #f0f0f3;
-  --card-foreground: #000000;
-  --popover: #ffffff;
-  --popover-foreground: #000000;
-  --primary: #000000;
-  --primary-foreground: #ffffff;
-  --secondary: #e0e1e6;
-  --secondary-foreground: #000000;
-  --muted: #e0e1e6;
-  --muted-foreground: #60646c;
-  --accent: #e0e1e6;
-  --accent-foreground: #000000;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: #d4d7de;
-  --input: #ffffff;
-  --ring: #94a3b8;
+  --radius: 18px;
+  --background: #F2F7F6;
+  --foreground: #132322;
+  --card: #FFFFFF;
+  --card-foreground: #132322;
+  --popover: #FBFDFC;
+  --popover-foreground: #132322;
+  --primary: #177F75;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E5EFED;
+  --secondary-foreground: #173D38;
+  --muted: #E8F0EE;
+  --muted-foreground: #536967;
+  --accent: #DCEEEA;
+  --accent-foreground: #163D38;
+  --destructive: #D43E56;
+  --destructive-foreground: #FFFFFF;
+  --border: #CFDEDB;
+  --input: #FAFCFB;
+  --ring: #23877E;
 }
 
 .dark {
-  --background: #141618;
-  --foreground: #ffffff;
-  --card: #212225;
-  --card-foreground: #ffffff;
-  --popover: #181a1d;
-  --popover-foreground: #ffffff;
-  --primary: #ffffff;
-  --primary-foreground: #000000;
-  --secondary: #2e3135;
-  --secondary-foreground: #ffffff;
-  --muted: #2e3135;
-  --muted-foreground: #b0b4ba;
-  --accent: #2e3135;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #3a3f46;
-  --input: #181a1d;
-  --ring: #64748b;
+  --background: #091212;
+  --foreground: #EAF4F1;
+  --card: #12201F;
+  --card-foreground: #EAF4F1;
+  --popover: #101B1A;
+  --popover-foreground: #EAF4F1;
+  --primary: #63D5C6;
+  --primary-foreground: #08211E;
+  --secondary: #1A302D;
+  --secondary-foreground: #E5F3EF;
+  --muted: #152724;
+  --muted-foreground: #9DB5B0;
+  --accent: #1A3430;
+  --accent-foreground: #D4FBF3;
+  --destructive: #FF647C;
+  --destructive-foreground: #2B090D;
+  --border: #28413D;
+  --input: #0E1B1A;
+  --ring: #63D5C6;
 }
 
 @layer base {

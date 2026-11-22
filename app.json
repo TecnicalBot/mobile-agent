@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Field Console",
-    "slug": "field-console",
+    "name": "Mobile Agent AI",
+    "slug": "mobile-agent-ai",
     "version": "2.2.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

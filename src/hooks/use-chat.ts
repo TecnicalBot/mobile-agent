@@ -5,7 +5,11 @@ import {
 } from "@/providers/app-state";
 import { useHarness } from "@/providers/harness-state";
 import { usePhoneBridge } from "@/providers/phone-bridge-state";
-import type { AgentRun, ToolApprovalMode } from "@/core/types/app-state";
+import type {
+  AgentRun,
+  ModelRef,
+  ToolApprovalMode,
+} from "@/core/types/app-state";
 
 export function useChat() {
   const direct = useDirectChat();
@@ -41,6 +45,38 @@ export function useChat() {
     },
   };
   const selectConversation = async (id: string) => {
+    // A chat that belongs to a harness must keep using that harness. Opening it
+    // through the direct provider silently sends the next prompt to the API.
+    const conversation = direct.conversations?.find(
+      (item) => item.id === id,
+    );
+    const harnessRef = (harness.selectedModelRef ??
+      (conversation?.modelId
+        ? harness.availableModels.find(
+            (model) =>
+              model.providerId === conversation.providerId &&
+              model.modelId === conversation.modelId,
+          )?.ref ?? null
+        : null)) as ModelRef | null;
+    const harnessChat =
+      harness.connected &&
+      Boolean(harnessRef) &&
+      harness.hasConversationLink(id);
+    if (harnessChat && harnessRef) {
+      if (harness.active) {
+        try {
+          await harness.detachConversation();
+        } catch (error) {
+          console.error("Could not copy the harness transcript locally", error);
+        }
+      }
+      try {
+        await harness.attachConversation(id, harnessRef);
+        return;
+      } catch (error) {
+        console.error("Could not reopen the chat in the harness", error);
+      }
+    }
     if (harness.active) {
       try {
         await harness.detachConversation();

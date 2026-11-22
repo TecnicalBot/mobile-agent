@@ -12,9 +12,23 @@ const state = vi.hoisted(() => ({
     deleteConversation: vi.fn(),
     renameConversation: vi.fn(),
     setConversationApprovalMode: vi.fn(),
+    conversations: [] as Array<{
+      id: string;
+      providerId: string | null;
+      modelId: string | null;
+    }>,
   },
   harness: {
     active: true,
+    connected: true,
+    selectedModelRef: null as string | null,
+    availableModels: [] as Array<{
+      ref: string;
+      providerId: string;
+      modelId: string;
+    }>,
+    hasConversationLink: vi.fn(),
+    attachConversation: vi.fn(),
     sessionID: "remote-session",
     linkedConversationId: "local-chat" as string | null,
     loading: false,
@@ -63,7 +77,13 @@ vi.mock("@/providers/phone-bridge-state", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.direct.conversations = [];
   state.harness.active = true;
+  state.harness.connected = true;
+  state.harness.selectedModelRef = null;
+  state.harness.availableModels = [];
+  state.harness.hasConversationLink.mockReturnValue(false);
+  state.harness.attachConversation.mockResolvedValue(undefined);
   state.harness.linkedConversationId = "local-chat";
   state.harness.detachConversation.mockResolvedValue(null);
   state.harness.forgetConversation.mockResolvedValue(undefined);
@@ -213,6 +233,41 @@ describe("linked conversation switching", () => {
     expect(
       state.harness.detachConversation.mock.invocationCallOrder[0],
     ).toBeLessThan(state.harness.deactivate.mock.invocationCallOrder[0]);
+  });
+
+  it("reopens a harness-owned chat in the harness instead of the API", async () => {
+    state.direct.conversations = [
+      { id: "linked-chat", providerId: "opencode", modelId: "flash" },
+    ];
+    state.harness.availableModels = [
+      { ref: "harness:opencode/opencode/flash", providerId: "opencode", modelId: "flash" },
+    ];
+    state.harness.hasConversationLink.mockReturnValue(true);
+
+    await useChat().selectConversation("linked-chat");
+
+    expect(state.harness.attachConversation).toHaveBeenCalledWith(
+      "linked-chat",
+      "harness:opencode/opencode/flash",
+    );
+    expect(state.harness.deactivate).not.toHaveBeenCalled();
+    expect(state.direct.selectConversation).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the direct provider when a harness chat cannot be reopened", async () => {
+    state.direct.conversations = [
+      { id: "linked-chat", providerId: "opencode", modelId: "flash" },
+    ];
+    state.harness.selectedModelRef = "harness:opencode/opencode/flash";
+    state.harness.hasConversationLink.mockReturnValue(true);
+    state.harness.attachConversation.mockRejectedValue(new Error("offline"));
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await useChat().selectConversation("linked-chat");
+
+    expect(state.harness.deactivate).toHaveBeenCalledTimes(1);
+    expect(state.direct.selectConversation).toHaveBeenCalledWith("linked-chat");
+    warn.mockRestore();
   });
 
   it("keeps the harness selected when starting a new conversation", async () => {

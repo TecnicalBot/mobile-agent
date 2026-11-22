@@ -1499,9 +1499,16 @@ function useOpenCodeHarnessController() {
     refreshSessions,
     mutate,
     approvalMode,
+    selectedModelRef: selectedRef,
+    hasConversationLink: (conversationId: string) =>
+      Boolean(linksRef.current[conversationId]),
     deactivate: () => {
       setActive(false);
       setSessionID(null);
+      // A direct model is now in charge. Clearing the harness selection keeps a
+      // later send from silently reverting to the harness model when the chat
+      // is reopened or the harness reconnects.
+      setSelectedRef(null);
       setSelectedAgentID(null);
       setSelectedFileIdsState([]);
       setPendingPrompt(null);
@@ -1755,6 +1762,9 @@ function useHarnessController() {
       claude.disconnect();
     },
     selectModel,
+    selectedModelRef: activeController?.selectedModelRef ?? null,
+    hasConversationLink: (conversationId: string) =>
+      controllers.some((controller) => controller.hasConversationLink(conversationId)),
     attachConversation,
     detachConversation: async () =>
       (await activeController?.detachConversation()) ?? null,

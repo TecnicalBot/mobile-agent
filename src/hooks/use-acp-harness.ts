@@ -2022,11 +2022,17 @@ export function useAcpHarnessController(profile: AcpHarnessProfile) {
     refreshSessions,
     mutate,
     approvalMode,
+    selectedModelRef: selectedRef,
+    hasConversationLink: (conversationId: string) =>
+      Boolean(linksRef.current[conversationId]),
     deactivate: () => {
       bumpStopEpoch(sessionIDRef.current);
       void cancelPendingPermission(sessionIDRef.current);
       setActive(false);
       setSessionID(null);
+      // The harness model is no longer the app's selected model; a later chat
+      // switch must not send through this harness by stale state.
+      setSelectedRef(null);
       setSelectedModeID(null);
       setSelectedFileIdsState([]);
       setWaitingPrompts(0);

@@ -68,6 +68,44 @@ describe("message activity", () => {
     ).toEqual({ kind: "answering" });
   });
 
+  it("hides the loader only while the writer confirms text is streaming", () => {
+    expect(
+      getMessageActivity(
+        assistant({
+          content: "Here is the answer",
+          metadata: { streamingText: true },
+        }),
+      ),
+    ).toEqual({ kind: "answering" });
+  });
+
+  it("keeps the loader when trailing text is no longer streaming", () => {
+    // The step finished writing text but the run is still busy (next step,
+    // tool input, compaction). Before this flag the trailing text silently
+    // suppressed every activity indicator.
+    expect(
+      getMessageActivity(
+        assistant({
+          content: "Here is the answer",
+          metadata: { streamingText: false },
+        }),
+      ),
+    ).toEqual({ kind: "waiting", label: "Waiting for response…" });
+  });
+
+  it("shows the loader when a run resumes after a completed text step", () => {
+    expect(
+      getMessageActivity(
+        assistant({
+          content: "Here is the answer",
+          metadata: { streamingText: false },
+          status: "streaming",
+        }),
+        "running",
+      ),
+    ).toEqual({ kind: "waiting", label: "Waiting for response…" });
+  });
+
   it("prioritizes a running tool over a stale open reasoning block", () => {
     expect(
       getMessageActivity(

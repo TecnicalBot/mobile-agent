@@ -398,6 +398,13 @@ export function presentOpenCodeMessages(
           message.id === lastAssistantID
         ? "streaming"
         : "completed";
+    // A step that is still open may still be writing text; a finished step the
+    // turn keeps streaming only waits for the next step, so its trailing text
+    // must not suppress the loader.
+    const textStreaming =
+      status === "streaming" &&
+      message.type === "assistant" &&
+      message.time.completed === undefined;
     // The step that is still being written is the only mutable row, so always
     // rebuild it. Everything else is reused while its token is unchanged.
     return [
@@ -414,6 +421,7 @@ export function presentOpenCodeMessages(
             reasoning,
             toolRunAnchors,
             generatedVideos,
+            ...(status === "streaming" ? { streamingText: textStreaming } : {}),
           },
           status,
           error: failure ? openCodeErrorMessage(failure) : null,

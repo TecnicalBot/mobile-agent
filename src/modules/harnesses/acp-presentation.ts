@@ -57,6 +57,7 @@ function assistantMetadata(
     toolExecutions: [],
     reasoning: [],
     toolRunAnchors: [],
+    streamingText: false,
   };
 }
 
@@ -318,6 +319,7 @@ function updateToolExecution(
       ...message.metadata,
       toolExecutions: nextExecutions,
       toolRunAnchors: nextAnchors,
+      streamingText: false,
     },
     updatedAt: createdAt,
   }));
@@ -460,6 +462,7 @@ export function finishAcpTurn(
                 }
               : execution,
         ),
+        streamingText: false,
       },
       updatedAt: finishedAt,
     }));
@@ -526,6 +529,7 @@ export function applyAcpUpdate(
       next = replaceMessage(next, assistant.messageID, (message) => ({
         ...message,
         content: message.content + text,
+        metadata: { ...message.metadata, streamingText: true },
         status: next.running ? "streaming" : message.status,
         updatedAt: at,
       }));
@@ -557,7 +561,11 @@ export function applyAcpUpdate(
         );
         next = replaceMessage(next, assistant.messageID, (message) => ({
           ...message,
-          metadata: { ...message.metadata, reasoning: nextReasoning },
+          metadata: {
+            ...message.metadata,
+            reasoning: nextReasoning,
+            streamingText: false,
+          },
           updatedAt: at,
         }));
       } else {
@@ -584,6 +592,7 @@ export function applyAcpUpdate(
                 completedAt: null,
               },
             ],
+            streamingText: false,
           },
           updatedAt: at,
         }));

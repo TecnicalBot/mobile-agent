@@ -35,7 +35,12 @@ export function getMessageActivity(
     return { kind: "reasoning", reasoningId: lastPart.block.id };
   }
   if (lastPart?.kind === "text" && lastPart.text.trim()) {
-    return { kind: "answering" };
+    // Trailing text alone is not proof the model is still talking: a step can
+    // finish and the run can keep going (next step, tool input, compaction).
+    // Only hide the loader while the writer confirms text is arriving.
+    return message.metadata?.streamingText === false
+      ? { kind: "waiting", label: "Waiting for response…" }
+      : { kind: "answering" };
   }
   return { kind: "waiting", label: "Waiting for response…" };
 }

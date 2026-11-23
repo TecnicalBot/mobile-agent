@@ -482,6 +482,14 @@ export type MessageMetadata = {
   promptArtifacts?: PromptArtifact[];
   reasoning?: ReasoningBlock[];
   runId?: string | null;
+  /**
+   * Whether assistant text is actively arriving right now. The trailing loader
+   * stays hidden while text streams and returns when the run pauses after a
+   * completed text segment (for example between steps or before a tool call).
+   * Absent means the writer does not report it; the UI keeps the legacy
+   * behavior of trusting the trailing text instead.
+   */
+  streamingText?: boolean;
   /** Set on a user message that was steered into a running turn. */
   steeredIntoRunId?: string | null;
   selectedFileIds?: string[];

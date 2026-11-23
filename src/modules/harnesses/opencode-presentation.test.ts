@@ -346,6 +346,10 @@ describe("OpenCode shared chat presentation", () => {
       "completed",
       "streaming",
     ]);
+    // The step already finished writing: the run is only waiting for the next
+    // step, so its trailing text must not hide the loader.
+    expect(whileRunning[2].metadata?.streamingText).toBe(false);
+    expect(whileRunning[1].metadata?.streamingText).toBeUndefined();
 
     const afterStop = presentOpenCodeMessages(messages, "ses_1", false);
     expect(afterStop.map((message) => message.status)).toEqual([
@@ -353,6 +357,35 @@ describe("OpenCode shared chat presentation", () => {
       "completed",
       "completed",
     ]);
+  });
+
+  it("marks text as streaming only while the step is still open", () => {
+    const messages = [
+      {
+        id: "msg_user",
+        type: "user",
+        text: "Do the task",
+        time: { created: 1 },
+      },
+      {
+        id: "msg_step",
+        type: "assistant",
+        agent: "build",
+        time: { created: 2 },
+        content: [{ type: "text", text: "Partial answer" }],
+      },
+    ] as SessionMessageInfo[];
+
+    const [running] = presentOpenCodeMessages(messages, "ses_1", true).filter(
+      (message) => message.role === "assistant",
+    );
+    expect(running.status).toBe("streaming");
+    expect(running.metadata?.streamingText).toBe(true);
+
+    const [finished] = presentOpenCodeMessages(messages, "ses_1", false).filter(
+      (message) => message.role === "assistant",
+    );
+    expect(finished.metadata?.streamingText).toBeUndefined();
   });
 
   it("moves the loader below a prompt that has no assistant step yet", () => {

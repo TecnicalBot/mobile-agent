@@ -228,6 +228,46 @@ describe("Antigravity transcript updates", () => {
     expect(assistant.metadata?.toolRunAnchors).toHaveLength(1);
   });
 
+  it("tracks whether text is still streaming for the trailing loader", () => {
+    let state = createAntigravitySessionState({
+      result: sessionResult(),
+      cwd: "/tmp/project",
+    });
+    state = beginAntigravityTurn(state, "Inspect this");
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "m1",
+      content: { type: "text", text: "Partial answer" },
+    });
+    expect(state.messages[1].metadata?.streamingText).toBe(true);
+
+    // Thinking or a tool call means text is no longer arriving.
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "agent_thought_chunk",
+      messageId: "m1",
+      content: { type: "text", text: "Checking." },
+    });
+    expect(state.messages[1].metadata?.streamingText).toBe(false);
+
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "agent_message_chunk",
+      messageId: "m1",
+      content: { type: "text", text: " done." },
+    });
+    expect(state.messages[1].metadata?.streamingText).toBe(true);
+
+    state = applyAntigravityUpdate(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "tool-1",
+      title: "Read file",
+      status: "in_progress",
+    });
+    expect(state.messages[1].metadata?.streamingText).toBe(false);
+
+    state = finishAntigravityTurn(state, "end_turn");
+    expect(state.messages[1].metadata?.streamingText).toBe(false);
+  });
+
   it("closes reasoning when a tool starts so it does not keep thinking", () => {
     let state = createAntigravitySessionState({
       result: sessionResult(),

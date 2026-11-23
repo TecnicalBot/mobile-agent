@@ -999,6 +999,7 @@ export async function executeClaimedAgentRun(
       pluginOutputs: pluginSnapshot?.pluginOutputs,
       reasoning,
       runId: run.id,
+      streamingText,
       toolRunAnchors: Array.from(
         toolRunAnchors,
         ([executionId, textOffset]) => ({ executionId, textOffset }),
@@ -1139,6 +1140,9 @@ export async function executeClaimedAgentRun(
   let refreshAssistantState: null | (() => void) = null;
   const pendingArtifactWrites: Promise<void>[] = [];
   let assistantText = startingAssistantText;
+  // Whether a text delta is the most recent writer activity. Snapshotted into
+  // metadata so the chat can tell "still typing" from "step done, run busy".
+  let streamingText = false;
   // A mid-run steer splits the assistant's single message row: text
   // streamed before the steer is finalized on the current row, the steer
   // entries land next, and a fresh continuation row receives everything
@@ -2848,6 +2852,7 @@ export async function executeClaimedAgentRun(
         markActivity();
         closeReasoningPhases(activeReasoning);
         assistantText += delta;
+        streamingText = true;
         void pluginSnapshot?.dispatch("message:delta", {
           conversationId: run.conversationId,
           delta,
@@ -2859,6 +2864,14 @@ export async function executeClaimedAgentRun(
       onEvent: (eventName, data) => {
         if (runRegistry.isDisposed()) return;
         markActivity();
+        // Any non-text chunk means the text stream is no longer the writer.
+        // text-delta is left alone because its paired onDelta owns the flag.
+        // Refresh on the true -> false edge so the chat repaints the loader
+        // even when the next step takes a while to emit anything.
+        if (eventName !== "text-delta" && streamingText) {
+          streamingText = false;
+          refreshAssistantState?.();
+        }
 
         if (
           eventName === "tool-input-start" ||

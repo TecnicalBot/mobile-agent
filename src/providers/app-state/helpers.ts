@@ -518,6 +518,7 @@ export function buildAssistantMetadata(input: {
   pluginOutputs?: import("@/core/types/app-state").PluginOutputRecord[];
   reasoning?: ReasoningBlock[];
   runId?: string | null;
+  streamingText?: boolean;
   termuxRunAnchors?: import("@/core/types/app-state").TermuxRunAnchor[];
   todoList?: import("@/core/types/app-state").TodoListItem[];
   toolExecutions: ToolExecutionRecord[];
@@ -536,6 +537,10 @@ export function buildAssistantMetadata(input: {
 
   if (input.runId) {
     metadata.runId = input.runId;
+  }
+
+  if (input.streamingText !== undefined) {
+    metadata.streamingText = input.streamingText;
   }
 
   if (input.appliedSkillIds && input.appliedSkillIds.length > 0) {

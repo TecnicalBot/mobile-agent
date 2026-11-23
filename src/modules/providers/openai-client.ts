@@ -14,6 +14,8 @@ import {
   getValidOpenAiChatGptTokenInfoForAccount,
 } from "@/modules/providers/openai-chatgpt-oauth";
 import { getOpenAiOAuthFlavor } from "@/modules/providers/openai";
+import { applyCodexResponsesLiteHeaders } from "@/modules/providers/codex-responses-lite";
+import { prepareCodexRequestBody } from "@/modules/providers/codex-request";
 import { getOllamaOpenAIBaseUrl } from "@/modules/providers/ollama-models";
 import type { ModelRuntime } from "@/modules/runtime/drivers/types";
 import type { SecretStore } from "@/core/services/secrets";
@@ -64,25 +66,34 @@ function shouldRouteToCodex(url: URL) {
   );
 }
 
-function buildCodexRequestInit(init?: RequestInit): RequestInit | undefined {
+function buildCodexRequestInit(
+  init: RequestInit | undefined,
+  sessionId: string | null,
+): { init: RequestInit | undefined; responsesLite: boolean } {
   if (typeof init?.body !== "string") {
-    return init;
+    return { init, responsesLite: false };
   }
 
   try {
-    const body = JSON.parse(init.body) as Record<string, unknown>;
-    delete body.max_output_tokens;
+    const parsed = JSON.parse(init.body) as Record<string, unknown>;
+    const { body, responsesLite } = prepareCodexRequestBody(parsed, sessionId);
 
-    return {
-      ...init,
-      body: JSON.stringify({
-        ...body,
-        store: false,
-      }),
-    };
+    return { init: { ...init, body: JSON.stringify(body) }, responsesLite };
   } catch {
-    return init;
+    return { init, responsesLite: false };
   }
+}
+
+function getRequestHeaders(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Headers {
+  return copyHeaders(
+    init?.headers ??
+      (typeof input === "string" || input instanceof URL
+        ? undefined
+        : input.headers),
+  );
 }
 
 async function fetchWithCodexOAuth(
@@ -102,24 +113,25 @@ async function fetchWithCodexOAuth(
     input instanceof URL
       ? input
       : new URL(typeof input === "string" ? input : input.url);
-  const requestUrl = shouldRouteToCodex(originalUrl)
-    ? new URL(CODEX_RESPONSES_URL)
-    : originalUrl;
-  const requestInit = shouldRouteToCodex(originalUrl)
-    ? buildCodexRequestInit(init)
-    : init;
+  const routedToCodex = shouldRouteToCodex(originalUrl);
+  const requestUrl = routedToCodex ? new URL(CODEX_RESPONSES_URL) : originalUrl;
+  // Responses Lite keys prompt caching off the session, and that header is set
+  // before the body is built.
+  const sessionId = getRequestHeaders(input, init).get("session-id");
+  const { init: requestInit, responsesLite } = routedToCodex
+    ? buildCodexRequestInit(init, sessionId)
+    : { init, responsesLite: false };
   const send = (accessToken: string, accountId: string | null) => {
-    const headers = copyHeaders(
-      requestInit?.headers ??
-        (typeof input === "string" || input instanceof URL
-          ? undefined
-          : input.headers),
-    );
+    const headers = getRequestHeaders(input, requestInit);
 
     headers.delete("authorization");
     headers.set("authorization", `Bearer ${accessToken}`);
     headers.set("originator", "opencode");
     headers.set("User-Agent", `mobile-agent/1.1.0 (${Platform.OS})`);
+
+    if (responsesLite) {
+      applyCodexResponsesLiteHeaders(headers, sessionId);
+    }
 
     if (accountId) {
       headers.set("ChatGPT-Account-Id", accountId);

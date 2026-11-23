@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
+import type { SkillConfig } from "@/core/types/app-state";
 import {
   fetchSkillCatalogCached,
   type SkillCatalogEntry,
@@ -19,9 +20,10 @@ import {
 export default function SkillCatalogScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { importSkillMarkdown, skills } = useConfig();
+  const { importSkillMarkdown, skills, syncSkill } = useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [entries, setEntries] = useState<SkillCatalogEntry[]>([]);
@@ -68,6 +70,7 @@ export default function SkillCatalogScreen() {
   const installEntry = async (entry: SkillCatalogEntry) => {
     setBusyKey(entry.id);
     setError(null);
+    setNotice(null);
 
     try {
       const { fetchSkillMarkdownFromUrl } = await import(
@@ -89,6 +92,37 @@ export default function SkillCatalogScreen() {
         installError instanceof Error
           ? installError.message
           : "Could not install the skill.",
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const updateEntry = async (
+    entry: SkillCatalogEntry,
+    skill: SkillConfig,
+  ) => {
+    setBusyKey(entry.id);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await syncSkill(skill.id);
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      setNotice(
+        result.updated
+          ? `Updated "${result.title}".`
+          : `"${result.title}" is already up to date.`,
+      );
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update the skill.",
       );
     } finally {
       setBusyKey(null);
@@ -134,10 +168,14 @@ export default function SkillCatalogScreen() {
           {filteredEntries.length > 0 ? (
             <Card className="overflow-hidden">
               {filteredEntries.map((entry, index) => {
-                const installed = skills.some(
+                const installedSkill = skills.find(
                   (skill) =>
                     skill.title.toLowerCase() === entry.label.toLowerCase(),
                 );
+                const installed = Boolean(installedSkill);
+                const canUpdate = installedSkill?.source?.url
+                  ? installedSkill
+                  : null;
 
                 return (
                   <View key={entry.id}>
@@ -165,13 +203,17 @@ export default function SkillCatalogScreen() {
                         </Text>
                       </View>
                       <Button
-                        disabled={installed}
+                        disabled={installed && !canUpdate}
                         loading={busyKey === entry.id}
-                        onPress={() => installEntry(entry).catch(console.error)}
+                        onPress={() =>
+                          canUpdate
+                            ? updateEntry(entry, canUpdate).catch(console.error)
+                            : installEntry(entry).catch(console.error)
+                        }
                         size="sm"
-                        variant={installed ? "secondary" : "outline"}
+                        variant={installed && !canUpdate ? "secondary" : "outline"}
                       >
-                        {installed ? "Added" : "Install"}
+                        {canUpdate ? "Update" : installed ? "Added" : "Install"}
                       </Button>
                     </View>
                   </View>
@@ -203,6 +245,11 @@ export default function SkillCatalogScreen() {
       {catalogError ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
           {catalogError}
+        </Text>
+      ) : null}
+      {notice ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          {notice}
         </Text>
       ) : null}
       {error ? (

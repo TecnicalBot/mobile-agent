@@ -98,6 +98,11 @@ import {
     SKILL_FILE_MAX_TOTAL_BYTES,
 } from "@/modules/skills/skill-files";
 import {
+    createSkillSource,
+    syncSkillFromSource,
+    type SkillSyncSummary,
+} from "@/modules/skills/skill-sync";
+import {
     importSkillBatch as runSkillBatchImport,
     type SkillBatchImportInput,
     type SkillBatchImportResult,
@@ -330,6 +335,8 @@ type AppStateContextValue = {
         inputs: SkillBatchImportInput[],
     ) => Promise<SkillBatchImportResult>;
     exportSkillMarkdown: (skillId: string) => string;
+    syncSkill: (skillId: string) => Promise<SkillSyncSummary>;
+    syncAllSkills: () => Promise<SkillSyncSummary[]>;
     addSkillFiles: (
         skillId: string,
         files: {
@@ -687,6 +694,8 @@ const CONFIG_KEYS = [
     "disconnectOpenAIOAuth",
     "importSkillMarkdown",
     "importSkillBatch",
+    "syncSkill",
+    "syncAllSkills",
     "importPlugin",
     "exportSkillMarkdown",
     "runPluginAction",
@@ -3313,6 +3322,13 @@ Your output must be:
             mimeType: file.mimeType,
             size: file.size,
         }));
+        const source = input.sourceUrl
+            ? createSkillSource(
+                  input.sourceUrl,
+                  input.extraFiles ?? [],
+                  fileInput.map((file) => file.path),
+              )
+            : null;
         let skill: SkillConfig;
 
         if (input.replaceById) {
@@ -3325,6 +3341,7 @@ Your output must be:
                 matchKeywords: parsed.matchKeywords,
                 recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
                 recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                source,
                 sourceMarkdown: input.markdown,
                 title: parsed.title,
             });
@@ -3347,6 +3364,7 @@ Your output must be:
                 matchKeywords: parsed.matchKeywords,
                 recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
                 recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+                source,
                 sourceMarkdown: input.markdown,
                 title: parsed.title,
             });
@@ -3355,6 +3373,76 @@ Your output must be:
         await hydrate();
         return skill;
     },
+        [hydrate],
+    );
+
+    const syncSkill = useCallback(
+        async (skillId: string): Promise<SkillSyncSummary> => {
+            const skill = snapshotRef.current.skills.find(
+                (item) => item.id === skillId,
+            );
+
+            try {
+                const result = await syncSkillFromSource(
+                    repositoriesRef.current.skillRepository,
+                    skillId,
+                );
+                await hydrate();
+                return {
+                    id: skillId,
+                    title: result.skill.title,
+                    updated: result.updated,
+                };
+            } catch (error) {
+                return {
+                    error:
+                        error instanceof Error ? error.message : "Sync failed.",
+                    id: skillId,
+                    title: skill?.title ?? "Skill",
+                    updated: false,
+                };
+            }
+        },
+        [hydrate],
+    );
+
+    const syncAllSkills = useCallback(
+        async (): Promise<SkillSyncSummary[]> => {
+            const candidates = snapshotRef.current.skills.filter(
+                (skill) => skill.source?.url,
+            );
+            const results: SkillSyncSummary[] = [];
+
+            for (const skill of candidates) {
+                try {
+                    const result = await syncSkillFromSource(
+                        repositoriesRef.current.skillRepository,
+                        skill.id,
+                    );
+                    results.push({
+                        id: skill.id,
+                        title: result.skill.title,
+                        updated: result.updated,
+                    });
+                } catch (error) {
+                    results.push({
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : "Sync failed.",
+                        id: skill.id,
+                        title: skill.title,
+                        updated: false,
+                    });
+                }
+            }
+
+            if (results.length > 0) {
+                await hydrate();
+            }
+
+            return results;
+        },
         [hydrate],
     );
 
@@ -6133,6 +6221,8 @@ Your output must be:
             disconnectOpenAIOAuth,
             importSkillMarkdown,
             importSkillBatch,
+            syncSkill,
+            syncAllSkills,
             importPlugin,
             exportSkillMarkdown,
             runPluginAction: (pluginId, name, args, onProgress) =>
@@ -6182,7 +6272,7 @@ Your output must be:
             refreshWorkspaceFiles,
             workspaceFiles: snapshot.workspaceFiles,
         }),
-        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillBatch, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, writeMemory],
+        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillBatch, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, syncAllSkills, syncSkill, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, writeMemory],
     );
     const appValue = useMemo(
         (): AppContextValue => ({
@@ -6264,6 +6354,8 @@ export function useConfig() {
         importSkillMarkdown: config.importSkillMarkdown,
         importSkillBatch: config.importSkillBatch,
         exportSkillMarkdown: config.exportSkillMarkdown,
+        syncSkill: config.syncSkill,
+        syncAllSkills: config.syncAllSkills,
         pluginActions: config.pluginActions,
         pluginTools: config.pluginTools,
         runPluginAction: config.runPluginAction,

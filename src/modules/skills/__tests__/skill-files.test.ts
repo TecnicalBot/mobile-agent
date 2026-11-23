@@ -265,6 +265,89 @@ describe("fetchSkillFiles extraFiles", () => {
   });
 });
 
+describe("fetchSkillFiles (strict sync)", () => {
+  it("resolves referenced paths inside the skill directory", async () => {
+    const requested: string[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requested.push(url);
+
+        if (url.includes("api.github.com")) {
+          return new Response(
+            JSON.stringify([
+              { name: "SKILL.md", path: "skills/foo/SKILL.md", type: "file" },
+            ]),
+            { status: 200 },
+          );
+        }
+
+        if (url.endsWith("/skills/foo/scripts/extra.py")) {
+          return new Response("print('hi')", {
+            status: 200,
+            headers: { "Content-Type": "text/x-python" },
+          });
+        }
+
+        return new Response("", { status: 404 });
+      }),
+    );
+
+    const files = await fetchSkillFiles({
+      sourceUrl: "https://github.com/acme/repo/blob/main/skills/foo/SKILL.md",
+      referencedPaths: ["scripts/extra.py"],
+      strict: true,
+    });
+
+    expect(files.map((file) => file.path)).toEqual(["scripts/extra.py"]);
+    expect(
+      requested.some((url) => url.endsWith("/skills/foo/scripts/extra.py")),
+    ).toBe(true);
+  });
+
+  it("throws when the directory listing fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 403 })),
+    );
+
+    await expect(
+      fetchSkillFiles({
+        sourceUrl: "https://github.com/acme/repo/blob/main/skills/foo/SKILL.md",
+        referencedPaths: ["guide.md"],
+        strict: true,
+      }),
+    ).rejects.toThrow(/HTTP 403/);
+  });
+
+  it("throws when a referenced file is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("api.github.com")) {
+          return new Response(
+            JSON.stringify([
+              { name: "SKILL.md", path: "skills/foo/SKILL.md", type: "file" },
+            ]),
+            { status: 200 },
+          );
+        }
+
+        return new Response("", { status: 404 });
+      }),
+    );
+
+    await expect(
+      fetchSkillFiles({
+        sourceUrl: "https://github.com/acme/repo/blob/main/skills/foo/SKILL.md",
+        referencedPaths: ["guide.md"],
+        strict: true,
+      }),
+    ).rejects.toThrow(/guide\.md/);
+  });
+});
+
 describe("isBinaryMimeType", () => {
   it("treats text-like types as non-binary", () => {
     expect(isBinaryMimeType("text/markdown")).toBe(false);

@@ -14,6 +14,10 @@ import {
 } from "@/modules/skills/skill-markdown";
 import { fetchSkillMarkdownFromUrl } from "@/modules/skills/skill-github";
 import { fetchSkillFiles } from "@/modules/skills/skill-files";
+import {
+  createSkillSource,
+  syncSkillFromSource,
+} from "@/modules/skills/skill-sync";
 import { createRecord, summarizeValue } from "@/modules/tools/built-in/shared";
 import { withVideoRuntimeGuidance } from "@/modules/preview/video-runtime-guidance";
 
@@ -232,6 +236,11 @@ export function createSkillTools(input: {
             matchKeywords: parsed.matchKeywords,
             recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
             recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+            source: createSkillSource(
+              url,
+              files ?? [],
+              relatedFiles.map((file) => file.path),
+            ),
             sourceMarkdown: content,
             title,
           };
@@ -273,7 +282,7 @@ export function createSkillTools(input: {
       }),
       manageSkill: tool({
         description:
-          "Create, update, delete, or list skills. Skills follow the SKILL.md format: a name, a description that controls when the skill applies, and markdown instructions. Use createSkill when the user asks to add a skill; use updateSkill to modify an existing one; use deleteSkill to remove one; use listSkills to show available skills. Auto-match is enabled by default for created skills so they trigger when the description matches.",
+          "Create, update, delete, sync, or list skills. Skills follow the SKILL.md format: a name, a description that controls when the skill applies, and markdown instructions. Use createSkill when the user asks to add a skill; use updateSkill to modify an existing one; use deleteSkill to remove one; use syncSkill to pull the latest version of an imported skill from its source URL; use listSkills to show available skills. Auto-match is enabled by default for created skills so they trigger when the description matches.",
         inputSchema: z
           .object({
             action: z.enum([
@@ -281,6 +290,7 @@ export function createSkillTools(input: {
               "updateSkill",
               "deleteSkill",
               "listSkills",
+              "syncSkill",
             ]),
             name: z
               .string()
@@ -357,6 +367,56 @@ export function createSkillTools(input: {
               count: catalog.length,
               skills: catalog,
             };
+          }
+
+          if (args.action === "syncSkill") {
+            const skill = await findSkillBySlug(args.name as string);
+
+            if (!skill) {
+              return {
+                synced: false,
+                message: `No skill named "${args.name}" exists.`,
+              };
+            }
+
+            try {
+              const result = await syncSkillFromSource(repository, skill.id);
+              onSkillsChange?.();
+
+              onRecord?.(
+                createRecord({
+                  toolName: "manageSkill",
+                  status: "completed",
+                  inputSummary,
+                  outputSummary: summarizeValue({
+                    synced: result.skill.title,
+                    updated: result.updated,
+                    files: result.skill.skillFiles.length,
+                  }),
+                  outputData: {
+                    synced: result.skill.title,
+                    updated: result.updated,
+                    files: result.skill.skillFiles.length,
+                  },
+                }),
+              );
+
+              return {
+                synced: true,
+                updated: result.updated,
+                id: result.skill.id,
+                name: result.skill.title,
+                fileCount: result.skill.skillFiles.length,
+              };
+            } catch (error) {
+              return {
+                synced: false,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Could not sync the skill.",
+              };
+            }
           }
 
           if (args.action === "deleteSkill") {

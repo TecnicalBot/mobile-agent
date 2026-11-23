@@ -113,12 +113,19 @@ export type PluginConfig = {
   createdAt: string;
   updatedAt: string;
 };
+export type SkillSource = {
+  url: string;
+  extraFiles: string[];
+  filePaths: string[];
+  syncedAt: string;
+};
 export type SkillConfig = {
   id: string;
   title: string;
   description: string | null;
   instructions: string;
   sourceMarkdown: string | null;
+  source?: SkillSource | null;
   enabled: boolean;
   autoMatch: boolean;
   matchKeywords: string[];

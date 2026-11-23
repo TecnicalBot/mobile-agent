@@ -13,14 +13,19 @@ import {
   SKILL_FILES_DIR,
   SKILL_MARKDOWN_FILE,
   deleteEntityDir,
+  deleteEntityFile,
   deleteEntitySubdir,
   readEntityFile,
+  readJsonAt,
   readSkillFilesManifest,
   sanitizeRelPath,
   writeEntityFile,
+  writeJsonAt,
   writeSkillFilesManifest,
 } from "@/modules/content/files";
 import type { SkillFilesManifest } from "@/modules/content/files";
+
+const SKILL_SOURCE_FILE = "source.json";
 
 export function createSkillRepository(db: AppDatabase): SkillRepository {
   function writeMarkdown(id: string, markdown: string): string {
@@ -116,6 +121,9 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
       description: parsed.description,
       instructions: parsed.instructions,
       sourceMarkdown: markdown,
+      source: await readJsonAt<SkillConfig["source"]>(
+        "skills", row.id, SKILL_SOURCE_FILE,
+      ),
       enabled: row.enabled,
       autoMatch: parsed.autoMatch,
       matchKeywords: parsed.matchKeywords,
@@ -150,6 +158,10 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
 
       if (input.files && input.files.length > 0) {
         writeSupportingFiles(id, input.files, timestamp);
+      }
+
+      if (input.source) {
+        writeJsonAt(input.source, "skills", id, SKILL_SOURCE_FILE);
       }
 
       await db.insert(skills).values({
@@ -204,9 +216,20 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
         return;
       }
 
+      const contentChanged = [
+        input.autoMatch,
+        input.description,
+        input.instructions,
+        input.matchKeywords,
+        input.recommendedBuiltInToolKeys,
+        input.recommendedMcpServerIds,
+        input.title,
+      ].some((value) => value !== undefined);
       const markdown =
         input.sourceMarkdown !== undefined && input.sourceMarkdown !== null
           ? input.sourceMarkdown
+          : !contentChanged && current.sourceMarkdown !== null
+            ? current.sourceMarkdown
           : serializeSkillToMarkdown({
               autoMatch: input.autoMatch ?? current.autoMatch,
               description:
@@ -224,7 +247,17 @@ export function createSkillRepository(db: AppDatabase): SkillRepository {
               title: input.title ?? current.title,
             });
 
-      writeMarkdown(id, markdown);
+      if (markdown !== current.sourceMarkdown) {
+        writeMarkdown(id, markdown);
+      }
+
+      if (input.source !== undefined) {
+        if (input.source) {
+          writeJsonAt(input.source, "skills", id, SKILL_SOURCE_FILE);
+        } else {
+          deleteEntityFile("skills", id, [SKILL_SOURCE_FILE]);
+        }
+      }
 
       if (input.files !== undefined) {
         writeSupportingFiles(id, input.files, nowIso());

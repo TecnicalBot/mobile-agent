@@ -85,7 +85,7 @@ export async function fetchSkillMarkdownFromUrl(input: string): Promise<{
   const displayName = resolved.split("/").pop() ?? "skill.md";
   const response = await fetchWithTimeout(
     resolved,
-    { headers: SKILL_FETCH_HEADERS },
+    { headers: SKILL_FETCH_HEADERS, cache: "no-store" },
     SKILL_FETCH_TIMEOUT_MS,
   );
 
@@ -109,7 +109,7 @@ export async function fetchSkillMarkdownFromUrl(input: string): Promise<{
   return { content, displayName };
 }
 
-async function resolveRawUrlWithDefaultBranch(input: string) {
+export async function resolveRawUrlWithDefaultBranch(input: string) {
   const resolved = resolveSkillMarkdownUrl(input);
 
   if (!resolved.includes(BRANCH_PLACEHOLDER)) {

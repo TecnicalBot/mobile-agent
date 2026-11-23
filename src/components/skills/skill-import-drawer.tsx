@@ -548,15 +548,18 @@ export function SkillImportDrawer({
       const existing = skills.find(
         (skill) => skill.title.toLowerCase() === title.toLowerCase(),
       );
+      const fromUrl = source === "url";
 
       await importSkillMarkdown({
         markdown: content,
         replaceById: existing?.id ?? null,
-        sourceUrl: url.trim() || null,
-        extraFiles: extraFilesText
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
+        sourceUrl: fromUrl ? url.trim() || null : null,
+        extraFiles: fromUrl
+          ? extraFilesText
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
         localFiles: [
           ...(skillDoc ? [skillDoc] : []),
           ...localFiles.map((file) => ({

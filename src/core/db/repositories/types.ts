@@ -313,6 +313,7 @@ export interface SkillRepository {
     recommendedBuiltInToolKeys?: SkillConfig["recommendedBuiltInToolKeys"];
     recommendedMcpServerIds?: string[];
     sourceMarkdown?: string | null;
+    source?: SkillConfig["source"];
     title: string;
     files?: {
       path: string;
@@ -337,6 +338,7 @@ export interface SkillRepository {
       recommendedBuiltInToolKeys?: SkillConfig["recommendedBuiltInToolKeys"];
       recommendedMcpServerIds?: string[];
       sourceMarkdown?: string | null;
+      source?: SkillConfig["source"];
       title?: string;
       files?: {
         path: string;

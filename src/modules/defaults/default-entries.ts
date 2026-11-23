@@ -9,6 +9,7 @@ import {
   parseSkillMarkdown,
   slugifySkillName,
 } from "@/modules/skills/skill-markdown";
+import { createSkillSource } from "@/modules/skills/skill-sync";
 import type { Repositories } from "@/core/db/repositories/types";
 
 /**
@@ -111,6 +112,11 @@ async function seedDefaultSkills(
         matchKeywords: parsed.matchKeywords,
         recommendedBuiltInToolKeys: parsed.recommendedBuiltInToolKeys,
         recommendedMcpServerIds: parsed.recommendedMcpServerIds,
+        source: createSkillSource(
+          entry.url,
+          entry.extraFiles,
+          discovered.map((file) => file.path),
+        ),
         sourceMarkdown: content,
         title: parsed.title,
       });

@@ -2,9 +2,15 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import { File } from "expo-file-system";
-import { Binary, ChevronLeft, FilePlus2, FileText } from "lucide-react-native";
+import {
+  Binary,
+  ChevronLeft,
+  FilePlus2,
+  FileText,
+  RefreshCw,
+} from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { Button } from "@/components/ui/button";
@@ -37,9 +43,11 @@ export default function SkillDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { addSkillFiles, skills } = useConfig();
+  const { addSkillFiles, skills, syncSkill } = useConfig();
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const skill = skills.find((item) => item.id === id);
 
@@ -92,6 +100,50 @@ export default function SkillDetailScreen() {
     }
   };
 
+  const handleSync = () => {
+    if (!skill || syncing || !skill.source?.url) {
+      return;
+    }
+
+    Alert.alert(
+      "Sync skill?",
+      `Download the latest version of "${skill.title}" from its source. Local edits to its instructions will be replaced.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sync",
+          onPress: async () => {
+            setSyncing(true);
+            setError(null);
+            setNotice(null);
+
+            try {
+              const result = await syncSkill(skill.id);
+
+              if (result.error) {
+                throw new Error(result.error);
+              }
+
+              setNotice(
+                result.updated
+                  ? "Updated to the latest version."
+                  : "Already up to date.",
+              );
+            } catch (syncError) {
+              setError(
+                syncError instanceof Error
+                  ? syncError.message
+                  : "Could not sync this skill.",
+              );
+            } finally {
+              setSyncing(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   if (!skill) {
     return (
       <Container
@@ -140,8 +192,18 @@ export default function SkillDetailScreen() {
         >
           {skill.title}
         </Text>
+        {skill.source?.url ? (
+          <Button
+            accessibilityLabel="Sync skill"
+            className="ml-auto"
+            leftIcon={<RefreshCw color={theme.text} size={16} />}
+            loading={syncing}
+            onPress={handleSync}
+            size="icon-xs"
+            variant="ghost"
+          />
+        ) : null}
         <Button
-          className="ml-auto"
           leftIcon={<FilePlus2 color={theme.text} size={16} />}
           loading={busy}
           onPress={handleAddFiles}
@@ -151,6 +213,34 @@ export default function SkillDetailScreen() {
           Add files
         </Button>
       </View>
+
+      {skill.source?.url ? (
+        <View className="gap-sp-2 rounded-ui border border-border bg-background px-sp-4 py-sp-3 dark:border-border-dark dark:bg-background-dark">
+          <View className="gap-1">
+            <Text className="font-sans text-xs font-medium text-muted-foreground dark:text-muted-foreground-dark">
+              Imported from
+            </Text>
+            <Text
+              className="font-mono text-xs text-foreground dark:text-foreground-dark"
+              numberOfLines={2}
+            >
+              {skill.source.url}
+            </Text>
+            <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+              Last synced {formatSyncTime(skill.source.syncedAt)}
+            </Text>
+          </View>
+          <Button
+            leftIcon={<RefreshCw color={theme.text} size={14} />}
+            loading={syncing}
+            onPress={handleSync}
+            size="sm"
+            variant="outline"
+          >
+            Check for updates
+          </Button>
+        </View>
+      ) : null}
 
       {files.length === 0 ? (
         <View className="rounded-ui border border-border bg-background px-sp-4 py-sp-4 dark:border-border-dark dark:bg-background-dark">
@@ -204,6 +294,11 @@ export default function SkillDetailScreen() {
         </View>
       )}
 
+      {notice ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          {notice}
+        </Text>
+      ) : null}
       {error ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
           {error}
@@ -211,6 +306,20 @@ export default function SkillDetailScreen() {
       ) : null}
     </Container>
   );
+}
+
+function formatSyncTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "never";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function formatFileSize(size: number | null) {

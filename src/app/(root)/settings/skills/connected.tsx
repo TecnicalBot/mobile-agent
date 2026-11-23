@@ -1,8 +1,15 @@
 import { Redirect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import { ChevronLeft, Copy, FileDown, Plus, Trash2 } from "lucide-react-native";
+import {
+  ChevronLeft,
+  Copy,
+  FileDown,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/shared/container";
 import { SkillImportDrawer } from "@/components/skills/skill-import-drawer";
@@ -19,13 +26,19 @@ export default function ConnectedSkillsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { ready } = useAppState();
-  const { deleteSkill, exportSkillMarkdown, skills, updateSkill } = useConfig();
+  const { deleteSkill, exportSkillMarkdown, skills, syncAllSkills, syncSkill, updateSkill } =
+    useConfig();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
   const enabledSkills = useMemo(
     () => skills.filter((skill) => skill.enabled).length,
+    [skills],
+  );
+  const syncableSkills = useMemo(
+    () => skills.filter((skill) => skill.source?.url),
     [skills],
   );
 
@@ -36,6 +49,7 @@ export default function ConnectedSkillsScreen() {
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);
     setError(null);
+    setNotice(null);
 
     try {
       await action();
@@ -48,6 +62,75 @@ export default function ConnectedSkillsScreen() {
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const syncOne = (skill: SkillConfig) => {
+    Alert.alert(
+      "Sync skill?",
+      `Download the latest version of "${skill.title}" from its source. Local edits to its instructions will be replaced.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sync",
+          onPress: () =>
+            runAction(`sync:${skill.id}`, async () => {
+              const result = await syncSkill(skill.id);
+
+              if (result.error) {
+                throw new Error(result.error);
+              }
+
+              setNotice(
+                result.updated
+                  ? `Updated "${result.title}".`
+                  : `"${result.title}" is already up to date.`,
+              );
+            }),
+        },
+      ],
+    );
+  };
+
+  const syncAll = () => {
+    if (syncableSkills.length === 0) {
+      return;
+    }
+
+    Alert.alert(
+      "Sync all skills?",
+      `Check ${syncableSkills.length} imported ${
+        syncableSkills.length === 1 ? "skill" : "skills"
+      } for updates. Local edits to their instructions will be replaced.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sync all",
+          onPress: () =>
+            runAction("sync-all", async () => {
+              const results = await syncAllSkills();
+              const failed = results.filter((result) => result.error);
+              const updated = results.filter((result) => result.updated).length;
+              const upToDate = results.length - updated - failed.length;
+
+              setNotice(
+                `Synced ${results.length} ${
+                  results.length === 1 ? "skill" : "skills"
+                }: ${updated} updated, ${upToDate} up to date${
+                  failed.length > 0 ? `, ${failed.length} failed` : ""
+                }.`,
+              );
+
+              if (failed.length > 0) {
+                setError(
+                  failed
+                    .map((result) => `${result.title}: ${result.error}`)
+                    .join("\n"),
+                );
+              }
+            }),
+        },
+      ],
+    );
   };
 
   const copySkillMarkdown = async (skillId: string) => {
@@ -112,6 +195,9 @@ export default function ConnectedSkillsScreen() {
                   onOpen={() =>
                     router.push(`/settings/skills/${skill.id}` as never)
                   }
+                  onSync={
+                    skill.source?.url ? () => syncOne(skill) : undefined
+                  }
                   onToggle={(enabled) =>
                     runAction(`toggle:${skill.id}`, async () => {
                       await updateSkill(skill.id, { enabled });
@@ -123,16 +209,35 @@ export default function ConnectedSkillsScreen() {
               </View>
             ))}
           </Card>
-          <Button
-            leftIcon={<Plus color={theme.text} size={16} />}
-            onPress={() => router.push("/settings/skills/list" as never)}
-            variant="outline"
-          >
-            Add more
-          </Button>
+          <View className="flex-row flex-wrap gap-sp-2">
+            <Button
+              className="flex-1"
+              leftIcon={<Plus color={theme.text} size={16} />}
+              onPress={() => router.push("/settings/skills/list" as never)}
+              variant="outline"
+            >
+              Add more
+            </Button>
+            {syncableSkills.length > 0 ? (
+              <Button
+                className="flex-1"
+                leftIcon={<RefreshCw color={theme.text} size={16} />}
+                loading={busyKey === "sync-all"}
+                onPress={syncAll}
+                variant="outline"
+              >
+                Sync all
+              </Button>
+            ) : null}
+          </View>
         </>
       )}
 
+      {notice ? (
+        <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+          {notice}
+        </Text>
+      ) : null}
       {error ? (
         <Text className="font-sans text-sm text-destructive dark:text-destructive-dark">
           {error}
@@ -149,6 +254,7 @@ function SkillRow({
   onDelete,
   onExport,
   onOpen,
+  onSync,
   onToggle,
   skill,
 }: {
@@ -156,6 +262,7 @@ function SkillRow({
   onDelete: () => void;
   onExport: () => void;
   onOpen: () => void;
+  onSync?: () => void;
   onToggle: (enabled: boolean) => void;
   skill: SkillConfig;
 }) {
@@ -189,6 +296,14 @@ function SkillRow({
               {skill.matchKeywords.join(", ")}
             </Text>
           ) : null}
+          {skill.source?.url ? (
+            <Text
+              className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark"
+              numberOfLines={1}
+            >
+              Imported from {sourceLabel(skill.source.url)}
+            </Text>
+          ) : null}
         </View>
         <View pointerEvents="none">
           <Checkbox checked={skill.enabled} onCheckedChange={() => {}} />
@@ -212,6 +327,17 @@ function SkillRow({
         >
           Copy
         </Button>
+        {onSync ? (
+          <Button
+            leftIcon={<RefreshCw color={theme.text} size={14} />}
+            loading={busyKey === `sync:${skill.id}`}
+            onPress={onSync}
+            size="sm"
+            variant="ghost"
+          >
+            Sync
+          </Button>
+        ) : null}
         <Button
           leftIcon={<Trash2 color={theme.destructive} size={14} />}
           loading={busyKey === `delete:${skill.id}`}
@@ -224,4 +350,9 @@ function SkillRow({
       </View>
     </View>
   );
+}
+
+/** Show a compact source instead of the full URL in the skill row. */
+function sourceLabel(url: string) {
+  return url.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
 }

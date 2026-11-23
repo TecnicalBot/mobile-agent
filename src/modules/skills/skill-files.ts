@@ -1,4 +1,7 @@
-import { githubBlobToRaw } from "@/modules/skills/skill-github";
+import {
+  githubBlobToRaw,
+  resolveRawUrlWithDefaultBranch,
+} from "@/modules/skills/skill-github";
 import { fetchWithTimeout } from "@/core/fetch-with-timeout";
 import { parseSkillMarkdown } from "@/modules/skills/skill-markdown";
 
@@ -35,11 +38,13 @@ export async function fetchSkillFiles(opts: {
   sourceUrl: string;
   referencedPaths?: string[];
   extraFiles?: string[];
+  strict?: boolean;
 }): Promise<SkillAttachment[]> {
   const {
     sourceUrl,
     referencedPaths = [],
     extraFiles = [],
+    strict = false,
   } = opts;
 
   if (referencedPaths.length === 0 && extraFiles.length === 0) {
@@ -52,21 +57,33 @@ export async function fetchSkillFiles(opts: {
     return fetchRelativeReferences(sourceUrl, [
       ...referencedPaths,
       ...extraFiles,
-    ]);
+    ], strict);
   }
 
-  const { owner, repo, branch, dirPath } = context;
-  const discovered = await listSkillDirectory({ owner, repo, branch, dirPath });
+  const { owner, repo, branch, dirPath, markdownPath } = context;
+  const discovered = await listSkillDirectory({
+    owner, repo, branch, dirPath, strict,
+  });
 
-  const targetPaths = new Set<string>();
+  // Keys are repository paths; values are the paths stored with the skill.
+  const targetPaths = new Map<string, string>();
   for (const path of discovered) {
-    if (path === "SKILL.md" || path.toLowerCase() === "skill.md") {
+    if (path === markdownPath) {
       continue;
     }
-    targetPaths.add(path);
+    targetPaths.set(path, path);
   }
   for (const ref of referencedPaths) {
-    targetPaths.add(ref);
+    const path = dirPath && !ref.startsWith(`${dirPath}/`)
+      ? `${dirPath}/${ref}`
+      : ref;
+    if (path !== markdownPath && !targetPaths.has(path)) {
+      targetPaths.set(path, ref);
+    }
+  }
+
+  if (strict && targetPaths.size > SKILL_FILE_MAX_COUNT) {
+    throw new Error("The skill has too many related files to sync safely.");
   }
 
   const fetched = new Map<string, SkillAttachment>();
@@ -80,6 +97,9 @@ export async function fetchSkillFiles(opts: {
     }
 
     if (totalBytes + size > SKILL_FILE_MAX_TOTAL_BYTES) {
+      if (strict) {
+        throw new Error("The skill's related files are too large to sync safely.");
+      }
       return false;
     }
 
@@ -88,13 +108,28 @@ export async function fetchSkillFiles(opts: {
     return true;
   };
 
-  for (const path of Array.from(targetPaths)) {
+  for (const [remotePath, path] of targetPaths) {
     if (fetched.size >= SKILL_FILE_MAX_COUNT) {
       break;
     }
 
-    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-    const attachment = await fetchSingleFile(path, rawUrl);
+    const isDiscovered = discovered.includes(remotePath);
+    let attachment = await fetchSingleFile(
+      path,
+      `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${remotePath}`,
+      strict,
+      !isDiscovered,
+    );
+
+    // Older imports stored repo-root-relative references. If the scoped path
+    // is missing, retry the original path before giving up.
+    if (!attachment && !isDiscovered && remotePath !== path) {
+      attachment = await fetchSingleFile(
+        path,
+        `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`,
+        strict,
+      );
+    }
 
     if (attachment) {
       ingest(attachment);
@@ -103,12 +138,15 @@ export async function fetchSkillFiles(opts: {
 
   for (const fileUrl of extraFiles) {
     if (fetched.size >= SKILL_FILE_MAX_COUNT) {
+      if (strict) {
+        throw new Error("The skill has too many related files to sync safely.");
+      }
       break;
     }
 
     const raw = githubBlobToRaw(fileUrl) ?? fileUrl;
     const path = derivePathFromRaw(raw, owner, repo, branch);
-    const attachment = await fetchSingleFile(path, raw);
+    const attachment = await fetchSingleFile(path, raw, strict);
 
     if (attachment) {
       ingest(attachment);
@@ -144,7 +182,7 @@ function escapeRegex(value: string) {
 }
 
 async function resolveGithubContext(sourceUrl: string) {
-  const rawUrl = githubBlobToRaw(sourceUrl) ?? sourceUrl;
+  const rawUrl = await resolveRawUrlWithDefaultBranch(sourceUrl);
   const match = /^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.*)$/i.exec(
     rawUrl,
   );
@@ -154,11 +192,9 @@ async function resolveGithubContext(sourceUrl: string) {
   }
 
   const [, owner, repo, branch, path] = match;
-  const dirPath = path
-    .replace(/\/?SKILL\.md$/i, "")
-    .replace(/\/+$/, "");
+  const dirPath = path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
-  return { owner, repo, branch, dirPath };
+  return { owner, repo, branch, dirPath, markdownPath: path };
 }
 
 async function listSkillDirectory(opts: {
@@ -166,8 +202,9 @@ async function listSkillDirectory(opts: {
   repo: string;
   branch: string;
   dirPath: string;
+  strict: boolean;
 }): Promise<string[]> {
-  const { owner, repo, branch, dirPath } = opts;
+  const { owner, repo, branch, dirPath, strict } = opts;
   const results: string[] = [];
   const queue = [dirPath];
   const seen = new Set<string>();
@@ -185,20 +222,25 @@ async function listSkillDirectory(opts: {
     try {
       const response = await fetchWithTimeout(
         `https://api.github.com/repos/${owner}/${repo}/contents/${encodeGitPath(current)}?ref=${encodeURIComponent(branch)}`,
-        { headers: API_HEADERS },
+        { headers: API_HEADERS, cache: "no-store" },
         SKILL_FILE_FETCH_TIMEOUT_MS,
       );
 
       if (!response.ok) {
+        if (strict) {
+          throw new Error(`Could not list skill files (HTTP ${response.status}). Try syncing again later.`);
+        }
         return results;
       }
 
       entries = (await response.json()) as GitHubEntry[];
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return results;
     }
 
     if (!Array.isArray(entries)) {
+      if (strict) throw new Error("Could not read the skill's file listing.");
       continue;
     }
 
@@ -207,10 +249,16 @@ async function listSkillDirectory(opts: {
         queue.push(entry.path);
       } else if (entry.type === "file") {
         results.push(entry.path);
+        if (strict && results.length > SKILL_FILE_MAX_COUNT) {
+          throw new Error("The skill has too many related files to sync safely.");
+        }
       }
     }
   }
 
+  if (strict && (queue.length > 0 || results.length > SKILL_FILE_MAX_COUNT)) {
+    throw new Error("The skill has too many related files to sync safely.");
+  }
   return results;
 }
 
@@ -224,13 +272,16 @@ function encodeGitPath(path: string) {
 async function fetchRelativeReferences(
   sourceUrl: string,
   referencedPaths: string[],
+  strict: boolean,
 ): Promise<SkillAttachment[]> {
   const rawUrl = githubBlobToRaw(sourceUrl) ?? sourceUrl;
   const base = rawUrl.replace(/\/?[^/]*\.md$/i, "") || rawUrl;
   const fetched = new Map<string, SkillAttachment>();
+  let totalBytes = 0;
 
   for (const path of referencedPaths) {
     if (fetched.size >= SKILL_FILE_MAX_COUNT) {
+      if (strict) throw new Error("The skill has too many related files to sync safely.");
       break;
     }
 
@@ -238,9 +289,14 @@ async function fetchRelativeReferences(
     const storedPath = /^https?:\/\//i.test(path)
       ? derivePathFromArbitraryUrl(path)
       : path;
-    const attachment = await fetchSingleFile(storedPath, target);
+    const attachment = await fetchSingleFile(storedPath, target, strict);
 
     if (attachment) {
+      totalBytes += attachment.size ?? 0;
+      if (totalBytes > SKILL_FILE_MAX_TOTAL_BYTES) {
+        if (strict) throw new Error("The skill's related files are too large to sync safely.");
+        break;
+      }
       fetched.set(storedPath, attachment);
     }
   }
@@ -261,23 +317,38 @@ function derivePathFromArbitraryUrl(url: string) {
   return basename || url;
 }
 
-async function fetchSingleFile(path: string, rawUrl: string): Promise<SkillAttachment | null> {
+async function fetchSingleFile(
+  path: string,
+  rawUrl: string,
+  strict = false,
+  allowMissing = false,
+): Promise<SkillAttachment | null> {
   let response: Response;
 
   try {
-    response = await fetchWithTimeout(rawUrl, { headers: FILE_HEADERS }, SKILL_FILE_FETCH_TIMEOUT_MS);
-  } catch {
+    response = await fetchWithTimeout(
+      rawUrl, { headers: FILE_HEADERS, cache: "no-store" }, SKILL_FILE_FETCH_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (strict) throw error;
     return null;
   }
 
   if (!response.ok) {
+    if (strict && !(allowMissing && response.status === 404)) {
+      throw new Error(`Could not download skill file "${path}" (HTTP ${response.status}).`);
+    }
     return null;
   }
 
   const contentType = response.headers.get("content-type") ?? null;
   const body = new Uint8Array(await response.arrayBuffer());
 
-  return attachmentFromBytes({ path, bytes: body, mimeType: contentType });
+  const attachment = attachmentFromBytes({ path, bytes: body, mimeType: contentType });
+  if (strict && !attachment) {
+    throw new Error(`Skill file "${path}" is too large or could not be read.`);
+  }
+  return attachment;
 }
 
 export function isBinaryMimeType(mimeType: string | null) {

@@ -78,7 +78,6 @@ import {
   type AnnouncementRequest,
 } from "@/modules/tools/built-in/announce-when-done";
 import { detectExplicitAnnouncementRequest } from "@/modules/notifications/announcement-policy";
-import { createAgentTools } from "@/modules/tools/built-in/agent-tools";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createScheduleTools } from "@/modules/tools/built-in/schedules";
 import { createSkillTools } from "@/modules/tools/built-in/skill-tools";
@@ -429,7 +428,6 @@ export async function executeClaimedAgentRun(
     retryRun,
     shouldKeepBackgroundAgentAlive,
     refreshScheduler,
-    onAgentsChange,
   } = deps;
 
   const pluginSnapshot = deps.pluginRuntimeSnapshot;
@@ -1820,17 +1818,6 @@ export async function executeClaimedAgentRun(
             },
           })
         : null;
-    const agentRuntime =
-      runtimeSupportsTools && !isPlanMode && !isSubagentRun
-        ? createAgentTools({
-            onAgentsChange: () => {
-              onAgentsChange();
-              markActivity();
-            },
-            onRecord: handleToolExecutionRecord,
-            repository: repositories.agentRepository,
-          })
-        : null;
     const pluginManagementRuntime =
       runtimeSupportsTools && !isPlanMode && !isSubagentRun
         ? createPluginTools({
@@ -1960,7 +1947,7 @@ export async function executeClaimedAgentRun(
       }
     }
     const unapprovedRuntimeTools =
-      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || agentRuntime || pluginManagementRuntime || secretRequestRuntime || announcementRuntime || toolDiscovery || pluginTools
+      builtInRuntimeTools || mcpRuntime?.tools || todosRuntime || questionRuntime || skillRuntime || scheduleRuntime || taskRuntime || pluginManagementRuntime || secretRequestRuntime || announcementRuntime || toolDiscovery || pluginTools
         ? ({
             ...(builtInRuntimeTools ?? {}),
             ...(mcpRuntime?.tools ?? {}),
@@ -1969,7 +1956,6 @@ export async function executeClaimedAgentRun(
             ...(skillRuntime?.tools ?? {}),
             ...(scheduleRuntime?.tools ?? {}),
             ...(taskRuntime?.tools ?? {}),
-            ...(agentRuntime?.tools ?? {}),
             ...(pluginManagementRuntime?.tools ?? {}),
             ...(secretRequestRuntime?.tools ?? {}),
             ...(announcementRuntime?.tools ?? {}),
@@ -2112,10 +2098,6 @@ export async function executeClaimedAgentRun(
       pluginManagementRuntime && runtimeSupportsTools && !isPlanMode
         ? "You can create, update, delete, and list plugins with the managePlugin tool. Plugins are reusable capabilities that add tools and optional system-prompt instructions to any conversation. Use createPlugin when the user asks for a new reusable capability (e.g. checking weather, querying an API, syncing services). You provide a kebab-case name, a short description, and one or more tool definitions — each with a name, a JSON Schema inputSchema, and a self-contained JavaScript executeBody. Inside the executeBody, `args` is the tool input; `api.fetch(url, init)`, `api.storage.get/set/delete(key)`, `api.secrets.get/set/delete(key)`, and `api.log(...)` are available. Do NOT use imports or require() inside executeBody — the plugin sandbox has no module system. Set mutating: true for any tool that writes, sends, or deletes data so the user is asked to approve it before running. You can also add optional system lines that are injected as extra prompt instructions whenever the plugin is active.\n\nSecrets policy: if a plugin tool needs an API key or token, reference it only by key name inside the executeBody (e.g. `await api.secrets.get(\"WUNDERLIST_API_KEY\")`). NEVER ask the user to type a secret value into the chat and NEVER repeat a stored value back — doing so exposes it in the conversation. Instead, tell the user to enter it in Settings → Plugins → the plugin → Secrets. After createPlugin/updatePlugin, list the returned secretsMissing keys so the user knows exactly what to configure. To collect a missing secret in-chat, call the requestSecret tool with the plugin id (from listPlugins) and the exact key name; the user types the value into a masked, encrypted on-device prompt that you never see — you only learn whether it was stored or deferred. If the user defers, continue without it and let them know the key is still missing; do not keep asking. You cannot read secret values; you can only see which key names are configured."
         : undefined;
-    const agentManagementRuntimeSystem =
-      agentRuntime && runtimeSupportsTools && !isPlanMode
-        ? "You can create, update, delete, and list agents with the manageAgent tool. Agents are reusable personas: a kebab-case name, a description of when to use them, an availability mode (primary = selectable in chats, subagent = invoked via the task tool, all = both), and a markdown system prompt that replaces your default persona while they run. Create an agent when the user explicitly asks to save one."
-        : undefined;
     const memoryRuntimeSystem = snapshotRef.current.settings.memoryEnabled
       ? buildMemorySystemPrompt(snapshotRef.current.memory, {
           canWrite: runtimeSupportsTools && !isPlanMode && !isSubagentRun,
@@ -2194,7 +2176,6 @@ export async function executeClaimedAgentRun(
           skillsRuntimeSystem,
           promptProfile === "minimal" ? undefined : skillManagementRuntimeSystem,
           promptProfile === "minimal" ? undefined : pluginManagementRuntimeSystem,
-          promptProfile === "minimal" ? undefined : agentManagementRuntimeSystem,
           promptProfile === "minimal" ? undefined : taskRuntimeSystem,
           promptProfile === "minimal" ? undefined : announcementRuntimeSystem,
           discoveryRuntimeSystem,
@@ -2508,7 +2489,6 @@ export async function executeClaimedAgentRun(
     const pluginManagementToolNames = claimToolNames(
       pluginManagementRuntime?.tools,
     );
-    const agentToolNames = claimToolNames(agentRuntime?.tools);
     const taskToolNames = claimToolNames(taskRuntime?.tools);
     const scheduleToolNames = claimToolNames(scheduleRuntime?.tools);
     const skillToolNames = claimToolNames(skillRuntime?.tools);
@@ -2530,7 +2510,6 @@ export async function executeClaimedAgentRun(
           transferRuntimeSystem,
           skillManagementRuntimeSystem,
           pluginManagementRuntimeSystem,
-          agentManagementRuntimeSystem,
           taskRuntimeSystem,
           announcementRuntimeSystem,
           toolLoopRuntimeSystem,
@@ -2561,7 +2540,6 @@ export async function executeClaimedAgentRun(
           ...questionToolNames,
           ...scheduleToolNames,
           ...taskToolNames,
-          ...agentToolNames,
           ...pluginManagementToolNames,
           ...secretToolNames,
           ...announcementToolNames,

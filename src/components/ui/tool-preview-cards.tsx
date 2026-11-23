@@ -3,7 +3,6 @@ import { Text, View } from "react-native";
 import {
   BellRing,
   BookOpen,
-  Bot,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -594,7 +593,6 @@ const MANAGEMENT_CARDS: Record<
   string,
   { icon: LucideIcon; title: string; noun: string }
 > = {
-  manageAgent: { icon: Bot, title: "Agents", noun: "agent" },
   managePlugin: { icon: Plug, title: "Plugins", noun: "plugin" },
   manageSkill: { icon: BookOpen, title: "Skills", noun: "skill" },
   importSkillFromUrl: {
@@ -871,7 +869,6 @@ const TEXT_CARD_TOOLS = new Set([
   "list_schedules",
   "update_schedule",
   "cancel_schedule",
-  "manageAgent",
   "managePlugin",
   "manageSkill",
   "importSkillFromUrl",
@@ -900,7 +897,6 @@ export function ToolTraceCard({ record }: { record: ToolExecutionRecord }) {
     case "update_schedule":
     case "cancel_schedule":
       return <ScheduleCard record={record} />;
-    case "manageAgent":
     case "managePlugin":
     case "manageSkill":
     case "importSkillFromUrl":

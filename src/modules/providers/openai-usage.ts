@@ -14,6 +14,34 @@ const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const CHATGPT_USAGE_SETTINGS_URL = "https://chatgpt.com/settings/usage";
 const CACHE_TTL_MS = 60_000;
 
+/**
+ * Picks the Codex sign-in whose token can read the shared plan windows for the
+ * active ChatGPT-plan sign-in. Labels are normally the signed-in email, but
+ * older Codex accounts kept the provider label, so a single Codex account is
+ * still a safe match when the labels differ.
+ */
+export function resolveCodexUsageAccountId(input: {
+  activeCodexAccountId: string | null;
+  chatGptAccountLabel: string | null | undefined;
+  codexAccounts: readonly { id: string; label: string }[];
+}): string | null {
+  const label = input.chatGptAccountLabel?.trim().toLowerCase();
+
+  if (label) {
+    const match = input.codexAccounts.find(
+      (account) => account.label.trim().toLowerCase() === label,
+    );
+
+    if (match) {
+      return match.id;
+    }
+  } else if (input.activeCodexAccountId) {
+    return input.activeCodexAccountId;
+  }
+
+  return input.codexAccounts.length === 1 ? input.codexAccounts[0].id : null;
+}
+
 export type UsageWindow = {
   leftPercent: number;
   resetAt: number | null;

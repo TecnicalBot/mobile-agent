@@ -10,6 +10,7 @@ import {
   getProviderUsage,
   normalizeUsageResponse,
   normalizeUsageWindow,
+  resolveCodexUsageAccountId,
 } from "@/modules/providers/openai-usage";
 
 vi.mock("@/modules/providers/openai", () => ({
@@ -115,8 +116,57 @@ describe("normalizeUsageResponse", () => {
   });
 });
 
-describe("formatUsageWindowLabel", () => {
-  it("labels the known Codex windows", () => {
+describe("resolveCodexUsageAccountId", () => {
+  const accounts = [
+    { id: "codex-a", label: "ops@example.com" },
+    { id: "codex-b", label: "other@example.com" },
+  ];
+
+  it("matches the Codex sign-in by account label", () => {
+    expect(
+      resolveCodexUsageAccountId({
+        activeCodexAccountId: null,
+        chatGptAccountLabel: "OPS@example.com",
+        codexAccounts: accounts,
+      }),
+    ).toBe("codex-a");
+  });
+
+  it("falls back to the only Codex account for legacy labels", () => {
+    expect(
+      resolveCodexUsageAccountId({
+        activeCodexAccountId: null,
+        chatGptAccountLabel: "ops@example.com",
+        codexAccounts: [{ id: "codex-only", label: "OpenAI (Codex sign-in)" }],
+      }),
+    ).toBe("codex-only");
+  });
+
+  it("does not guess between differently labelled Codex accounts", () => {
+    expect(
+      resolveCodexUsageAccountId({
+        activeCodexAccountId: "codex-b",
+        chatGptAccountLabel: "ops@example.com",
+        codexAccounts: [
+          { id: "codex-a", label: "first@example.com" },
+          { id: "codex-b", label: "second@example.com" },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("uses the active Codex account when the ChatGPT label is unknown", () => {
+    expect(
+      resolveCodexUsageAccountId({
+        activeCodexAccountId: "codex-b",
+        chatGptAccountLabel: null,
+        codexAccounts: accounts,
+      }),
+    ).toBe("codex-b");
+  });
+});
+
+describe("formatUsageWindowLabel", () => {  it("labels the known Codex windows", () => {
     expect(formatUsageWindowLabel(18_000)).toBe("5-hour limit");
     expect(formatUsageWindowLabel(604_800)).toBe("Weekly limit");
   });

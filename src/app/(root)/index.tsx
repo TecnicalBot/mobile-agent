@@ -173,10 +173,14 @@ import { appendQuote, formatQuotedText } from "@/modules/chat/quote-text";
 import { continueComposerList } from "@/modules/chat/composer-lists";
 import { getAssistantResponseFooters } from "@/modules/chat/assistant-response";
 import {
+  CHATGPT_USAGE_SETTINGS_URL,
+  formatUsagePlanLabel,
   formatUsageWindowLabel,
   getProviderUsage,
+  resolveCodexUsageAccountId,
   type ProviderUsage,
 } from "@/modules/providers/openai-usage";
+import { openExternalLink } from "@/modules/chat/open-link";
 import {
   isAudioMimeType,
   isVideoMimeType,
@@ -323,15 +327,14 @@ export default function Screen() {
     );
     const chatGptLabel = chatGptAccount?.label.trim().toLowerCase();
 
-    if (chatGptLabel) {
-      return (
-        codexAccounts.find(
-          (account) => account.label.trim().toLowerCase() === chatGptLabel,
-        )?.id ?? null
-      );
-    }
-
-    return activeProviderAccountIds[OPENAI_CODEX_PROVIDER_ID] ?? null;
+    return resolveCodexUsageAccountId({
+      activeCodexAccountId:
+        (chatGptLabel
+          ? null
+          : activeProviderAccountIds[OPENAI_CODEX_PROVIDER_ID]) ?? null,
+      chatGptAccountLabel: chatGptLabel,
+      codexAccounts,
+    });
   }, [
     activeProviderAccountIds,
     chatInfo.currentModel?.providerId,
@@ -944,7 +947,7 @@ export default function Screen() {
               <DrawerHeader>
                 <DrawerTitle>Chat info</DrawerTitle>
                 <DrawerDescription>
-                  Model and account usage for this conversation.
+                  Model, usage, and context for this conversation.
                 </DrawerDescription>
               </DrawerHeader>
               <DrawerBody contentContainerClassName="gap-sp-3 pb-sp-4">
@@ -998,6 +1001,95 @@ export default function Screen() {
                     value={getReasoningEffortLabel(reasoningEffort)}
                   />
                 </InfoSection>
+
+                {messages.length === 0 ? null : (
+                  <>
+                    <InfoSection title="Latest turn">
+                      <InfoRow
+                        label="Input tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.inputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Output tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.outputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Total tokens"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.totalTokens ?? null,
+                        )}
+                      />
+                    </InfoSection>
+
+                    <InfoSection
+                      subtitle={
+                        chatInfo.conversationTotals?.isPartial
+                          ? "Partial data"
+                          : undefined
+                      }
+                      title="Conversation totals"
+                    >
+                      <InfoRow
+                        label="Input tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.inputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Output tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.outputTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Total tokens"
+                        value={formatTokenCount(
+                          chatInfo.conversationTotals?.totalTokens ?? null,
+                        )}
+                      />
+                    </InfoSection>
+
+                    <InfoSection
+                      subtitle={
+                        chatInfo.latestTurn?.contextIsEstimated
+                          ? "Estimated after manual compaction."
+                          : "Final model step, after context management. Turn totals include all tool steps."
+                      }
+                      title="Context"
+                    >
+                      <InfoRow
+                        label="Context window"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.contextWindow ??
+                            chatInfo.currentModel?.contextWindow ??
+                            null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Used"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.contextTokens ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Remaining"
+                        value={formatTokenCount(
+                          chatInfo.latestTurn?.remainingContext ?? null,
+                        )}
+                      />
+                      <InfoRow
+                        label="Usage"
+                        value={formatPercent(
+                          chatInfo.latestTurn?.contextUsagePercent ?? null,
+                        )}
+                      />
+                    </InfoSection>
+                  </>
+                )}
 
                 {infoDrawerOpen && chatInfo.currentModel &&
                 isOpenAiSubscriptionProvider(chatInfo.currentModel.providerId) ? (
@@ -1178,6 +1270,22 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatTokenCount(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Unavailable";
+  }
+
+  return Math.round(value).toLocaleString();
+}
+
+function formatPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Unavailable";
+  }
+
+  return `${value.toFixed(1)}%`;
+}
+
 function UsageWindows({ usage }: { usage: ProviderUsage }) {
   const windows = [usage.primary, usage.secondary].filter(
     (window): window is NonNullable<ProviderUsage["primary"]> =>
@@ -1214,6 +1322,20 @@ function UsageWindows({ usage }: { usage: ProviderUsage }) {
         </View>
       ))}
     </View>
+  );
+}
+
+function ManageUsageLink() {
+  return (
+    <Text
+      accessibilityRole="link"
+      className="self-start font-sans text-xs text-muted-foreground underline dark:text-muted-foreground-dark"
+      onPress={() => {
+        openExternalLink(CHATGPT_USAGE_SETTINGS_URL).catch(console.error);
+      }}
+    >
+      Manage usage in ChatGPT settings
+    </Text>
   );
 }
 
@@ -1292,8 +1414,12 @@ function ProviderUsageInfo({
   }
 
   return (
-    <InfoSection title="Plan usage">
+    <InfoSection
+      subtitle={formatUsagePlanLabel(usage.plan) ?? undefined}
+      title="Plan usage"
+    >
       <UsageWindows usage={usage} />
+      <ManageUsageLink />
     </InfoSection>
   );
 }

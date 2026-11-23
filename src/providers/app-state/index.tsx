@@ -179,6 +179,7 @@ import {
 import { executeClaimedAgentRun, executeSubagentTask, type AgentRunDeps } from "./agent-run";
 import { createRunUiPublisher } from "./run-ui-publisher";
 import { reconcileHydratedAttachments } from "./reconcile-attachments";
+import { keepSelectedConversation } from "./conversation-selection";
 import { resolveConfig } from "./config-resolution";
 import {
     EMPTY_SNAPSHOT,
@@ -456,6 +457,11 @@ type AppStateContextValue = {
         headers: Record<string, string>,
     ) => Promise<void>;
     selectConversation: (conversationId: string) => Promise<void>;
+    /**
+     * Changes whenever the user opens or creates a chat. Async work started
+     * earlier can compare it before publishing conversation-scoped state.
+     */
+    getConversationSelectionRevision: () => number;
     setConversationPinned: (
         conversationId: string,
         pinned: boolean,
@@ -640,6 +646,7 @@ const CHAT_KEYS = [
     "retryRun",
     "runStatusByConversation",
     "selectConversation",
+    "getConversationSelectionRevision",
     "setConversationPinned",
     "sendMessage",
     "sending",
@@ -958,6 +965,9 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
     const appStateRef = useRef(AppState.currentState);
     const legacyProviderSecretCleanedRef = useRef(false);
     const hydrationGenerationRef = useRef(0);
+    // Bumped whenever the user opens or creates a chat. A hydrate that started
+    // before the switch must not publish the conversation it captured earlier.
+    const conversationSelectionRevisionRef = useRef(0);
     const coldStartRef = useRef(true);
     const pendingAgentRunIdsRef = useRef<string[]>([]);
     const executeAgentRunRef = useRef<(runId: string) => Promise<void>>(
@@ -1409,6 +1419,7 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
 
     const hydrate = useCallback(async () => {
         const fileSelectionRevision = fileSelectionRevisionRef.current;
+        const selectionRevision = conversationSelectionRevisionRef.current;
         const hydrationGeneration = ++hydrationGenerationRef.current;
         setHydrating(true);
         setError(null);
@@ -1762,38 +1773,49 @@ export function AppStateProvider({ children }: AppStateProviderProps) {
             } satisfies AppStateSnapshot;
 
             setSnapshot((current) => {
+                const selectionSafeSnapshot =
+                    keepSelectedConversation<AppStateSnapshot>(
+                        nextSnapshot,
+                        current,
+                        {
+                            mergeConversations: upsertConversation,
+                            selectionChanged:
+                                conversationSelectionRevisionRef.current !==
+                                selectionRevision,
+                        },
+                    );
                 const hasLocallyOwnedRuns = current.agentRuns.some((run) =>
                     runRegistryRef.current.owns(run.id),
                 );
                 const reconciledSnapshot = hasLocallyOwnedRuns
                     ? {
-                        ...nextSnapshot,
+                        ...selectionSafeSnapshot,
                         agentRuns: current.agentRuns.reduce(
                             (runs, run) =>
                                 runRegistryRef.current.owns(run.id)
                                     ? upsertAgentRun(runs, run)
                                     : runs,
-                            nextSnapshot.agentRuns,
+                            selectionSafeSnapshot.agentRuns,
                         ),
                         messages:
                             current.currentConversation?.id === currentConversation?.id
-                                ? upsertMessages(nextSnapshot.messages, current.messages)
-                                : nextSnapshot.messages,
+                                ? upsertMessages(selectionSafeSnapshot.messages, current.messages)
+                                : selectionSafeSnapshot.messages,
                         // Keep inbox rows admitted after this hydration's DB
                         // read (steers land while runs — and hydrates — run).
                         pendingInputs: (() => {
                             const seen = new Set(
-                                nextSnapshot.pendingInputs.map((item) => item.id),
+                                selectionSafeSnapshot.pendingInputs.map((item) => item.id),
                             );
                             return [
-                                ...nextSnapshot.pendingInputs,
+                                ...selectionSafeSnapshot.pendingInputs,
                                 ...current.pendingInputs.filter(
                                     (item) => !seen.has(item.id),
                                 ),
                             ];
                         })(),
                     }
-                    : nextSnapshot;
+                    : selectionSafeSnapshot;
                 const attachmentSafeSnapshot = reconcileHydratedAttachments(
                     reconciledSnapshot,
                     current,
@@ -4263,6 +4285,7 @@ Your output must be:
     );
 
     const createConversation = useCallback(async (input?: { agentId?: string | null }) => {
+        const revision = ++conversationSelectionRevisionRef.current;
         const currentModel = snapshotRef.current.resolvedConfig.currentModel;
         const now = new Date().toISOString();
         const conversation: Conversation = {
@@ -4293,11 +4316,22 @@ Your output must be:
             modelId: conversation.modelId,
             agentId: conversation.agentId,
         });
+
+        // Do not overwrite the active chat if the user opened another one while
+        // this one was being created.
+        if (revision !== conversationSelectionRevisionRef.current) {
+            return;
+        }
+
         await repositoriesRef.current.configRepository.setSetting(
             "active_conversation_id",
             saved.id,
         );
 
+        // Mark the publication as well: a hydrate that started after this
+        // selection began but read the old active ID before this write must
+        // still see that a newer chat was opened.
+        conversationSelectionRevisionRef.current += 1;
         setSnapshot((current) => ({
             ...current,
             conversations: upsertConversation(current.conversations, saved),
@@ -4569,6 +4603,7 @@ Your output must be:
 
     const selectConversation = useCallback(
         async (conversationId: string) => {
+        const selectionRevision = ++conversationSelectionRevisionRef.current;
         const repositories = repositoriesRef.current;
         const nextConversation =
             await repositories.conversationRepository.getById(conversationId);
@@ -4579,6 +4614,12 @@ Your output must be:
 
         const messages =
             await repositories.messageRepository.listByConversation(conversationId);
+
+        // A newer selection (or a new chat) started while this one was reading.
+        // Publishing now would navigate the user back to the older chat.
+        if (selectionRevision !== conversationSelectionRevisionRef.current) {
+            return;
+        }
 
         logMessageDebug("select-conversation", {
             conversationId,
@@ -4591,6 +4632,14 @@ Your output must be:
             conversationId,
         );
 
+        if (selectionRevision !== conversationSelectionRevisionRef.current) {
+            return;
+        }
+
+        // Publication marker: a hydrate that captured the revision before this
+        // selection began must not overwrite it, even if it read the previous
+        // active ID after this selection started.
+        conversationSelectionRevisionRef.current += 1;
         setSnapshot((current) => ({
             ...current,
             currentConversation: nextConversation,
@@ -4604,6 +4653,11 @@ Your output must be:
             },
         }));
     },
+        [],
+    );
+
+    const getConversationSelectionRevision = useCallback(
+        () => conversationSelectionRevisionRef.current,
         [],
     );
 
@@ -6161,6 +6215,7 @@ Your output must be:
             retryRun,
             runStatusByConversation,
             selectConversation,
+            getConversationSelectionRevision,
             setConversationPinned,
             sendMessage,
             sending,
@@ -6180,7 +6235,7 @@ Your output must be:
             setCurrentSelectedSkillIds,
             conversations: snapshot.conversations,
         }),
-        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, syncConversationMessages, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setConversationModel, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
+        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, getConversationSelectionRevision, importConversationJson, syncConversationMessages, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setConversationModel, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
     );
     const configValue = useMemo(
         (): ConfigContextValue => ({
@@ -6473,6 +6528,7 @@ export function useChat() {
         renameConversation: chat.renameConversation,
         runStatusByConversation: chat.runStatusByConversation,
         selectConversation: chat.selectConversation,
+        getConversationSelectionRevision: chat.getConversationSelectionRevision,
         setConversationPinned: chat.setConversationPinned,
         sendMessage: chat.sendMessage,
         pendingInputs: chat.pendingInputs,

@@ -72,20 +72,42 @@ Notifications.setNotificationHandler({
 });
 
 function NotificationObserver() {
-  const { resolveNotificationApproval, selectConversation } = useChat();
+  const {
+    getConversationSelectionRevision,
+    resolveNotificationApproval,
+    selectConversation,
+  } = useChat();
   const callbacksRef = useRef({
+    getConversationSelectionRevision,
     resolveNotificationApproval,
     selectConversation,
   });
-  callbacksRef.current = { resolveNotificationApproval, selectConversation };
+  callbacksRef.current = {
+    getConversationSelectionRevision,
+    resolveNotificationApproval,
+    selectConversation,
+  };
 
   useEffect(() => {
+    // A notification response left over from an earlier launch must not pull the
+    // user out of a chat opened after this launch.
+    const startupRevision =
+      callbacksRef.current.getConversationSelectionRevision();
+
     function openConversation(
       notification: Notifications.Notification | null | undefined,
+      options?: { startup?: boolean },
     ) {
       const conversationId = notification?.request.content.data?.conversationId;
 
       if (typeof conversationId === "string") {
+        if (
+          options?.startup &&
+          callbacksRef.current.getConversationSelectionRevision() !==
+            startupRevision
+        ) {
+          return;
+        }
         callbacksRef.current
           .selectConversation(conversationId)
           .then(() => {
@@ -97,6 +119,7 @@ function NotificationObserver() {
 
     function handleResponse(
       response: Notifications.NotificationResponse | null | undefined,
+      options?: { startup?: boolean },
     ) {
       if (!response?.notification) {
         return;
@@ -136,18 +159,18 @@ function NotificationObserver() {
         return;
       }
 
-      openConversation(response.notification);
+      openConversation(response.notification, options);
     }
 
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
-        handleResponse(response);
         Notifications.clearLastNotificationResponseAsync().catch(() => {});
+        handleResponse(response, { startup: true });
       })
       .catch(() => {});
 
     const subscription = Notifications.addNotificationResponseReceivedListener(
-      handleResponse,
+      (response) => handleResponse(response),
     );
 
     return () => {

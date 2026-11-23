@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type {
   AgentInfo,
   FormInfo,
@@ -7,13 +7,16 @@ import type {
   SessionMessageInfo,
 } from "@opencode/client";
 import {
+  clearPresentedOpenCodeMessages,
   openCodeFormAnswer,
   openCodeModelRef,
+  openCodeSnapshotToken,
   presentOpenCodeConversation,
   presentOpenCodeAgent,
   presentOpenCodeMessages,
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
+  stabilizePresentedMessages,
 } from "./opencode-presentation";
 
 describe("OpenCode shared chat presentation", () => {
@@ -469,6 +472,132 @@ describe("OpenCode shared chat presentation", () => {
       { id: "local-user", conversationId: "chat_local" },
       { id: "local-assistant", conversationId: "chat_local" },
     ]);
+  });
+});
+
+describe("OpenCode presentation identity", () => {
+  const conversationId = "ses_cache";
+  const base = [
+    {
+      id: "msg_cache_user",
+      type: "user",
+      text: "Hello",
+      time: { created: 1000 },
+    },
+    {
+      id: "msg_cache_reply",
+      type: "assistant",
+      agent: "build",
+      time: { created: 2000, completed: 3000 },
+      content: [{ type: "text", text: "Hi" }],
+    },
+  ] as SessionMessageInfo[];
+
+  beforeEach(() => {
+    clearPresentedOpenCodeMessages();
+  });
+
+  it("reuses every unchanged row across polls", () => {
+    const first = presentOpenCodeMessages(base, conversationId, false);
+    const second = presentOpenCodeMessages(
+      base.map((message) => ({ ...message })),
+      conversationId,
+      false,
+    );
+
+    expect(second).not.toBe(first);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it("rebuilds the row that is still streaming", () => {
+    const first = presentOpenCodeMessages(base, conversationId, true);
+    const second = presentOpenCodeMessages(base, conversationId, true);
+
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1].status).toBe("streaming");
+  });
+
+  it("rebuilds a row whose remote content changed", () => {
+    const first = presentOpenCodeMessages(base, conversationId, false);
+    const changed = base.map((message) =>
+      message.id === "msg_cache_reply"
+        ? {
+            ...message,
+            content: [{ type: "text", text: "Hi there" }],
+          }
+        : message,
+    ) as SessionMessageInfo[];
+    const second = presentOpenCodeMessages(changed, conversationId, false);
+
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1].content).toBe("Hi there");
+  });
+
+  it("keeps row identity when the snapshot window slides", () => {
+    const later = {
+      id: "msg_cache_later",
+      type: "user",
+      text: "Later",
+      time: { created: 4000 },
+    } as SessionMessageInfo;
+    const first = presentOpenCodeMessages(
+      [...base, later],
+      conversationId,
+      false,
+    );
+    const slid = presentOpenCodeMessages(
+      [base[1], later],
+      conversationId,
+      false,
+    );
+
+    expect(slid[0]).toBe(first[1]);
+    expect(slid[0].sequence).toBe(first[1].sequence);
+  });
+
+  it("keeps the list array stable when every row is unchanged", () => {
+    const first = presentOpenCodeMessages(base, conversationId, false);
+    const second = presentOpenCodeMessages(base, conversationId, false);
+
+    expect(stabilizePresentedMessages(first, second)).toBe(first);
+    expect(stabilizePresentedMessages(first, [])).toEqual([]);
+  });
+
+  it("detects real snapshot changes without hashing message text", () => {
+    const snapshot = {
+      forms: [],
+      messages: base,
+      permissions: [],
+      running: false,
+      session: {
+        id: conversationId,
+        title: "Chat",
+        time: { created: 1, updated: 2 },
+        location: { directory: "/tmp" },
+      },
+    };
+    const token = openCodeSnapshotToken(snapshot as never);
+    expect(
+      openCodeSnapshotToken({
+        ...snapshot,
+        messages: base.map((message) => ({ ...message })),
+      } as never),
+    ).toBe(token);
+    expect(
+      openCodeSnapshotToken({ ...snapshot, running: true } as never),
+    ).not.toBe(token);
+    expect(
+      openCodeSnapshotToken({
+        ...snapshot,
+        messages: base.map((message) =>
+          message.id === "msg_cache_reply"
+            ? { ...message, content: [{ type: "text", text: "Changed" }] }
+            : message,
+        ),
+      } as never),
+    ).not.toBe(token);
   });
 });
 

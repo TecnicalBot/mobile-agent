@@ -38,6 +38,7 @@ import type {
   PendingToolApproval,
   PendingQuestionnaireAnswer,
   SendMessageInput,
+  StoredMessage,
 } from "@/core/types/app-state";
 import { useAntigravityHarnessController } from "@/hooks/use-antigravity-harness";
 import { useClaudeHarnessController } from "@/hooks/use-claude-harness";
@@ -67,6 +68,7 @@ import {
   presentOpenCodeMessages,
   presentOpenCodeModel,
   presentOpenCodeQuestionnaire,
+  stabilizePresentedMessages,
 } from "@/modules/harnesses/opencode-presentation";
 import {
   buildDetachedTranscriptText,
@@ -107,6 +109,10 @@ function useOpenCodeHarnessController() {
   const directConfig = useDirectConfig();
   const directChat = useDirectChat();
   const syncConversationMessages = directChat.syncConversationMessages;
+  const selectionRevisionRef = useRef(
+    directChat.getConversationSelectionRevision,
+  );
+  selectionRevisionRef.current = directChat.getConversationSelectionRevision;
   const phoneBridge = usePhoneBridge();
   const [phoneToolsEnabled, setPhoneToolsEnabled] = useState(false);
   const [phoneToolsError, setPhoneToolsError] = useState<string | null>(null);
@@ -189,6 +195,7 @@ function useOpenCodeHarnessController() {
 
   const connect = useCallback(async () => {
     const epoch = ++generation.current;
+    const selectionRevision = selectionRevisionRef.current();
     setStatus("connecting");
     setError(null);
     const controller = new AbortController();
@@ -224,13 +231,13 @@ function useOpenCodeHarnessController() {
         throw new Error("OpenCode V2 is required.");
       if (epoch !== generation.current) return;
       const previous = connection.current;
-      if (
-        previous &&
+      const connectionChanged =
+        previous !== null &&
         (previous.url !== saved.url ||
           previous.username !== saved.username ||
           previous.password !== saved.password ||
-          previous.directory !== saved.directory)
-      ) {
+          previous.directory !== saved.directory);
+      if (connectionChanged) {
         // Native session IDs belong to their connection, never carry them to a new host.
         setActive(false);
         setSessionID(null);
@@ -238,13 +245,58 @@ function useOpenCodeHarnessController() {
         setPhoneToolsEnabled(false);
         setSelectedAgentID(null);
       }
-      connection.current = saved;
+      connection.current = { ...saved };
       setClient(api);
       setModels(catalog.data.filter((model) => model.enabled));
       setAgents(agentCatalog.agents);
       setDefaultAgentID(agentCatalog.defaultAgent?.id ?? null);
       setSessions(list.data);
       setStatus("connected");
+
+      // Reopen the session that was active before the app reloaded. Without
+      // this a reload drops the harness chat and falls back to whatever direct
+      // conversation was saved last, which looks like the chat auto-switching.
+      if (saved.sessionID) {
+        if (selectionRevisionRef.current() !== selectionRevision) {
+          // The user opened another chat while we were connecting. Do not yank
+          // them into the session saved from the previous launch.
+          connection.current = { ...saved, sessionID: undefined };
+          await saveOpenCodeConnection(connection.current).catch(() => {});
+        } else if (connectionChanged) {
+          connection.current = { ...saved, sessionID: undefined };
+          await saveOpenCodeConnection(connection.current).catch(() => {});
+        } else {
+          const known = list.data.find(
+            (session) => session.id === saved.sessionID,
+          );
+          const restored =
+            known ??
+            (await api.session
+              .get({ sessionID: saved.sessionID }, { signal: controller.signal })
+              .catch(() => null));
+          if (epoch !== generation.current) return;
+          if (restored && !restored.time.archived) {
+            setSessions((old) => [
+              restored,
+              ...old.filter((session) => session.id !== restored.id),
+            ]);
+            const model = restored.model
+              ? catalog.data.find(
+                  (item) =>
+                    item.id === restored.model?.id &&
+                    item.providerID === restored.model?.providerID,
+                )
+              : undefined;
+            setSelectedRef(model ? openCodeModelRef(model) : null);
+            setSelectedAgentID(restored.agent ?? null);
+            setSessionID(restored.id);
+            setActive(true);
+          } else {
+            connection.current = { ...saved, sessionID: undefined };
+            await saveOpenCodeConnection(connection.current).catch(() => {});
+          }
+        }
+      }
     } catch (cause) {
       if (epoch === generation.current) {
         setClient(null);
@@ -559,6 +611,10 @@ function useOpenCodeHarnessController() {
 
   const disconnect = useCallback(() => {
     generation.current++;
+    if (connection.current?.sessionID) {
+      connection.current = { ...connection.current, sessionID: undefined };
+      void saveOpenCodeConnection(connection.current).catch(() => {});
+    }
     setClient(null);
     setModels([]);
     setAgents([]);
@@ -571,6 +627,18 @@ function useOpenCodeHarnessController() {
     setSelectedRef(null);
     setError(null);
     setPhoneToolsEnabled(false);
+  }, []);
+
+  // Remember which remote session the user was reading so a reload can reopen
+  // it instead of silently landing on a different local conversation.
+  const persistActiveSession = useCallback((nextSessionID: string | null) => {
+    const current = connection.current;
+    if (!current || (current.sessionID ?? null) === nextSessionID) return;
+    const updated = { ...current, sessionID: nextSessionID ?? undefined };
+    connection.current = updated;
+    void saveOpenCodeConnection(updated).catch((cause) => {
+      console.warn("Could not persist the active OpenCode session.", cause);
+    });
   }, []);
 
   const mutate = useCallback(
@@ -878,6 +946,7 @@ function useOpenCodeHarnessController() {
     setSelectedFileIdsState(conversation.selectedFileIds);
     setActive(true);
     setSessionID(nextSessionID);
+    persistActiveSession(nextSessionID);
     setError(null);
   };
 
@@ -1014,6 +1083,7 @@ function useOpenCodeHarnessController() {
     setSelectedAgentID(null);
     setSelectedFileIdsState([]);
     setActive(true);
+    persistActiveSession(id);
     if (session?.model) {
       const model = models.find(
         (item) =>
@@ -1101,17 +1171,23 @@ function useOpenCodeHarnessController() {
     }
     setSelectedAgentID(agent.id);
   };
-  const messages = useMemo(
-    () =>
+  const presentedMessagesRef = useRef<StoredMessage[]>([]);
+  const messages = useMemo(() => {
+    const next =
       snapshot?.session.id === sessionID
         ? presentOpenCodeMessages(
             snapshot.messages,
             sessionID!,
             snapshot.running,
           )
-        : [],
-    [snapshot, sessionID],
-  );
+        : [];
+    const stable = stabilizePresentedMessages(
+      presentedMessagesRef.current,
+      next,
+    );
+    presentedMessagesRef.current = stable;
+    return stable;
+  }, [snapshot, sessionID]);
 
   const linkedConversationId = useMemo(() => {
     if (!sessionID || !conversationAdapter) return null;
@@ -1505,6 +1581,7 @@ function useOpenCodeHarnessController() {
     deactivate: () => {
       setActive(false);
       setSessionID(null);
+      persistActiveSession(null);
       // A direct model is now in charge. Clearing the harness selection keeps a
       // later send from silently reverting to the harness model when the chat
       // is reopened or the harness reconnects.
@@ -1516,6 +1593,7 @@ function useOpenCodeHarnessController() {
     },
     newChat: async () => {
       setSessionID(null);
+      persistActiveSession(null);
       setSelectedAgentID(null);
       setSelectedFileIdsState([]);
       setPendingPrompt(null);

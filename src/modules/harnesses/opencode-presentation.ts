@@ -131,6 +131,94 @@ export function openCodeStoredMessageID(message: SessionMessageInfo): string {
     : message.id;
 }
 
+/**
+ * Cheap change token for one remote message. OpenCode grows an in-flight
+ * message in place and leaves finished rows untouched, so timestamps plus
+ * per-part text lengths are enough to detect a rewrite without hashing the
+ * whole transcript on every poll. The streaming row is always rebuilt below.
+ */
+export function openCodeMessageToken(message: SessionMessageInfo): string {
+  const head = `${message.type}:${message.time.created}`;
+  if (message.type === "user" || message.type === "system")
+    return `${head}:${message.text.length}`;
+  if (message.type !== "assistant") return head;
+  let token = `${head}:${message.time.streamed ?? ""}:${message.time.completed ?? ""}`;
+  for (const part of message.content) {
+    if (part.type === "text") token += `|t${part.text.length}`;
+    else if (part.type === "reasoning")
+      token += `|r${part.text.length}:${part.time?.completed ?? ""}`;
+    else {
+      const state = part.state;
+      token += `|${part.id}:${state.status}`;
+      if ("content" in state)
+        for (const item of state.content ?? [])
+          token += item.type === "text" ? `-${item.text.length}` : "-f";
+      if ("error" in state && state.error) token += "!";
+    }
+  }
+  if (message.error) token += "!e";
+  return token;
+}
+
+/**
+ * Token for a whole snapshot. `useOpenCode` uses it to skip publishing a new
+ * snapshot when the poll returned exactly the same content as the last one.
+ */
+export function openCodeSnapshotToken(snapshot: {
+  forms: readonly unknown[];
+  messages: readonly SessionMessageInfo[];
+  permissions: readonly unknown[];
+  running: boolean;
+  session: SessionInfo;
+}): string {
+  const session = snapshot.session;
+  return [
+    session.id,
+    session.title,
+    session.agent ?? "",
+    session.time.created,
+    session.time.updated,
+    session.model?.id ?? "",
+    session.model?.providerID ?? "",
+    session.time.archived ?? "",
+    session.location?.directory ?? "",
+    snapshot.running ? "1" : "0",
+    JSON.stringify(snapshot.permissions),
+    JSON.stringify(snapshot.forms),
+    snapshot.messages.map(openCodeMessageToken).join("\n"),
+  ].join("\u0001");
+}
+
+type PresentedMessageCache = {
+  token: string;
+  message: StoredMessage;
+};
+
+// Presentation rebuilds `StoredMessage` objects from fresh HTTP payloads. React
+// memoized chat cells only keep their rendered output when those objects stay
+// identical, so cache the projection per conversation/message and reuse it while
+// the remote row is unchanged. Without this every poll re-rendered every row.
+const presentedMessageCache = new Map<string, PresentedMessageCache>();
+const PRESENTED_MESSAGE_CACHE_LIMIT = 4000;
+
+export function clearPresentedOpenCodeMessages() {
+  presentedMessageCache.clear();
+}
+
+/**
+ * Reuse the previous array when every presented row is unchanged. Chat surfaces
+ * depend on the array identity too, not just the row identities.
+ */
+export function stabilizePresentedMessages(
+  previous: StoredMessage[],
+  next: StoredMessage[],
+): StoredMessage[] {
+  if (previous.length !== next.length) return next;
+  for (let index = 0; index < next.length; index += 1)
+    if (previous[index] !== next[index]) return next;
+  return previous;
+}
+
 export function presentOpenCodeMessages(
   messages: SessionMessageInfo[],
   sessionID: string,
@@ -152,23 +240,58 @@ export function presentOpenCodeMessages(
   const lastConversationMessage = openCodeLastConversationMessage(messages);
   const waitingForAssistant = lastConversationMessage?.type === "user";
 
-  const presented = messages.flatMap((message, sequence): StoredMessage[] => {
+  const reuse = (
+    sequence: number,
+    stored: StoredMessage,
+    token: string,
+    force: boolean,
+  ): StoredMessage => {
+    const key = `${conversationId}\u0000${stored.id}\u0000${sequence}\u0000${includeSystem ? "1" : "0"}`;
+    const cached = presentedMessageCache.get(key);
+    if (!force && cached && cached.token === token) {
+      // Refresh insertion order so eviction drops the least recently seen chat.
+      presentedMessageCache.delete(key);
+      presentedMessageCache.set(key, cached);
+      return cached.message;
+    }
+    presentedMessageCache.delete(key);
+    presentedMessageCache.set(key, { token, message: stored });
+    return stored;
+  };
+
+  // OpenCode snapshots are a sliding window, so array indexes shift whenever a
+  // new message arrives. Derive a stable ordering key from the remote creation
+  // time instead; otherwise every row looks changed on each poll.
+  const createdAtOffsets = new Map<number, number>();
+  const sequenceFor = (created: number) => {
+    const offset = createdAtOffsets.get(created) ?? 0;
+    createdAtOffsets.set(created, offset + 1);
+    return created * 1000 + offset;
+  };
+
+  const presented = messages.flatMap((message): StoredMessage[] => {
+    const sequence = sequenceFor(message.time.created);
     if (message.type === "system") {
       if (!includeSystem) return [];
       const createdAt = new Date(message.time.created).toISOString();
       return [
-        {
-          id: openCodeStoredMessageID(message),
-          conversationId,
-          role: "system",
-          content: message.text,
-          metadata: null,
-          status: "completed",
-          error: null,
+        reuse(
           sequence,
-          createdAt,
-          updatedAt: createdAt,
-        },
+          {
+            id: openCodeStoredMessageID(message),
+            conversationId,
+            role: "system",
+            content: message.text,
+            metadata: null,
+            status: "completed",
+            error: null,
+            sequence,
+            createdAt,
+            updatedAt: createdAt,
+          },
+          `system:completed\u0000${openCodeMessageToken(message)}`,
+          false,
+        ),
       ];
     }
     if (message.type !== "user" && message.type !== "assistant") return [];
@@ -265,67 +388,87 @@ export function presentOpenCodeMessages(
           );
         }
       });
+    const failure = message.type === "assistant" ? message.error : undefined;
+    const failed = Boolean(failure);
+    const status: StoredMessage["status"] = failed
+      ? "failed"
+      : message.type === "assistant" &&
+          running &&
+          !waitingForAssistant &&
+          message.id === lastAssistantID
+        ? "streaming"
+        : "completed";
+    // The step that is still being written is the only mutable row, so always
+    // rebuild it. Everything else is reused while its token is unchanged.
     return [
-      {
-        id: storedMessageID,
-        conversationId: conversationId,
-        role: message.type === "user" ? "user" : "assistant",
-        content,
-        metadata: {
-          agentName: "OpenCode",
-          toolExecutions: tools,
-          reasoning,
-          toolRunAnchors,
-          generatedVideos,
-        },
-        status:
-          message.type === "assistant" && message.error
-            ? "failed"
-            : message.type === "assistant" &&
-                running &&
-                !waitingForAssistant &&
-                message.id === lastAssistantID
-              ? "streaming"
-              : "completed",
-        error:
-          message.type === "assistant" && message.error
-            ? openCodeErrorMessage(message.error)
-            : null,
+      reuse(
         sequence,
-        createdAt,
-        updatedAt: createdAt,
-      },
+        {
+          id: storedMessageID,
+          conversationId: conversationId,
+          role: message.type === "user" ? "user" : "assistant",
+          content,
+          metadata: {
+            agentName: "OpenCode",
+            toolExecutions: tools,
+            reasoning,
+            toolRunAnchors,
+            generatedVideos,
+          },
+          status,
+          error: failure ? openCodeErrorMessage(failure) : null,
+          sequence,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        `${status}\u0000${failed ? "error" : ""}\u0000${openCodeMessageToken(message)}`,
+        status === "streaming",
+      ),
     ];
   });
 
-  if (!running || !waitingForAssistant) {
-    return presented;
+  if (running && waitingForAssistant) {
+    // Keep the loader attached to the turn the user just submitted. The row is
+    // presentation-only: the real assistant step replaces it as soon as the
+    // harness reports one.
+    const createdAt = new Date(
+      lastConversationMessage.time.created + 1,
+    ).toISOString();
+    const pendingSequence =
+      sequenceFor(lastConversationMessage.time.created) + 1;
+    presented.push(
+      reuse(
+        pendingSequence,
+        {
+          id: `opencode-pending-assistant:${sessionID}:${lastConversationMessage.id}`,
+          conversationId,
+          role: "assistant",
+          content: "",
+          metadata: {
+            agentName: "OpenCode",
+            reasoning: [],
+            toolExecutions: [],
+            toolRunAnchors: [],
+          },
+          status: "streaming",
+          error: null,
+          sequence: pendingSequence,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        `pending:${openCodeMessageToken(lastConversationMessage)}:${createdAt}`,
+        false,
+      ),
+    );
   }
 
-  // Keep the loader attached to the turn the user just submitted. The row is
-  // presentation-only: the real assistant step replaces it as soon as the
-  // harness reports one.
-  const createdAt = new Date(
-    lastConversationMessage.time.created + 1,
-  ).toISOString();
-
-  presented.push({
-    id: `opencode-pending-assistant:${sessionID}:${lastConversationMessage.id}`,
-    conversationId,
-    role: "assistant",
-    content: "",
-    metadata: {
-      agentName: "OpenCode",
-      reasoning: [],
-      toolExecutions: [],
-      toolRunAnchors: [],
-    },
-    status: "streaming",
-    error: null,
-    sequence: messages.length,
-    createdAt,
-    updatedAt: createdAt,
-  });
+  if (presentedMessageCache.size > PRESENTED_MESSAGE_CACHE_LIMIT) {
+    let excess = presentedMessageCache.size - PRESENTED_MESSAGE_CACHE_LIMIT;
+    for (const key of presentedMessageCache.keys()) {
+      presentedMessageCache.delete(key);
+      if (--excess <= 0) break;
+    }
+  }
 
   return presented;
 }

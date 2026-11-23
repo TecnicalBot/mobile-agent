@@ -6,6 +6,7 @@ import {
   readOpenCodeSnapshot,
   type OpenCodeSnapshot,
 } from "@/modules/harnesses/opencode";
+import { openCodeSnapshotToken } from "@/modules/harnesses/opencode-presentation";
 
 /** Reconcile authoritative snapshots; never replay mutations after a disconnect. */
 export function useOpenCode(
@@ -15,8 +16,12 @@ export function useOpenCode(
   const [snapshot, setSnapshot] = useState<OpenCodeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useRef<() => void>(() => {});
+  // Polls return fresh objects for identical data. Publishing them re-renders
+  // the whole chat, so compare content first and keep the previous snapshot.
+  const snapshotToken = useRef<string | null>(null);
 
   useEffect(() => {
+    snapshotToken.current = null;
     setSnapshot(null);
     setError(null);
     if (!client || !sessionID) return;
@@ -46,7 +51,11 @@ export function useOpenCode(
           request.signal,
         );
         if (!disposed && foreground) {
-          setSnapshot(next);
+          const token = openCodeSnapshotToken(next);
+          if (token !== snapshotToken.current) {
+            snapshotToken.current = token;
+            setSnapshot(next);
+          }
           setError(null);
         }
       } catch {

@@ -49,15 +49,20 @@ export function useConfig() {
       }
 
       if (harness.active) {
-        let conversationId: string | null = null;
+        let conversationId: string | null = harness.linkedConversationId ?? null;
         try {
-          conversationId = await harness.detachConversation();
+          conversationId =
+            (await harness.detachConversation()) ?? conversationId;
         } catch (error) {
           console.error("Could not copy the harness transcript locally", error);
         }
         harness.deactivate();
         if (conversationId) {
           await directChat.selectConversation(conversationId);
+          // Record the direct model on the chat itself. Otherwise the chat
+          // still points at its harness model, and reopening it later would
+          // silently attach it back to the harness.
+          await directChat.setConversationModel(conversationId, ref);
         }
       }
       await direct.selectModel(ref);

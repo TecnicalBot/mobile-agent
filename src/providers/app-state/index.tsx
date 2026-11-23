@@ -161,7 +161,7 @@ import type {
     StoredMessage,
     WorkspaceFile,
 } from "@/core/types/app-state";
-import { createModelRef } from "@/core/types/app-state";
+import { createModelRef, parseModelRef } from "@/core/types/app-state";
 import {
     computeNextRun,
     createSchedulerEngine,
@@ -470,6 +470,11 @@ type AppStateContextValue = {
         conversationId: string,
         agentIdOrName: string | null,
     ) => Promise<void>;
+    /** Record the model a chat is currently using without sending a message. */
+    setConversationModel: (
+        conversationId: string,
+        modelRef: ModelRef,
+    ) => Promise<void>;
     setCurrentSelectedFileIds: (selectedFileIds: string[]) => Promise<void>;
     setCurrentSelectedMcpServerIds: (
         selectedMcpServerIds: string[] | null,
@@ -638,6 +643,7 @@ const CHAT_KEYS = [
     "setReasoningEffort",
     "conversationAgentName",
     "setConversationAgent",
+    "setConversationModel",
     "setCurrentSelectedFileIds",
     "setCurrentSelectedSkillIds",
     "conversations",
@@ -4762,6 +4768,39 @@ Your output must be:
         [ensureConversationPersisted],
     );
 
+    const setConversationModel = useCallback(
+        async (conversationId: string, modelRef: ModelRef) => {
+            const target = snapshotRef.current.conversations.find(
+                (conversation) => conversation.id === conversationId,
+            );
+
+            if (!target) {
+                return;
+            }
+
+            const { providerId, modelId } = parseModelRef(modelRef);
+
+            await repositoriesRef.current.conversationRepository.updateMetadata(
+                conversationId,
+                { providerId, modelId },
+            );
+
+            setSnapshot((current) => ({
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                    conversation.id === conversationId
+                        ? { ...conversation, providerId, modelId }
+                        : conversation,
+                ),
+                currentConversation:
+                    current.currentConversation?.id === conversationId
+                        ? { ...current.currentConversation, providerId, modelId }
+                        : current.currentConversation,
+            }));
+        },
+        [],
+    );
+
     const selectModel = useCallback(
         async (modelRef: ModelRef) => {
             await repositoriesRef.current.configRepository.setSetting(
@@ -6048,11 +6087,12 @@ Your output must be:
                 snapshot.currentSelectedAgentId,
             ).name,
             setConversationAgent,
+            setConversationModel,
             setCurrentSelectedFileIds,
             setCurrentSelectedSkillIds,
             conversations: snapshot.conversations,
         }),
-        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, syncConversationMessages, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
+        [approveToolForChat, cancelPendingInput, cancelRun, clearConversationFolder, createConversation, deleteConversation, dismissPendingSecretRequest, editAndResendMessage, exportConversationJson, importConversationJson, syncConversationMessages, pendingQuestionnaire, pendingSecretRequest, pendingToolApproval, pickConversationFolder, renameConversation, resolveNotificationApproval, resolvePendingQuestionnaire, resolvePendingToolApproval, resumePendingRuns, retryRun, runStatusByConversation, selectConversation, sendMessage, sending, setConversationAgent, setConversationModel, setCurrentSelectedFileIds, setCurrentSelectedSkillIds, setReasoningEffort, snapshot.agentRuns, snapshot.agents, snapshot.conversations, snapshot.currentConversation, snapshot.currentSelectedAgentId, snapshot.currentSelectedFileIds, snapshot.currentSelectedSkillIds, snapshot.messages, snapshot.pendingInputs, stopSending, submitPendingSecretRequest],
     );
     const configValue = useMemo(
         (): ConfigContextValue => ({
@@ -6362,6 +6402,7 @@ export function useChat() {
         currentSelectedAgentId: chat.currentSelectedAgentId,
         conversationAgentName: chat.conversationAgentName,
         setConversationAgent: chat.setConversationAgent,
+        setConversationModel: chat.setConversationModel,
         createAgent: config.createAgent,
         updateAgent: config.updateAgent,
         deleteAgent: config.deleteAgent,

@@ -10,11 +10,13 @@ const state = vi.hoisted(() => ({
   directChat: {
     currentConversation: { id: "local-chat" } as { id: string } | null,
     selectConversation: vi.fn(),
+    setConversationModel: vi.fn(),
   },
   harness: {
     active: false,
     availableModels: [],
     currentModel: null,
+    linkedConversationId: null as string | null,
     selectModel: vi.fn(),
     attachConversation: vi.fn(),
     detachConversation: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("@/providers/harness-state", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   state.harness.active = false;
+  state.harness.linkedConversationId = null;
   state.directChat.currentConversation = { id: "local-chat" };
   state.harness.detachConversation.mockResolvedValue(null);
 });
@@ -79,6 +82,10 @@ describe("unified model selection", () => {
     expect(state.directChat.selectConversation).toHaveBeenCalledWith(
       "linked-chat",
     );
+    expect(state.directChat.setConversationModel).toHaveBeenCalledWith(
+      "linked-chat",
+      ref,
+    );
     expect(state.direct.selectModel).toHaveBeenCalledWith(ref);
     expect(
       state.harness.detachConversation.mock.invocationCallOrder[0],
@@ -95,6 +102,7 @@ describe("unified model selection", () => {
 
     expect(state.harness.deactivate).toHaveBeenCalledTimes(1);
     expect(state.directChat.selectConversation).not.toHaveBeenCalled();
+    expect(state.directChat.setConversationModel).not.toHaveBeenCalled();
     expect(state.direct.selectModel).toHaveBeenCalledWith(ref);
     error.mockRestore();
   });

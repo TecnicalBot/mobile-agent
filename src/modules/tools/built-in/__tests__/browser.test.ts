@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { asSchema, type JSONSchema7 } from "ai";
 
 const mocks = vi.hoisted(() => ({
   createDocumentFileFromFile: vi.fn(),
@@ -57,6 +58,25 @@ describe("browser tool", () => {
       size: 4321,
       relativePath: `shots/${name}`,
     }));
+  });
+
+  it("exposes an object input schema with a top-level type", () => {
+    const schema = asSchema(makeTool().inputSchema).jsonSchema as JSONSchema7;
+
+    expect(schema).toMatchObject({ type: "object" });
+    expect(schema.oneOf).toBeUndefined();
+    expect(
+      (schema.properties as Record<string, { enum?: string[] }>).action.enum,
+    ).toEqual([
+      "navigate",
+      "back",
+      "reload",
+      "read",
+      "scroll",
+      "click",
+      "type",
+      "screenshot",
+    ]);
   });
 
   it("navigates and reports the landed URL and title", async () => {

@@ -6,6 +6,7 @@ import type {
   GenerateModelTextStreamResult,
   ProviderLanguageModel,
 } from "@/modules/runtime/drivers/types";
+import { normalizeToolInputSchemas } from "@/modules/runtime/tool-schemas";
 
 export function shouldUseStreamingAISDK() {
   return (
@@ -279,7 +280,7 @@ async function generateViaAISDKWithContinuation(
       stopWhen: ({ steps }) =>
         steps.length - getStepBudgetBase(params) >= params.maxToolSteps,
       system: params.system,
-      tools: params.tools,
+      tools: normalizeToolInputSchemas(params.tools),
     });
 
     // AI SDK result getters create derived promises that can reject before the
@@ -471,7 +472,7 @@ export async function generateViaAISDKNonStreaming(
     stopWhen: ({ steps }) =>
       steps.length - getStepBudgetBase(params) >= params.maxToolSteps,
     system: params.system,
-    tools: params.tools,
+    tools: normalizeToolInputSchemas(params.tools),
   });
 
   if (params.abortSignal?.aborted) throw new Error("Request aborted.");

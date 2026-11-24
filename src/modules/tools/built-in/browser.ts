@@ -39,37 +39,56 @@ export function createBrowserTool({ onRecord, repository }: WorkspaceToolFactory
   return tool({
     description:
       "Drive a built-in browser session against public web pages (http/https): navigate, go back, reload, scroll, click, fill text fields, read the rendered page text/links, and screenshot the viewport or the full page. The page stays open between calls — history, cookies and logins persist in the session, so you can click around a site like a person. Selectors accept CSS or 'text=visible label' (e.g. text=Sign in); click/type report the clicked element. Reading returns the JS-rendered text plus up to 60 links (use fetchPage for raw HTML text of a page without a browser). Full-page screenshots return a zoomed-out overview plus top-to-bottom slices (images persist to the workspace — view them with the returned links or embed them inline). Only public URLs: local/private hosts are blocked.",
-    inputSchema: z.discriminatedUnion("action", [
-      z.object({ action: z.literal("navigate"), url: z.string().min(1) }).describe("Open a URL in the session."),
-      z.object({ action: z.literal("back") }).describe("Go back one page in the session history."),
-      z.object({ action: z.literal("reload") }).describe("Reload the current page."),
-      z.object({ action: z.literal("read") }).describe("Read the rendered page: text plus links."),
-      z
-        .object({
-          action: z.literal("scroll"),
-          top: z.number().optional().describe("Absolute scroll position; omit to use dy."),
-          dy: z.number().optional().describe("Scroll by delta pixels; omit to page down one viewport."),
-        })
-        .describe("Scroll the current page."),
-      z
-        .object({ action: z.literal("click"), selector: z.string().min(1) })
-        .describe("Click an element: CSS selector or text=visible-label."),
-      z
-        .object({
-          action: z.literal("type"),
-          selector: z.string().min(1),
-          text: z.string(),
-          submit: z.boolean().optional().describe("Also submit the field's form / press Enter."),
-        })
-        .describe("Fill a text field: CSS selector or text=visible-label."),
-      z
-        .object({
-          action: z.literal("screenshot"),
-          fullPage: z.boolean().optional().describe("Whole page: overview + slices instead of just the viewport."),
-          maxSlices: z.number().optional().describe(`Slice budget for a full page (max ${BROWSER_MAX_SLICES}).`),
-        })
-        .describe("Capture the browser's viewport, or the full page."),
-    ]),
+    // Keep a single object schema with an `action` enum. Models such as
+    // Anthropic require a top-level `type` on tool input schemas, which a
+    // discriminated union (serialized as a bare `oneOf`) does not provide.
+    inputSchema: z.object({
+      action: z
+        .enum([
+          "navigate",
+          "back",
+          "reload",
+          "read",
+          "scroll",
+          "click",
+          "type",
+          "screenshot",
+        ])
+        .describe(
+          "navigate: open url. back/reload: session history. read: page text plus links. scroll: top/dy. click/type: selector (type also needs text). screenshot: fullPage/maxSlices.",
+        ),
+      url: z.string().min(1).optional().describe("navigate: http(s) URL to open."),
+      selector: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("click/type: CSS selector or text=visible-label."),
+      text: z.string().optional().describe("type: text to fill in."),
+      submit: z
+        .boolean()
+        .optional()
+        .describe("type: also submit the field's form / press Enter."),
+      top: z
+        .number()
+        .optional()
+        .describe("scroll: absolute scroll position; omit to use dy."),
+      dy: z
+        .number()
+        .optional()
+        .describe("scroll: scroll by delta pixels; omit to page down one viewport."),
+      fullPage: z
+        .boolean()
+        .optional()
+        .describe(
+          "screenshot: whole page overview + slices instead of just the viewport.",
+        ),
+      maxSlices: z
+        .number()
+        .optional()
+        .describe(
+          `screenshot: slice budget for a full page (max ${BROWSER_MAX_SLICES}).`,
+        ),
+    }),
     execute: async (
       input: { action: string; url?: string; selector?: string; text?: string; submit?: boolean; top?: number; dy?: number; fullPage?: boolean; maxSlices?: number },
       { abortSignal }: { abortSignal?: AbortSignal },

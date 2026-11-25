@@ -93,6 +93,7 @@ export async function createPhoneBridgeCapabilities(input: {
       ["ocr", false],
       ["getVideoFrame", false],
       ["renderVideo", false],
+      ["exportEditorPackage", false],
       ["previewScene", false],
       ["previewMix", false],
       // Local media tools are safe to share and are referenced by the

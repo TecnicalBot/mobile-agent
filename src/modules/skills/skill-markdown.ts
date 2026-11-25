@@ -30,6 +30,7 @@ export const TOOL_ALIAS_TO_BUILT_IN_KEY: Record<string, BuiltInToolKey> = {
   download: "downloadFile",
   downloadfile: "downloadFile",
   edit: "workspaceEdit",
+  exporteditorpackage: "workspaceRenderVideo",
   foldercreatedirectory: "folderCreateDirectory",
   foldercreatefile: "folderCreateFile",
   folderdeleteentry: "folderDeleteEntry",

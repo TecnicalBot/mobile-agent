@@ -40,6 +40,17 @@ vi.mock("expo-file-system", () => ({
         this.uri = name !== undefined ? `${base}/${name}` : base;
       }
     }
+    get exists() {
+      return [...mocks.files.keys()].some((path) =>
+        path.startsWith(`${key(this.uri)}/`),
+      );
+    }
+    create() {}
+    delete() {
+      for (const path of [...mocks.files.keys()]) {
+        if (path.startsWith(`${key(this.uri)}/`)) mocks.files.delete(path);
+      }
+    }
     list() {
       const entries: { name: string; delete: () => void }[] = [];
       for (const path of [...mocks.files.keys()]) {
@@ -90,7 +101,7 @@ vi.mock("expo-file-system", () => ({
 const { renderSegments } = await import(
   "@/modules/tools/built-in/render-video"
 );
-const { hashSegmentKeys, planShotSegments } = await import(
+const { hashSegmentKeys, planEditorClips, planShotSegments } = await import(
   "@/modules/preview/render-segments"
 );
 
@@ -495,6 +506,90 @@ describe("planShotSegments", () => {
   });
 });
 
+describe("planEditorClips", () => {
+  it("makes one clip per shot plus one per gap, in timeline order", () => {
+    expect(
+      planEditorClips(30, [
+        { id: "a", start: 5, end: 15, hash: "ha" },
+        { id: "b", start: 20, end: 30, hash: "hb" },
+      ]),
+    ).toEqual([
+      {
+        id: "gap-1",
+        label: "Gap 1",
+        start: 0,
+        end: 5,
+        keys: [],
+        segments: [{ offset: 0, length: 5, keys: [] }],
+      },
+      {
+        id: "shot-a",
+        label: "a",
+        start: 5,
+        end: 15,
+        keys: ["a:ha"],
+        shotId: "a",
+        segments: [{ offset: 5, length: 10, keys: ["a:ha"] }],
+      },
+      {
+        id: "gap-2",
+        label: "Gap 2",
+        start: 15,
+        end: 20,
+        keys: [],
+        segments: [{ offset: 15, length: 5, keys: [] }],
+      },
+      {
+        id: "shot-b",
+        label: "b",
+        start: 20,
+        end: 30,
+        keys: ["b:hb"],
+        shotId: "b",
+        segments: [{ offset: 20, length: 10, keys: ["b:hb"] }],
+      },
+    ]);
+  });
+
+  it("exports a flat scene as one full-video clip", () => {
+    expect(planEditorClips(10, [])).toEqual([
+      {
+        id: "full",
+        label: "Full video",
+        start: 0,
+        end: 10,
+        keys: [],
+        segments: [{ offset: 0, length: 10, keys: [] }],
+      },
+    ]);
+  });
+
+  it("splits a clip longer than the 45 s page budget into sub-segments", () => {
+    const [clip] = planEditorClips(100, [
+      { id: "long", start: 0, end: 100, hash: "h" },
+    ]);
+    expect(clip!.segments.length).toBe(3);
+    for (const segment of clip!.segments) {
+      expect(segment.length).toBeLessThanOrEqual(45);
+      expect(segment.keys).toEqual(["long:h"]);
+    }
+    expect(clip!.segments[0]!.offset).toBe(0);
+    expect(
+      clip!.segments.at(-1)!.offset + clip!.segments.at(-1)!.length,
+    ).toBe(100);
+  });
+
+  it("drops overlapping shots so editor clips never stack", () => {
+    const clips = planEditorClips(20, [
+      { id: "a", start: 0, end: 12, hash: "ha" },
+      { id: "b", start: 6, end: 20, hash: "hb" },
+    ]);
+    expect(clips.map((clip) => clip.id)).toEqual(["shot-a", "gap-1"]);
+    expect(clips[0]!.end).toBe(12);
+    expect(clips[1]).toMatchObject({ start: 12, end: 20, keys: [] });
+  });
+});
+
 describe("shot-aware incremental rendering", () => {
   const SHOT_DOC =
     '<script>window.MOBILE_AGENT_VIDEO = { duration: 20, fps: 30, shots: [{ id: "a", start: 0, end: 10, render: function () {} }, { id: "b", start: 10, end: 20, render: function () {} }], render: function () {} };</script>';
@@ -605,5 +700,165 @@ describe("shot-aware incremental rendering", () => {
       sourceFileId: "src-legacy",
     });
     expect(mocks.probeVideoPlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("editor package rendering", () => {
+  const EDITOR_DOC =
+    '<script>window.MOBILE_AGENT_VIDEO = { duration: 20, fps: 30, width: 1280, height: 720, shots: [{ id: "a", start: 0, end: 10, render: function () {} }, { id: "b", start: 10, end: 20, render: function () {} }], render: function () {} };</script>';
+
+  const plan = {
+    duration: 20,
+    fps: 30,
+    width: 1280,
+    height: 720,
+    sharedHash: "edit-shared",
+    shots: [
+      { id: "a", start: 0, end: 10, hash: "a1" },
+      { id: "b", start: 10, end: 20, hash: "b1" },
+    ],
+  };
+
+  const editorSegmentFile = (offset: number, length: number, keys: string[]) =>
+    `/cache/render-ed-edit-shared-ed-${offset}-${length}-${hashSegmentKeys(keys)}.mp4`;
+
+  it("renders one clip per shot and joins the full video separately", async () => {
+    mocks.probeVideoPlan.mockResolvedValue(plan);
+    const out = await renderSegments({
+      conversationId: "chat-editor",
+      contractDuration: 20,
+      documentHtml: EDITOR_DOC,
+      editorClips: true,
+      sourceFileId: "ignored",
+    });
+
+    expect(mocks.requestVideoRender).toHaveBeenCalledTimes(2);
+    for (const [, options] of mocks.requestVideoRender.mock.calls) {
+      expect(options.conversationId).toBe("chat-editor");
+    }
+
+    // Two clips and the finished timeline each get their own join.
+    expect(mocks.concatSegments).toHaveBeenCalledTimes(3);
+    const destinations = mocks.concatSegments.mock.calls.map(
+      (call) => call[1] as string,
+    );
+    expect(destinations[0]).toContain("/01-a.mp4");
+    expect(destinations[1]).toContain("/02-b.mp4");
+    expect(destinations[2]).toContain("/full.mp4");
+
+    expect(out.clips?.map((clip) => clip.fileName)).toEqual([
+      "01-a.mp4",
+      "02-b.mp4",
+    ]);
+    expect(out.clips?.[0]).toMatchObject({
+      label: "a",
+      shotId: "a",
+      start: 0,
+      end: 10,
+      duration: 10,
+    });
+    expect(out.editorPackage).toMatchObject({
+      fps: 30,
+      width: 1280,
+      height: 720,
+    });
+    expect(out.editorPackage?.directoryUri).toContain("/editor-ed-edit-shared-");
+    expect(out.duration).toBe(20);
+    expect(out.uri).toContain("/full.mp4");
+    expect(out.incremental).toEqual({
+      shots: 2,
+      renderedSegments: 2,
+      reusedSegments: 0,
+    });
+
+    // Editor segments live in their own namespace so pruning one mode cannot
+    // delete footage the other is resuming.
+    expect(mocks.files.has(editorSegmentFile(0, 10, ["a:a1"]))).toBe(true);
+    expect(mocks.files.has(editorSegmentFile(10, 10, ["b:b1"]))).toBe(true);
+  });
+
+  it("reuses every cached editor segment on an unchanged re-export", async () => {
+    mocks.probeVideoPlan.mockResolvedValue(plan);
+    await renderSegments({
+      contractDuration: 20,
+      documentHtml: EDITOR_DOC,
+      editorClips: true,
+      sourceFileId: "ignored",
+    });
+
+    mocks.requestVideoRender.mockClear();
+    mocks.concatSegments.mockClear();
+    const second = await renderSegments({
+      contractDuration: 20,
+      documentHtml: EDITOR_DOC,
+      editorClips: true,
+      sourceFileId: "ignored",
+    });
+
+    expect(mocks.requestVideoRender).not.toHaveBeenCalled();
+    expect(mocks.concatSegments).toHaveBeenCalledTimes(3);
+    expect(second.incremental).toEqual({
+      shots: 2,
+      renderedSegments: 0,
+      reusedSegments: 2,
+    });
+  });
+
+  it("falls back to a single full-video clip when the probe fails", async () => {
+    mocks.probeVideoPlan.mockRejectedValue(new Error("probe failed"));
+    const out = await renderSegments({
+      contractDuration: 20,
+      documentHtml: EDITOR_DOC,
+      editorClips: true,
+      sourceFileId: "ignored",
+    });
+
+    expect(out.clips).toHaveLength(1);
+    expect(out.clips?.[0]).toMatchObject({ label: "Full video", start: 0, end: 20 });
+    expect(out.clips?.[0]?.fileName).toBe("01-full-video.mp4");
+    expect(out.editorPackage).toMatchObject({
+      fps: 30,
+      width: 1280,
+      height: 720,
+    });
+    expect(mocks.concatSegments).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails with a duration hint when no length is known", async () => {
+    mocks.probeVideoPlan.mockRejectedValue(new Error("probe failed"));
+    await expect(
+      renderSegments({
+        contractDuration: null,
+        documentHtml: "<html>MOBILE_AGENT_VIDEO</html>",
+        editorClips: true,
+        sourceFileId: "ignored",
+      }),
+    ).rejects.toThrow(/duration is unknown/);
+  });
+
+  it("ignores zeroed probe metadata and falls back to the contract", async () => {
+    mocks.probeVideoPlan.mockResolvedValue({
+      duration: 0,
+      fps: 0,
+      width: 0,
+      height: 0,
+      sharedHash: "",
+      shots: [],
+    });
+
+    const out = await renderSegments({
+      contractDuration: 20,
+      documentHtml: EDITOR_DOC,
+      editorClips: true,
+      sourceFileId: "ignored",
+    });
+
+    expect(out.duration).toBe(20);
+    expect(out.editorPackage).toMatchObject({
+      fps: 30,
+      width: 1280,
+      height: 720,
+    });
+    expect(out.clips).toHaveLength(1);
   });
 });

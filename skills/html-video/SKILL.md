@@ -1,6 +1,6 @@
 ---
 name: html-video
-description: Make videos, animations, and MP4s by writing a self-contained HTML canvas scene, then render it with the renderVideo tool. Supports optional soundtracks from audio files or synthesized cues.
+description: Make videos, animations, and MP4s by writing a self-contained HTML canvas scene, then render it with the renderVideo tool or export an editable clip package for CapCut, KineMaster, Premiere Pro, DaVinci Resolve, and Final Cut Pro. Supports optional soundtracks from audio files or synthesized cues.
 keywords:
   - video
   - mp4
@@ -9,8 +9,16 @@ keywords:
   - canvas
   - render video
   - make a video
+  - capcut
+  - kinemaster
+  - premiere
+  - davinci resolve
+  - final cut
+  - editable video
+  - import into editor
 allowed-tools:
   - RenderVideo
+  - ExportEditorPackage
   - AnalyzeAudio
   - TranscribeAudio
   - Read
@@ -187,6 +195,39 @@ cause was scene code, media decoding, or device pressure.
 The result also returns `sourceFileId` / `sourceLink`: the exact HTML you
 rendered, saved as `<name>.source.html` in the workspace. You do not need to
 keep the HTML yourself.
+
+## Delivering an editable package (CapCut, KineMaster, Premiere, Resolve, FCP)
+
+When the user wants to **edit the video elsewhere** — "make it importable into
+CapCut", "give me something KineMaster can use", "I want to edit this in
+Premiere" — call **`exportEditorPackage`** instead of `renderVideo`. It runs
+the same HTML contract but produces an editor-ready package:
+
+- one MP4 per `shots` entry (and per gap between shots), in timeline order;
+- `timeline.fcpxml` (Final Cut Pro, DaVinci Resolve), `timeline-fcp7.xml`
+  (Premiere Pro, Resolve), `timeline.otio`, `timeline.edl`, `shots.csv`, and
+  a `README.txt`;
+- every clip plus the finished full video copied into a gallery album
+  (default `Mobile Agent Edits`) for mobile editors, which import media only;
+- a ZIP saved to the workspace and the device Downloads folder, plus the
+  finished full video saved as a separate playable workspace file.
+
+Declare `shots` in the contract so each story beat becomes its own clip. A
+scene without shots exports as one clip equal to the full video — valid, but
+it gives the user nothing to rearrange. Keep shot windows and ids stable across
+revisions; unchanged shots are cached and reused exactly like `renderVideo`.
+
+```
+exportEditorPackage({ html: "<!doctype html>…", name: "black-hole", duration: 10 })
+```
+
+After it returns, embed the finished video inline with
+`![name](workspace://<videoFileId>)` and mention the ZIP (`fileId`/`link`) and
+the gallery album named in `galleryAlbum`. Do not embed the ZIP. If
+`galleryAlbum` is null, the README explains how to import the extracted clips;
+say that gallery access was denied rather than claiming the clips are there.
+The export is slower than `renderVideo` because each clip is joined separately,
+so run it once on a finished scene and do not retry blindly.
 
 ## Previewing a scene before rendering (storyboard first)
 
@@ -834,6 +875,11 @@ inside one canvas scene.
 - [ ] self-contained (no external CDN without warning the user about offline)
 - [ ] if the user asked for the file directly: called `renderVideo` with the
       full HTML and reported the returned MP4 (do **not** rely on a meta tag)
+- [ ] if the user asked for an editable/importable file: called
+      `exportEditorPackage` (not `renderVideo`), declared `shots` so the clips
+      are per story beat, embedded the returned `videoFileId`, and reported
+      the ZIP plus the gallery album (or explained that gallery access was
+      denied)
 - [ ] if audio was requested: every `file:` id exists in the workspace
       (MP3/WAV/M4A/AAC/OGG/WebM), cues fit inside `duration`, volumes
       sum near 1, and `hasAudio` came back true (otherwise told the user why

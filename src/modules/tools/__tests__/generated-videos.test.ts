@@ -59,4 +59,45 @@ describe("collectGeneratedVideos", () => {
       },
     ]);
   });
+
+  it("attaches the playable video from an exportEditorPackage result, not the ZIP", () => {
+    expect(
+      collectGeneratedVideos([
+        {
+          type: "tool-result",
+          toolName: "exportEditorPackage",
+          output: {
+            fileId: "zip-1",
+            displayName: "scene-editor-package.zip",
+            link: "workspace://zip-1",
+            mimeType: "application/zip",
+            videoFileId: "video-1",
+            videoDisplayName: "scene.mp4",
+            videoLink: "workspace://video-1",
+            videoSize: 4096,
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        fileId: "video-1",
+        displayName: "scene.mp4",
+        mimeType: "video/mp4",
+        size: 4096,
+        uri: "workspace://video-1",
+      },
+    ]);
+  });
+
+  it("ignores an editor package that returned no playable video", () => {
+    expect(
+      collectGeneratedVideos([
+        {
+          type: "tool-result",
+          toolName: "exportEditorPackage",
+          output: { fileId: "zip-1", mimeType: "application/zip" },
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

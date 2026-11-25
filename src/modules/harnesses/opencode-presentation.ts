@@ -330,9 +330,13 @@ export function presentOpenCodeMessages(
           });
           // Only phone render results refer to this device's workspace. Host
           // paths and arbitrary remote attachments must not become local files.
+          const isRenderVideo =
+            /^mobile_agent_phone_+renderVideo$/.test(part.name);
+          const isEditorPackage =
+            /^mobile_agent_phone_+exportEditorPackage$/.test(part.name);
           if (
             state.status === "completed" &&
-            /^mobile_agent_phone_+renderVideo$/.test(part.name) &&
+            (isRenderVideo || isEditorPackage) &&
             "content" in state
           ) {
             for (const item of state.content ?? []) {
@@ -340,29 +344,44 @@ export function presentOpenCodeMessages(
               try {
                 const output: unknown = JSON.parse(item.text);
                 if (!output || typeof output !== "object") continue;
-                const video = output as Record<string, unknown>;
+                const result = output as Record<string, unknown>;
+                // The editor package keeps the playable MP4 separate from the
+                // ZIP, so its video fields are the ones that belong in chat.
+                const fileId = isEditorPackage
+                  ? result.videoFileId
+                  : result.fileId;
+                const link = isEditorPackage
+                  ? result.videoLink
+                  : result.link;
+                const mimeType = isEditorPackage
+                  ? result.videoMimeType
+                  : result.mimeType;
+                const displayName = isEditorPackage
+                  ? result.videoDisplayName
+                  : result.displayName;
+                const size = isEditorPackage
+                  ? result.videoSize
+                  : result.size;
                 if (
-                  typeof video.fileId !== "string" ||
-                  !video.fileId ||
-                  video.link !== `workspace://${video.fileId}` ||
-                  video.mimeType !== "video/mp4" ||
-                  typeof video.displayName !== "string" ||
-                  typeof video.size !== "number" ||
-                  !Number.isFinite(video.size) ||
-                  video.size < 0
+                  typeof fileId !== "string" ||
+                  !fileId ||
+                  link !== `workspace://${fileId}` ||
+                  mimeType !== "video/mp4" ||
+                  typeof displayName !== "string" ||
+                  typeof size !== "number" ||
+                  !Number.isFinite(size) ||
+                  size < 0
                 )
                   continue;
                 if (
-                  !generatedVideos.some(
-                    (entry) => entry.fileId === video.fileId,
-                  )
+                  !generatedVideos.some((entry) => entry.fileId === fileId)
                 )
                   generatedVideos.push({
-                    fileId: video.fileId,
-                    displayName: video.displayName,
-                    mimeType: video.mimeType,
-                    size: video.size,
-                    uri: `workspace://${video.fileId}`,
+                    fileId,
+                    displayName,
+                    mimeType,
+                    size,
+                    uri: `workspace://${fileId}`,
                   });
               } catch {
                 // Ordinary text/error results are not attachments.

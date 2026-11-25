@@ -2,6 +2,7 @@ import { createAnalyzeAudioTool } from "@/modules/tools/built-in/analyze-audio";
 import { createCreateFileTool } from "@/modules/tools/built-in/create-file";
 import { createDownloadFileTool } from "@/modules/tools/built-in/download-file";
 import { createEditTool } from "@/modules/tools/built-in/edit";
+import { createExportEditorPackageTool } from "@/modules/tools/built-in/export-editor-package";
 import { createFetchPageTool } from "@/modules/tools/built-in/fetch-page";
 import { createVideoFrameTool } from "@/modules/tools/built-in/video-frame";
 import { createGlobTool } from "@/modules/tools/built-in/glob";
@@ -49,6 +50,7 @@ export function createWorkspaceTools(
       createFile: createCreateFileTool(params),
       downloadFile: createDownloadFileTool({ ...params, session: params.session }),
       edit: createEditTool(params),
+      exportEditorPackage: createExportEditorPackageTool(params),
       fetchPage: createFetchPageTool(params),
       getVideoFrame: createVideoFrameTool(params),
       glob: createGlobTool(params),

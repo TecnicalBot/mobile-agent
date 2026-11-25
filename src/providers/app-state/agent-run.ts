@@ -205,6 +205,7 @@ const WORKSPACE_AUTO_APPROVED_BUILT_IN_TOOL_NAMES = new Set([
   "browser",
   "createFile",
   "edit",
+  "exportEditorPackage",
   "fetchPage",
   "getVideoFrame",
   "glob",
@@ -1607,6 +1608,7 @@ export async function executeClaimedAgentRun(
                 // folder-scoped: folder chats still need them, otherwise the
                 // skill references tools the model cannot see.
                 ["renderVideo", enabledFor("workspaceRenderVideo")],
+                ["exportEditorPackage", enabledFor("workspaceRenderVideo")],
                 ["getVideoFrame", enabledFor("workspaceRenderVideo")],
                 ["previewScene", enabledFor("workspaceRenderVideo")],
                 ["previewMix", enabledFor("workspaceRenderVideo")],
@@ -1648,6 +1650,7 @@ export async function executeClaimedAgentRun(
                 ["previewScene", enabledFor("workspaceRenderVideo")],
                 ["read", enabledFor("workspaceRead")],
                 ["renderVideo", enabledFor("workspaceRenderVideo")],
+                ["exportEditorPackage", enabledFor("workspaceRenderVideo")],
                 ["browser", enabledFor("workspaceFetchPage")],
                 ["splitDocument", enabledFor("workspaceCreateFile")],
                 ["splitPdf", enabledFor("workspaceCreateFile")],

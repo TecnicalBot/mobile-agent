@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Circle,
+  Clapperboard,
   Clock,
   Combine,
   Download,
@@ -817,6 +818,7 @@ function SearchCard({ record }: { record: ToolExecutionRecord }) {
 
 const MEDIA_TEXT_TOOLS = new Set([
   "renderVideo",
+  "exportEditorPackage",
   "previewMix",
   "analyzeAudio",
   "transcribeAudio",
@@ -826,7 +828,12 @@ const MEDIA_TEXT_TOOLS = new Set([
 function MediaTextCard({ record }: { record: ToolExecutionRecord }) {
   const text = record.preview?.text;
   if (!text?.trim()) return null;
-  const Icon = record.toolName === "ocr" ? Search : Volume2;
+  const Icon =
+    record.toolName === "ocr"
+      ? Search
+      : record.toolName === "exportEditorPackage"
+        ? Clapperboard
+        : Volume2;
   return (
     <Card>
       <CardHeader

@@ -11,6 +11,7 @@ export const TOOL_FAMILIES: ToolFamily[] = ["core", "media", "documents"];
 
 export const MEDIA_TOOL_NAMES = [
   "analyzeAudio",
+  "exportEditorPackage",
   "getVideoFrame",
   "listVoices",
   "previewMix",

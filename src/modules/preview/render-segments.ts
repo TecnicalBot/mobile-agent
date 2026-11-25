@@ -1,6 +1,11 @@
 import { Directory, File, Paths } from "expo-file-system";
 
 import {
+  readContractDuration,
+  readContractFps,
+  readContractSize,
+} from "@/modules/preview/video-audio";
+import {
   type VideoExportTimings,
   type VideoRenderPlan,
   probeVideoPlan,
@@ -34,6 +39,36 @@ export type SceneSegment = {
   length: number;
   /** `id:hash` for every shot touched; empty for base-render gaps. */
   keys: string[];
+};
+
+/**
+ * One editable clip of an editor export: a single shot or a gap between
+ * shots, split into render-sized segments so a long shot still stays inside
+ * one page's frame budget.
+ */
+export type EditorClipPlan = {
+  id: string;
+  label: string;
+  start: number;
+  end: number;
+  keys: string[];
+  shotId?: string;
+  segments: SceneSegment[];
+};
+
+/** A finished per-shot MP4 that an editor can import on its own. */
+export type EditorClipRenderResult = {
+  id: string;
+  label: string;
+  /** Package-relative file name, e.g. `01-intro.mp4`. */
+  fileName: string;
+  /** `file://` URI of the clip MP4 in the temporary package directory. */
+  uri: string;
+  start: number;
+  end: number;
+  duration: number;
+  hasAudio: boolean;
+  shotId?: string;
 };
 
 export type SegmentRenderResult = {
@@ -77,6 +112,15 @@ export type SegmentRenderResult = {
     shots: number;
     renderedSegments: number;
     reusedSegments: number;
+  };
+  /** Present only for `editorClips` renders: one importable MP4 per shot/gap. */
+  clips?: EditorClipRenderResult[];
+  /** Present only for `editorClips` renders: temp package dir + timeline metadata. */
+  editorPackage?: {
+    directoryUri: string;
+    fps: number;
+    width: number;
+    height: number;
   };
 };
 
@@ -235,6 +279,139 @@ export function planShotSegments(
 }
 
 /**
+ * Plans one editable clip per shot (and one per gap between shots) for an
+ * editor export. Unlike {@link planShotSegments}, clips are never merged: the
+ * point is one importable MP4 per story beat, so a 30 s scene with two shots
+ * yields two 15 s clips rather than a single timeline segment.
+ *
+ * A clip longer than one page render is split into equal sub-segments; the
+ * renderer joins them back into one clip MP4. Exported for tests.
+ */
+export function planEditorClips(
+  total: number,
+  shots: VideoRenderPlan["shots"],
+): EditorClipPlan[] {
+  if (!(total > EPSILON)) return [];
+
+  const clampTime = (value: number) => Math.max(0, Math.min(total, value));
+  const clean = shots
+    .map((shot) => ({
+      ...shot,
+      start: clampTime(shot.start),
+      end: clampTime(shot.end),
+    }))
+    .filter((shot) => shot.end - shot.start > EPSILON)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  // Overlapping shots are invalid scene data; keep the first one so the clip
+  // windows never overlap (an editor timeline cannot stack two clips at once).
+  const accepted: typeof clean = [];
+  let coveredTo = 0;
+  for (const shot of clean) {
+    if (shot.start < coveredTo - EPSILON) continue;
+    accepted.push(shot);
+    coveredTo = shot.end;
+  }
+
+  // A flat scene (no shots) exports as one clip equal to the full video, with
+  // a readable label instead of calling the whole timeline a gap.
+  if (accepted.length === 0) {
+    const parts = Math.max(1, Math.ceil(total / SEGMENT_SECONDS - EPSILON));
+    const segments: SceneSegment[] = [];
+    for (let i = 0; i < parts; i += 1) {
+      const start = (total * i) / parts;
+      const end = (total * (i + 1)) / parts;
+      segments.push({
+        offset: roundTime(start),
+        length: roundTime(end - start),
+        keys: [],
+      });
+    }
+    return [
+      {
+        id: "full",
+        label: "Full video",
+        start: 0,
+        end: roundTime(total),
+        keys: [],
+        segments,
+      },
+    ];
+  }
+
+  type Window = {
+    start: number;
+    end: number;
+    keys: string[];
+    label: string;
+    shotId?: string;
+  };
+  const windows: Window[] = [];
+  let cursor = 0;
+  let gapCount = 0;
+
+  for (const shot of accepted) {
+    if (shot.start > cursor + EPSILON) {
+      gapCount += 1;
+      windows.push({
+        start: cursor,
+        end: shot.start,
+        keys: [],
+        label: `Gap ${gapCount}`,
+      });
+    }
+    windows.push({
+      start: shot.start,
+      end: shot.end,
+      keys: [`${shot.id}:${shot.hash}`],
+      label: shot.id,
+      shotId: shot.id,
+    });
+    cursor = shot.end;
+  }
+
+  if (total > cursor + EPSILON) {
+    gapCount += 1;
+    windows.push({
+      start: cursor,
+      end: total,
+      keys: [],
+      label: `Gap ${gapCount}`,
+    });
+  }
+
+  if (windows.length === 0) {
+    windows.push({ start: 0, end: total, keys: [], label: "Full video" });
+  }
+
+  let gapId = 0;
+  return windows.map((window) => {
+    const length = window.end - window.start;
+    const parts = Math.max(1, Math.ceil(length / SEGMENT_SECONDS - EPSILON));
+    const segments: SceneSegment[] = [];
+    for (let i = 0; i < parts; i += 1) {
+      const start = window.start + (length * i) / parts;
+      const end = window.start + (length * (i + 1)) / parts;
+      segments.push({
+        offset: roundTime(start),
+        length: roundTime(end - start),
+        keys: [...window.keys],
+      });
+    }
+
+    return {
+      id: window.shotId ? `shot-${window.shotId}` : `gap-${++gapId}`,
+      label: window.label,
+      start: roundTime(window.start),
+      end: roundTime(window.end),
+      keys: [...window.keys],
+      ...(window.shotId ? { shotId: window.shotId } : {}),
+      segments,
+    };
+  });
+}
+
+/**
  * Renders the document, segmenting timelines over SEGMENT_SECONDS into
  * ordinary render jobs and concatenating the MP4s natively. Short videos
  * take the legacy single render (zero behavior change). Segment files live
@@ -267,6 +444,13 @@ export async function renderSegments(options: {
   conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
+  /**
+   * Render one MP4 per shot (and per gap) for an editor package, in addition
+   * to the finished full video. Slower than a normal render because each clip
+   * is joined separately, but the segment footage itself is rendered once and
+   * cached for revisions.
+   */
+  editorClips?: boolean;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
   /**
    * Cache key for segment resume files. Both callers pass a content hash of
@@ -280,6 +464,16 @@ export async function renderSegments(options: {
   sourceFileId: string;
 }): Promise<SegmentRenderResult> {
   const { abortSignal, contractDuration, documentHtml, onProgress } = options;
+
+  if (options.editorClips) {
+    return renderEditorTimeline({
+      abortSignal,
+      conversationId: options.conversationId,
+      contractDuration,
+      documentHtml,
+      onProgress,
+    });
+  }
 
   // A probe costs one page boot, so only scenes that look shot-structured
   // pay it. A false positive is harmless: the page reports no shots and the
@@ -700,6 +894,383 @@ async function renderPlannedTimeline(options: {
           ]
         : [],
   };
+}
+
+/**
+ * Editor export: renders one importable MP4 per shot (plus gaps), joins each
+ * clip's segments, and joins the whole timeline into the finished video.
+ *
+ * The clip files are written to a temporary package directory with readable
+ * names (`01-intro.mp4`) so mobile editors see sensible file names after the
+ * gallery copy. Segments stay in the normal cache namespace (`ed-...`) and are
+ * reused across revisions exactly like a shot-aware render.
+ */
+async function renderEditorTimeline(options: {
+  abortSignal?: AbortSignal;
+  conversationId?: string;
+  contractDuration: number | null;
+  documentHtml: string;
+  onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
+}): Promise<
+  SegmentRenderResult & {
+    clips: EditorClipRenderResult[];
+    editorPackage: {
+      directoryUri: string;
+      fps: number;
+      width: number;
+      height: number;
+    };
+  }
+> {
+  const { abortSignal, documentHtml, onProgress } = options;
+  const startedAt = Date.now();
+
+  // An editor package needs fps/size for its timelines, and one boot is cheap
+  // next to rendering the clips. A probe failure is not fatal: fall back to
+  // the contract literals and a single-clip timeline.
+  let plan: VideoRenderPlan | null = null;
+  try {
+    plan = await probeVideoPlan(documentHtml, { signal: abortSignal });
+  } catch {
+    plan = null;
+  }
+
+  // Prefer the first positive length/fps/size. A probe can answer with a
+  // zeroed plan for a scene that has not declared them, and a zero here would
+  // otherwise beat a valid contract value.
+  const total =
+    [plan?.duration, options.contractDuration, readContractDuration(documentHtml)]
+      .find((value): value is number => typeof value === "number" && value > EPSILON) ??
+    0;
+  if (!(total > EPSILON)) {
+    throw new Error(
+      "Cannot export an editor package: the video duration is unknown. Pass `duration` (the contract's length in seconds) and try again.",
+    );
+  }
+
+  const fps =
+    plan?.fps && plan.fps > 0 ? plan.fps : (readContractFps(documentHtml) ?? 30);
+  const contractSize = readContractSize(documentHtml);
+  const size =
+    plan != null && plan.width > 0 && plan.height > 0
+      ? { width: plan.width, height: plan.height }
+      : (contractSize ?? { width: 1280, height: 720 });
+  const shots = plan?.shots ?? [];
+  // Keep editor cache files in their own namespace so pruning them can never
+  // delete the shot-aligned footage a `renderVideo` run is still resuming.
+  const namespace = `ed-${plan?.sharedHash || hashDocumentKey(documentHtml)}`;
+  const clipPlans = planEditorClips(total, shots);
+  const packageDir = new Directory(
+    Paths.cache,
+    `editor-${namespace}-${Date.now()}`,
+  );
+  try {
+    if (packageDir.exists) packageDir.delete();
+    packageDir.create({ idempotent: true, intermediates: true });
+  } catch {
+    // The first write below fails loudly if the directory cannot be created.
+  }
+
+  const aggregated: Aggregated = {
+    hasAudio: false,
+    audioWarnings: [],
+    perfWarnings: [],
+    visualWarnings: [],
+    phasePageLoadMs: 0,
+    phaseFirstFrameMs: 0,
+    phaseAudioPrepMs: 0,
+    haveFixedCosts: false,
+  };
+  let runEncoder: string | undefined;
+  let slowest: { timings?: VideoExportTimings; cost: number } | null = null;
+  let renderedSegments = 0;
+  let reusedSegments = 0;
+  let concatMs = 0;
+  let tempCounter = 0;
+  const keepNames = new Set<string>();
+  const allSegmentUris: string[] = [];
+  const totalSegments = Math.max(
+    1,
+    clipPlans.reduce((sum, clip) => sum + clip.segments.length, 0),
+  );
+  let segmentIndex = 0;
+
+  const reportProgress = (base: number, span: number, segProgress: number) => {
+    const overall =
+      span <= 0 ? 0 : Math.max(0, Math.min(1, base + segProgress * span));
+    onProgress?.({
+      bytesWritten: Math.min(9900, Math.floor(overall * 9900)),
+      totalBytes: 10000,
+    });
+  };
+
+  const runOne = (
+    segment: { offset: number; length: number },
+    weight: { base: number; span: number },
+    pinnedEncoder?: string,
+  ) =>
+    requestVideoRender(documentHtml, {
+      conversationId: options.conversationId,
+      signal: abortSignal,
+      onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
+      segment,
+      progressBase: weight.base,
+      progressSpan: weight.span,
+      pinnedEncoder,
+    });
+
+  const filesFor = (segment: SceneSegment) => {
+    const base = `render-${namespace}-ed-${segment.offset}-${segment.length}-${hashSegmentKeys(segment.keys)}`;
+    return {
+      video: new File(Paths.cache, `${base}.mp4`),
+      sidecar: new File(Paths.cache, `${base}.json`),
+      names: [`${base}.mp4`, `${base}.json`],
+    };
+  };
+
+  const { getHtmlVideoExportModule } = await import("html-video-export");
+  const module = getHtmlVideoExportModule();
+  if (!module || typeof module.concatSegments !== "function") {
+    throw new Error(
+      "Editor exports need the video export module (concatSegments).",
+    );
+  }
+
+  const concatTo = async (uris: string[], outFile: File, label: string) => {
+    const join = async (
+      list: string[],
+      destination: File,
+      depth: number,
+    ): Promise<void> => {
+      if (list.length === 0) {
+        throw new Error("No segments to join.");
+      }
+      if (list.length <= 32) {
+        await module.concatSegments(
+          list.map(stripScheme),
+          stripScheme(destination.uri),
+        );
+        return;
+      }
+      // The native concatenator accepts at most 32 inputs per call. Scenes
+      // with many shots are rare, but batching keeps the export correct
+      // instead of failing on a valid timeline.
+      const intermediates: File[] = [];
+      try {
+        for (let i = 0; i < list.length; i += 32) {
+          const chunk = list.slice(i, i + 32);
+          const temp = new File(
+            packageDir,
+            `join-${depth}-${tempCounter++}.mp4`,
+          );
+          await module.concatSegments(
+            chunk.map(stripScheme),
+            stripScheme(temp.uri),
+          );
+          intermediates.push(temp);
+        }
+        await join(
+          intermediates.map((file) => file.uri),
+          destination,
+          depth + 1,
+        );
+      } finally {
+        for (const file of intermediates) {
+          try {
+            await file.delete();
+          } catch {
+            // Best-effort cache cleanup.
+          }
+        }
+      }
+    };
+
+    try {
+      await join(uris, outFile, 0);
+    } catch (error) {
+      throw new Error(
+        `${label} segments finished, but joining failed. Completed segments were kept; the export did not restart automatically. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
+  const clips: EditorClipRenderResult[] = [];
+  let keepPackage = false;
+
+  try {
+    for (let clipIndex = 0; clipIndex < clipPlans.length; clipIndex += 1) {
+      const clipPlan = clipPlans[clipIndex]!;
+      const clipUris: string[] = [];
+      let clipHasAudio = false;
+
+      for (const segment of clipPlan.segments) {
+        const { video: segFile, sidecar, names } = filesFor(segment);
+        for (const name of names) keepNames.add(name);
+
+        if (segFile.exists) {
+          let meta: SegmentSidecar | null = null;
+          try {
+            meta = JSON.parse(await sidecar.text());
+          } catch {
+            meta = null;
+          }
+          const cachedEncoder =
+            meta && typeof meta.encoder === "string" && meta.encoder
+              ? meta.encoder
+              : undefined;
+          if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
+            if (cachedEncoder) runEncoder = cachedEncoder;
+            clipUris.push(segFile.uri);
+            allSegmentUris.push(segFile.uri);
+            adoptSidecar(aggregated, meta);
+            clipHasAudio = clipHasAudio || meta?.hasAudio === true;
+            reusedSegments += 1;
+            segmentIndex += 1;
+            continue;
+          }
+          try {
+            await segFile.delete();
+            await sidecar.delete();
+          } catch {
+            // Best-effort; the move below fails loudly if it survives.
+          }
+        }
+
+        const base = (segmentIndex / totalSegments) * 0.9;
+        const span = 0.9 / totalSegments;
+        let result;
+        try {
+          result = await runOne(
+            { offset: segment.offset, length: segment.length },
+            { base, span },
+            runEncoder,
+          );
+        } catch (error) {
+          throw new Error(
+            `Clip ${clipIndex + 1}/${clipPlans.length} (${clipPlan.label}, t=${segment.offset}-${roundTime(segment.offset + segment.length)}s) failed: ${error instanceof Error ? error.message : String(error)}. Re-run to resume — finished segments are kept.`,
+          );
+        }
+        if (result.encoder && !runEncoder) runEncoder = result.encoder;
+        const timings = adoptResult(aggregated, result);
+        if (timings) {
+          const cost =
+            timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
+          if (!slowest || cost > slowest.cost) slowest = { timings, cost };
+        }
+        await new File(result.uri).move(segFile, { overwrite: true });
+        try {
+          await sidecar.write(
+            JSON.stringify({
+              hasAudio: result.hasAudio,
+              audioWarnings: result.audioWarnings,
+              perfWarnings: result.perfWarnings ?? [],
+              visualWarnings: result.visualWarnings ?? [],
+              encoder: result.encoder,
+            }),
+          );
+        } catch {
+          // Sidecar is cache metadata only; footage is already safe.
+        }
+        clipUris.push(segFile.uri);
+        allSegmentUris.push(segFile.uri);
+        clipHasAudio = clipHasAudio || result.hasAudio;
+        renderedSegments += 1;
+        segmentIndex += 1;
+      }
+
+      const fileName = `${String(clipIndex + 1).padStart(2, "0")}-${clipFileSlug(clipPlan.label, clipIndex)}.mp4`;
+      const clipFile = new File(packageDir, fileName);
+      const concatStartedAt = Date.now();
+      await concatTo(clipUris, clipFile, `Clip "${clipPlan.label}"`);
+      concatMs += Date.now() - concatStartedAt;
+
+      clips.push({
+        id: clipPlan.id,
+        label: clipPlan.label,
+        fileName,
+        uri: clipFile.uri,
+        start: clipPlan.start,
+        end: clipPlan.end,
+        duration: roundTime(clipPlan.end - clipPlan.start),
+        hasAudio: clipHasAudio,
+        ...(clipPlan.shotId ? { shotId: clipPlan.shotId } : {}),
+      });
+    }
+
+    const fullFile = new File(packageDir, "full.mp4");
+    const concatStartedAt = Date.now();
+    await concatTo(allSegmentUris, fullFile, "Finished video");
+    concatMs += Date.now() - concatStartedAt;
+
+    await pruneSceneSegments(namespace, keepNames);
+    onProgress?.({ bytesWritten: 9900, totalBytes: 10000 });
+
+    const warnings =
+      clipPlans.length > 1
+        ? [
+            `Rendered ${clipPlans.length} editor clips across ${totalSegments} segment(s) and joined them; per-segment audio fades up to 50 ms at seams.`,
+          ]
+        : [];
+
+    keepPackage = true;
+    onProgress?.({ bytesWritten: 10000, totalBytes: 10000 });
+    return {
+      uri: fullFile.uri,
+      hasAudio: aggregated.hasAudio,
+      audioWarnings: aggregated.audioWarnings,
+      duration: total,
+      timings: slowest?.timings,
+      phases: {
+        totalMs: Date.now() - startedAt,
+        concatMs,
+        ...(aggregated.haveFixedCosts
+          ? {
+              pageLoadTotalMs: aggregated.phasePageLoadMs,
+              firstFrameTotalMs: aggregated.phaseFirstFrameMs,
+              audioPrepTotalMs: aggregated.phaseAudioPrepMs,
+            }
+          : {}),
+      },
+      perfWarnings: aggregated.perfWarnings,
+      visualWarnings: aggregated.visualWarnings,
+      encoder: runEncoder,
+      ...(shots.length > 0
+        ? {
+            incremental: {
+              shots: shots.length,
+              renderedSegments,
+              reusedSegments,
+            },
+          }
+        : {}),
+      warnings,
+      clips,
+      editorPackage: {
+        directoryUri: packageDir.uri,
+        fps,
+        width: size.width,
+        height: size.height,
+      },
+    };
+  } finally {
+    if (!keepPackage) {
+      try {
+        packageDir.delete();
+      } catch {
+        // Best-effort cleanup of a failed export's derived clips.
+      }
+    }
+  }
+}
+
+/** `Intro: Hook!` -> `intro-hook`; safe as an album/zip file name. */
+function clipFileSlug(label: string, index: number) {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return slug || `clip-${index + 1}`;
 }
 
 type SegmentSidecar = {

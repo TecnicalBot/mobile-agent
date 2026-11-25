@@ -7,10 +7,11 @@ type ToolResultLike = {
 };
 
 /**
- * Extracts the workspace MP4s produced by `renderVideo` tool calls so they can
- * be attached to the assistant message and shown as in-chat video cards.
+ * Extracts the workspace MP4s produced by `renderVideo` and
+ * `exportEditorPackage` tool calls so they can be attached to the assistant
+ * message and shown as in-chat video cards.
  *
- * The tool already persisted the file, so this only reshapes the returned
+ * The tools already persisted the files, so this only reshapes the returned
  * metadata; it never touches the filesystem.
  */
 export function collectGeneratedVideos(
@@ -24,45 +25,61 @@ export function collectGeneratedVideos(
   const seen = new Set<string>();
 
   for (const result of toolResults) {
-    if (result.type !== "tool-result" || result.toolName !== "renderVideo") {
+    if (result.type !== "tool-result") {
       continue;
     }
 
+    if (
+      result.toolName !== "renderVideo" &&
+      result.toolName !== "exportEditorPackage"
+    ) {
+      continue;
+    }
+
+    const isEditorPackage = result.toolName === "exportEditorPackage";
     const output = result.output as
       | {
           fileId?: unknown;
+          videoFileId?: unknown;
           displayName?: unknown;
+          videoDisplayName?: unknown;
           link?: unknown;
+          videoLink?: unknown;
           mimeType?: unknown;
           size?: unknown;
+          videoSize?: unknown;
         }
       | null
       | undefined;
 
-    if (!output || typeof output.fileId !== "string" || !output.fileId) {
+    // Editor packages deliver the playable MP4 separately from the ZIP, so
+    // their video fields take precedence over the package file.
+    const fileId = isEditorPackage ? output?.videoFileId : output?.fileId;
+    const displayName = isEditorPackage
+      ? output?.videoDisplayName
+      : output?.displayName;
+    const link = isEditorPackage ? output?.videoLink : output?.link;
+    const size = isEditorPackage ? output?.videoSize : output?.size;
+
+    if (typeof fileId !== "string" || !fileId) {
       continue;
     }
 
-    if (seen.has(output.fileId)) {
+    if (seen.has(fileId)) {
       continue;
     }
 
-    seen.add(output.fileId);
+    seen.add(fileId);
     videos.push({
-      fileId: output.fileId,
+      fileId,
       displayName:
-        typeof output.displayName === "string" && output.displayName
-          ? output.displayName
-          : `${output.fileId}.mp4`,
-      mimeType:
-        typeof output.mimeType === "string" && output.mimeType
-          ? output.mimeType
-          : "video/mp4",
-      size: typeof output.size === "number" ? output.size : 0,
+        typeof displayName === "string" && displayName
+          ? displayName
+          : `${fileId}.mp4`,
+      mimeType: "video/mp4",
+      size: typeof size === "number" ? size : 0,
       uri:
-        typeof output.link === "string" && output.link
-          ? output.link
-          : `workspace://${output.fileId}`,
+        typeof link === "string" && link ? link : `workspace://${fileId}`,
     });
   }
 

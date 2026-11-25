@@ -231,6 +231,19 @@ export function readContractAspect(html: string): number | null {
 }
 
 /**
+ * Frame rate declared by the contract literal (last top-level fps wins, same
+ * rules as {@link readContractDuration}), or null when absent/out of range —
+ * callers treat null as "unknown", never as a default.
+ */
+export function readContractFps(html: string): number | null {
+  const fps = readLastContractNumber(html, "fps");
+  if (fps == null || !Number.isFinite(fps) || fps < 5 || fps > 60) {
+    return null;
+  }
+  return fps;
+}
+
+/**
  * Canvas size declared by the contract literal (last top-level width/height
  * wins, same rules as {@link readContractDuration}), or null when either is
  * absent/non-positive — callers treat null as "unknown", never as a default.

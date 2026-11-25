@@ -8,6 +8,7 @@ export const MUTATING_BUILT_IN_TOOL_NAMES = new Set([
   "deleteEntry",
   "downloadFile",
   "edit",
+  "exportEditorPackage",
   "exportWorkspaceFileToFolder",
   "importFolderFileToWorkspace",
   "managePlugin",

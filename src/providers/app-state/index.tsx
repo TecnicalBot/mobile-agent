@@ -207,6 +207,11 @@ type AppStateContextValue = {
     updateNotificationSettings: (
         input: Partial<AppSettings["notificationSettings"]>,
     ) => Promise<void>;
+    /** Persist the remote render node setting; `token === undefined` leaves it untouched. */
+    updateRemoteRenderSettings: (
+        input: Partial<AppSettings["remoteRender"]>,
+        token?: string | null,
+    ) => Promise<void>;
     approvePendingToolApproval: () => void;
     approvePendingToolApprovalForChat: () => void;
     pendingQuestionnaire: PendingQuestionnaire | null;
@@ -738,6 +743,7 @@ const CONFIG_KEYS = [
     "addSkillFiles",
     "setConversationApprovalMode",
     "updateThemeMode",
+    "updateRemoteRenderSettings",
     "updateProvider",
     "importFiles",
     "refreshWorkspaceFiles",
@@ -4046,6 +4052,21 @@ Your output must be:
         [hydrate],
     );
 
+    const updateRemoteRenderSettings = useCallback(
+        async (
+            input: Partial<AppSettings["remoteRender"]>,
+            token?: string | null,
+        ) => {
+            await repositoriesRef.current.configRepository.setRemoteRenderSettings(
+                input,
+            );
+            if (token !== undefined) {
+                await secureSecretStore.setRemoteRenderToken(token);
+            }
+            await hydrate();
+        },
+        [hydrate],
+    );
 
 
     const readOAuthTokenInfo = useCallback(
@@ -6319,6 +6340,7 @@ Your output must be:
             addSkillFiles,
             setConversationApprovalMode,
             updateThemeMode,
+            updateRemoteRenderSettings,
             updateProvider,
             clearWorkspaceFiles,
             createWorkspaceFile,
@@ -6327,7 +6349,7 @@ Your output must be:
             refreshWorkspaceFiles,
             workspaceFiles: snapshot.workspaceFiles,
         }),
-        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillBatch, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, syncAllSkills, syncSkill, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, writeMemory],
+        [addOpenAiOAuthAccount, addSkillFiles, clearMcpServerCredentials, clearMemory, clearProviderApiKey, clearWorkspaceFiles, connectMcpServerOAuth, connectOpenAIOAuth, createAgent, createMcpServer, createMcpServerOAuth, createModelPreset, createProvider, createProviderAccount, createSavedPrompt, createSchedule, createSkill, createWorkspaceFile, deleteAgent, deleteMcpServer, deleteModelPreset, deletePlugin, deleteProvider, deleteProviderAccount, deleteSavedPrompt, deleteSchedule, deleteSkill, deleteWorkspaceFile, disconnectOpenAIOAuth, exportAgentMarkdown, exportSkillMarkdown, importAgentMarkdown, importFiles, importPlugin, importSkillBatch, importSkillMarkdown, pluginActions, pluginTools, refreshScheduler, refreshWorkspaceFiles, saveMcpServerHeaderValues, saveProviderApiKey, selectModel, syncAllSkills, syncSkill, setConversationApprovalMode, setCurrentSelectedMcpServerIds, setDefaultModelPreset, snapshot.activeProviderAccountIds, snapshot.agents, snapshot.conversationApprovalModes, snapshot.conversationApprovedTools, snapshot.currentSelectedMcpServerIds, snapshot.mcpServers, snapshot.memory, snapshot.plugins, snapshot.providerAccounts, snapshot.resolvedConfig, snapshot.savedPrompts, snapshot.schedules, snapshot.settings, snapshot.skills, snapshot.workspaceFiles, switchProviderAccount, testMcpServer, updateAgent, updateBuiltInToolSettings, updateDatabaseSettings, updateMcpServer, updateMemoryEnabled, updatePlugin, updateProvider, updateProviderAccountLabel, updateSavedPrompt, updateSchedule, updateSchedulingEnabled, updateSkill, updateThemeMode, updateRemoteRenderSettings, writeMemory],
     );
     const appValue = useMemo(
         (): AppContextValue => ({
@@ -6478,6 +6500,8 @@ export function useConfig() {
         updateThemeMode: config.updateThemeMode,
         notificationSettings: config.settings.notificationSettings,
         updateNotificationSettings: app.updateNotificationSettings,
+        remoteRender: config.settings.remoteRender,
+        updateRemoteRenderSettings: config.updateRemoteRenderSettings,
         updateProvider: config.updateProvider,
     };
 }

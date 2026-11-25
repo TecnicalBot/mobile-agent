@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { normalizeBuiltInToolSettings } from "@/modules/config/built-in-tools";
 import { DEFAULT_PROVIDER_CONFIGS } from "@/modules/config/registry";
+import { normalizeRemoteRenderSettings } from "@/modules/preview/remote-render-settings";
 import { appSettings, modelPresets, providerConfigs } from "@/core/db/schema";
 import { buildSettings, nowIso } from "@/core/db/repositories/shared";
 import type {
@@ -287,6 +288,18 @@ export function createConfigRepository(db: AppDatabase): ConfigRepository {
 
       await this.setSetting(
         "notification_settings_json",
+        JSON.stringify(nextSettings),
+      );
+    },
+    async setRemoteRenderSettings(input) {
+      const settings = await this.getSettings();
+      const nextSettings = normalizeRemoteRenderSettings({
+        ...settings.remoteRender,
+        ...input,
+      });
+
+      await this.setSetting(
+        "remote_render_json",
         JSON.stringify(nextSettings),
       );
     },

@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Render service smoke test</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <script>
+      window.MOBILE_AGENT_VIDEO = {
+        duration: 4,
+        fps: 30,
+        width: 640,
+        height: 360,
+        canvasId: "stage",
+        audio: false,
+        shots: [
+          {
+            id: "intro",
+            start: 0,
+            end: 2,
+            render: function (t, canvas, ctx) {
+              ctx.fillStyle = "#101820";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = "#f2aa4c";
+              ctx.font = "bold 56px sans-serif";
+              ctx.fillText("SHOT A", 60, 180);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(60, 210, (t / 2) * 520, 8);
+            },
+          },
+          {
+            id: "outro",
+            start: 2,
+            end: 4,
+            render: function (t, canvas, ctx) {
+              ctx.fillStyle = "#2b193d";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = "#e0d7f5";
+              ctx.beginPath();
+              ctx.arc(320, 180, 30 + 60 * Math.abs(Math.sin((t - 2) * Math.PI)), 0, Math.PI * 2);
+              ctx.fill();
+            },
+          },
+        ],
+        render: function (t, canvas, ctx) {
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        },
+      };
+    </script>
+  </body>
+</html>

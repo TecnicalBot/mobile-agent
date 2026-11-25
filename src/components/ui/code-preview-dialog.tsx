@@ -44,6 +44,7 @@ import { ScenePlayerChrome } from "@/components/ui/scene-player-chrome";
 import { SceneExportOverlay } from "@/components/ui/scene-export-overlay";
 import { sceneExportPresentation, type SceneExportPhase } from "@/modules/preview/scene-export-layout";
 import { createDrizzleDb } from "@/core/db/repositories/shared";
+import { createConfigRepository } from "@/core/db/repositories/config-repository";
 import { createWorkspaceRepository } from "@/core/db/repositories/workspace-repository";
 import {
     hasWorkspaceRefs,
@@ -66,10 +67,8 @@ import {
     handlePreviewDownloadMessage,
     PREVIEW_DOWNLOAD_HOOK,
 } from "@/modules/preview/preview-downloads";
-import {
-    hashDocumentKey,
-    renderSegments,
-} from "@/modules/preview/render-segments";
+import { hashDocumentKey } from "@/modules/preview/render-segments";
+import { renderVideoWithResolvedBackend } from "@/modules/preview/render-backend-resolution";
 import { buildVideoExportDocument } from "@/modules/preview/video-recorder";
 import {
     getVideoRenderStatus,
@@ -335,6 +334,10 @@ export function CodePreviewContent({
     const sqlite = useSQLiteContext();
     const workspaceRepository = useMemo(
         () => createWorkspaceRepository(createDrizzleDb(sqlite)),
+        [sqlite],
+    );
+    const configRepository = useMemo(
+        () => createConfigRepository(createDrizzleDb(sqlite)),
         [sqlite],
     );
     // The export records the page as loaded: workspace:// refs must be inlined
@@ -706,20 +709,29 @@ export function CodePreviewContent({
                 );
                 if (controller.signal.aborted || exportRuntime.active !== entry) return;
                 setExportState({ progress: 0, status: "recording", posterUri });
-                const result = await renderSegments({
-                    abortSignal: controller.signal,
-                    contractDuration: sceneDuration,
-                    documentHtml: exportDocument,
-                    sourceFileId: hashDocumentKey(exportDocument),
-                    onProgress: (p) =>
-                        setExportState({
-                            progress: Math.max(
-                                0,
-                                Math.min(1, p.bytesWritten / Math.max(1, p.totalBytes)),
-                            ),
-                            status: "recording",
-                        }),
-                });
+                const { result, warning: backendWarning } =
+                    await renderVideoWithResolvedBackend(
+                        {
+                            abortSignal: controller.signal,
+                            contractDuration: sceneDuration,
+                            documentHtml: exportDocument,
+                            sourceFileId: hashDocumentKey(exportDocument),
+                            onProgress: (p) =>
+                                setExportState({
+                                    progress: Math.max(
+                                        0,
+                                        Math.min(1, p.bytesWritten / Math.max(1, p.totalBytes)),
+                                    ),
+                                    status: "recording",
+                                }),
+                        },
+                        { configRepository },
+                    );
+                if (backendWarning) {
+                    // The export still succeeded; keep the reason discoverable
+                    // rather than blocking the user with an alert.
+                    console.warn(backendWarning);
+                }
                 if (controller.signal.aborted) return;
                 // Keep the MP4 alive for the player drawer the export promotes to.
                 entry.resultFile = new File(result.uri);
@@ -775,6 +787,7 @@ export function CodePreviewContent({
         sceneDuration,
         videoExport,
         workspaceRepository,
+        configRepository,
     ]);
 
     const handleMessage = useCallback((event: WebViewMessageEvent) => {

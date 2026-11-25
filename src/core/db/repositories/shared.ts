@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 
 import { normalizeBuiltInToolSettings } from "@/modules/config/built-in-tools";
 import { normalizeNotificationSettings } from "@/modules/notifications/settings";
+import { normalizeRemoteRenderSettings } from "@/modules/preview/remote-render-settings";
 import { appSettings, schema } from "@/core/db/schema";
 import type {
   AppSettings,
@@ -34,6 +35,22 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
     try {
       return normalizeNotificationSettings(
         JSON.parse(raw) as Partial<AppSettings["notificationSettings"]>,
+      );
+    } catch {
+      return null;
+    }
+  })();
+
+  const parsedRemoteRender = (() => {
+    const raw = settingsMap.get("remote_render_json");
+
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      return normalizeRemoteRenderSettings(
+        JSON.parse(raw) as Partial<AppSettings["remoteRender"]>,
       );
     } catch {
       return null;
@@ -72,5 +89,6 @@ export function buildSettings(rows: AppSettingRow[]): AppSettings {
       : "system",
     notificationSettings:
       parsedNotificationSettings ?? normalizeNotificationSettings(),
+    remoteRender: parsedRemoteRender ?? normalizeRemoteRenderSettings(),
   };
 }

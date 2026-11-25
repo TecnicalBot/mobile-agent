@@ -5,6 +5,7 @@ import type {
 } from "@/core/types/app-state";
 import { DEFAULT_BUILT_IN_TOOL_SETTINGS } from "@/modules/config/built-in-tools";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/modules/notifications/settings";
+import { DEFAULT_REMOTE_RENDER_SETTINGS } from "@/modules/preview/remote-render-settings";
 
 export const REQUEST_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
 
@@ -71,6 +72,9 @@ export const EMPTY_SETTINGS: AppSettings = {
     themeMode: "system",
     notificationSettings: {
         ...DEFAULT_NOTIFICATION_SETTINGS,
+    },
+    remoteRender: {
+        ...DEFAULT_REMOTE_RENDER_SETTINGS,
     },
 };
 

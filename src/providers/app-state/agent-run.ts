@@ -1589,6 +1589,7 @@ export async function executeClaimedAgentRun(
             const workspaceDiscoveryTools = createWorkspaceTools({
               conversationId: run.conversationId,
               repository: repositories.workspaceRepository,
+              configRepository: repositories.configRepository,
               onRecord: handleToolExecutionRecord,
               // Without this, long renders in folder chats never reset the
               // inactivity timer and the run aborts at 5 min mid-render.
@@ -1622,6 +1623,7 @@ export async function executeClaimedAgentRun(
             const workspaceTools = createWorkspaceTools({
               conversationId: run.conversationId,
               repository: repositories.workspaceRepository,
+              configRepository: repositories.configRepository,
               session: activeFolderSession,
               onRecord: handleToolExecutionRecord,
               onProgress: () => markActivity(),

@@ -37,6 +37,9 @@ function getMcpOAuthTokensKey(serverId: string) {
   return `mcp_${serverId}_oauth_tokens`;
 }
 
+/** Bearer token for the optional remote render node. */
+const REMOTE_RENDER_TOKEN_KEY = "remote_render_token";
+
 export type PluginSecretMap = Record<string, string>;
 
 function getPluginSecretsKey(pluginId: string) {
@@ -120,6 +123,7 @@ export interface SecretStore {
   getPluginSecret(pluginId: string, key: string): Promise<string | null>;
   getProviderAccountApiKey(accountId: string): Promise<string | null>;
   getProviderApiKey(providerId: string): Promise<string | null>;
+  getRemoteRenderToken(): Promise<string | null>;
   hasProviderCredential(provider: ProviderConfig): Promise<boolean>;
   listPluginSecretKeys(pluginId: string): Promise<string[]>;
   setActiveProviderAccount(
@@ -139,6 +143,7 @@ export interface SecretStore {
     value: string,
   ): Promise<void>;
   setProviderAccountApiKey(accountId: string, apiKey: string): Promise<void>;
+  setRemoteRenderToken(token: string | null): Promise<void>;
   syncActiveProviderAccounts(map: Record<string, string | null>): Promise<void>;
 }
 
@@ -291,6 +296,9 @@ export const secureSecretStore: SecretStore = {
   async getProviderAccountApiKey(accountId) {
     return SecureStore.getItemAsync(getProviderAccountApiKeyKey(accountId));
   },
+  async getRemoteRenderToken() {
+    return SecureStore.getItemAsync(REMOTE_RENDER_TOKEN_KEY);
+  },
   async getPluginSecret(pluginId, key) {
     return (await readPluginSecretMap(pluginId))[sanitizeSecretKey(key)] ?? null;
   },
@@ -441,6 +449,14 @@ export const secureSecretStore: SecretStore = {
       getProviderAccountApiKeyKey(accountId),
       apiKey,
     );
+  },
+  async setRemoteRenderToken(token) {
+    if (token === null || token === "") {
+      await SecureStore.deleteItemAsync(REMOTE_RENDER_TOKEN_KEY);
+      return;
+    }
+
+    await SecureStore.setItemAsync(REMOTE_RENDER_TOKEN_KEY, token);
   },
   async setPluginSecret(pluginId, key, value) {
     const map = await readPluginSecretMap(pluginId);

@@ -477,6 +477,9 @@ export interface ConfigRepository {
     modes: Record<string, string[]>,
   ): Promise<void>;
   setNotificationSettings(input: Partial<NotificationSettings>): Promise<void>;
+  setRemoteRenderSettings(
+    input: Partial<AppSettings["remoteRender"]>,
+  ): Promise<void>;
   setDefaultModelPreset(modelPresetId: string): Promise<void>;
   updateProvider(
     providerId: string,

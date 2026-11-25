@@ -33,6 +33,8 @@ import { useConfig } from "@/hooks/use-config";
 import { useTheme } from "@/hooks/use-theme";
 import { SUPPORTED_HARNESSES } from "@/modules/harnesses/catalog";
 import { countEnabledBuiltInFileTools } from "@/modules/config/built-in-tools";
+import { createRemoteRenderBackend } from "@/modules/preview/remote-render-backend";
+import { secureSecretStore } from "@/core/services/secrets";
 import {
   loadVoiceEngine,
   refreshVoiceModels,
@@ -54,6 +56,7 @@ type DrawerKey =
   | "background"
   | "notifications"
   | "announcements"
+  | "render"
   | null;
 
 export default function SettingsScreen() {
@@ -73,6 +76,7 @@ export default function SettingsScreen() {
     selectModel,
     mcpServers,
     notificationSettings,
+    remoteRender,
     savedPrompts,
     skills,
     plugins,
@@ -80,6 +84,7 @@ export default function SettingsScreen() {
     toolSettings,
     updateDatabaseSettings,
     updateNotificationSettings,
+    updateRemoteRenderSettings,
     updateThemeMode,
     providers,
   } = useConfig();
@@ -88,6 +93,9 @@ export default function SettingsScreen() {
   const [modelSearch, setModelSearch] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState<DrawerKey>(null);
+  const [remoteUrlInput, setRemoteUrlInput] = useState("");
+  const [remoteTokenInput, setRemoteTokenInput] = useState("");
+  const [remoteConcurrencyInput, setRemoteConcurrencyInput] = useState("4");
   const [agentActive, setAgentActive] = useState(false);
   const [batteryOptimizationGranted, setBatteryOptimizationGranted] = useState<
     boolean | null
@@ -98,6 +106,11 @@ export default function SettingsScreen() {
   useEffect(() => {
     setDatabaseUrlInput(databaseUrl ?? "");
   }, [databaseUrl]);
+
+  useEffect(() => {
+    setRemoteUrlInput(remoteRender.baseUrl ?? "");
+    setRemoteConcurrencyInput(String(remoteRender.concurrency));
+  }, [remoteRender.baseUrl, remoteRender.concurrency]);
 
   // Reflect the current voice engine whenever this screen is focused.
   useFocusEffect(
@@ -420,6 +433,162 @@ export default function SettingsScreen() {
                 />
               </View>
             </DrawerBody>
+          </DrawerContent>
+        </Drawer>
+        <Separator />
+        <Drawer
+          onOpenChange={(open) => {
+            setOpenDrawer(open ? "render" : null);
+          }}
+          open={openDrawer === "render"}
+        >
+          <DrawerTrigger asChild>
+            <SettingsLinkRow
+              label="Video rendering"
+              value={remoteRender.enabled ? "GPU node" : "This device"}
+            />
+          </DrawerTrigger>
+          <DrawerContent showCloseButton>
+            <DrawerHeader>
+              <DrawerTitle>Video rendering</DrawerTitle>
+            </DrawerHeader>
+            <DrawerBody contentContainerClassName="gap-sp-2">
+              <Text className="font-sans text-sm text-muted-foreground dark:text-muted-foreground-dark">
+                Render video segments on a GPU node instead of this device.
+                Faster at 1080p, but the scene HTML and its assets leave this
+                device. Scenes with audio or video clips still render here.
+              </Text>
+              <View className="flex-row items-center justify-between">
+                <View className="min-w-0 flex-1">
+                  <Text className="font-sans text-base text-foreground dark:text-foreground-dark">
+                    Use a render node
+                  </Text>
+                  <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                    The node must report a hardware encoder (NVENC, Quick Sync,
+                    AMF, VAAPI, or VideoToolbox).
+                  </Text>
+                </View>
+                <Checkbox
+                  checked={remoteRender.enabled}
+                  onCheckedChange={async (checked) => {
+                    if (checked && !remoteRender.baseUrl) {
+                      Alert.alert(
+                        "Add a node address first",
+                        "Enter the render node's address and tap Save, then switch it on.",
+                      );
+                      return;
+                    }
+                    await updateRemoteRenderSettings({ enabled: checked });
+                  }}
+                />
+              </View>
+              <View className="gap-sp-2">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Node address
+                </Text>
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  onChangeText={setRemoteUrlInput}
+                  placeholder="http://192.168.1.20:8787"
+                  value={remoteUrlInput}
+                />
+              </View>
+              <View className="gap-sp-2">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Access token
+                </Text>
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setRemoteTokenInput}
+                  placeholder="Leave blank to keep the saved token"
+                  secureTextEntry
+                  value={remoteTokenInput}
+                />
+              </View>
+              <View className="gap-sp-2">
+                <Text className="font-sans text-sm font-medium text-foreground dark:text-foreground-dark">
+                  Parallel segments
+                </Text>
+                <Input
+                  keyboardType="number-pad"
+                  onChangeText={setRemoteConcurrencyInput}
+                  placeholder="4"
+                  value={remoteConcurrencyInput}
+                />
+                <Text className="font-sans text-xs text-muted-foreground dark:text-muted-foreground-dark">
+                  How many segments render at once (1–8). The node may allow
+                  fewer; beyond its GPU session limit requests just wait.
+                </Text>
+              </View>
+            </DrawerBody>
+            <DrawerFooter>
+              <View className="flex-row gap-sp-2">
+                <Button
+                  className="flex-1"
+                  loading={busyKey === "remote-test"}
+                  onPress={() => {
+                    runAction("remote-test", async () => {
+                      const token =
+                        remoteTokenInput.trim() ||
+                        (await secureSecretStore.getRemoteRenderToken());
+                      const backend = await createRemoteRenderBackend({
+                        baseUrl: remoteUrlInput,
+                        token,
+                        concurrency: Number(remoteConcurrencyInput) || 4,
+                      });
+                      const capabilities = await backend.capabilities?.();
+                      Alert.alert(
+                        "Render node ready",
+                        [
+                          backend.label,
+                          capabilities?.preferred
+                            ? `Encoder: ${capabilities.preferred}`
+                            : null,
+                          capabilities?.canvas === "cpu"
+                            ? "Canvas is rasterizing on the CPU — usable, but slower."
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join("\n"),
+                      );
+                    }).catch((cause) => {
+                      Alert.alert(
+                        "Render node unavailable",
+                        cause instanceof Error ? cause.message : String(cause),
+                      );
+                    });
+                  }}
+                  variant="outline"
+                >
+                  Test node
+                </Button>
+                <Button
+                  className="flex-1"
+                  loading={busyKey === "remote-save"}
+                  onPress={() => {
+                    runAction("remote-save", async () => {
+                      await updateRemoteRenderSettings(
+                        {
+                          baseUrl: remoteUrlInput.trim() || null,
+                          concurrency: Number(remoteConcurrencyInput) || 4,
+                        },
+                        remoteTokenInput.trim()
+                          ? remoteTokenInput.trim()
+                          : undefined,
+                      );
+                      setRemoteTokenInput("");
+                      setOpenDrawer(null);
+                    }).catch(console.error);
+                  }}
+                  variant="secondary"
+                >
+                  Save
+                </Button>
+              </View>
+            </DrawerFooter>
           </DrawerContent>
         </Drawer>
         <Separator />

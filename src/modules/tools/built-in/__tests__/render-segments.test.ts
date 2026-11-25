@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { profileIdFor } from "@/modules/preview/render-backend";
+import type {
+  RenderBackend,
+  SegmentArtifact,
+  SegmentRequest,
+} from "@/modules/preview/render-backend";
+
 const mocks = vi.hoisted(() => ({
   requestVideoRender: vi.fn(),
   probeVideoPlan: vi.fn(),
@@ -229,9 +236,9 @@ describe("renderSegments", () => {
   });
 
   it("resumes by reusing finished segments and their audio flags", async () => {
-    mocks.files.set("/cache/render-src-3-seg-0-0-45.mp4", { exists: true, content: "video" });
+    mocks.files.set("/cache/render-src-3@h264_mediacodec-unknown-yuv420p-seg-0-0-45.mp4", { exists: true, content: "video" });
     mocks.files.set(
-      "/cache/render-src-3-seg-0-0-45.json",
+      "/cache/render-src-3@h264_mediacodec-unknown-yuv420p-seg-0-0-45.json",
       { exists: true, content: JSON.stringify({ hasAudio: true, audioWarnings: ["kept-note"] }) },
     );
     const out = await renderSegments({
@@ -252,8 +259,8 @@ describe("renderSegments", () => {
     // Footage cached by a build that segmented at 30 s: same document hash,
     // same index — but a 45 s run must not splice a 30 s window into a
     // 45 s timeline. Geometry in the cache name makes old entries invisible.
-    mocks.files.set("/cache/render-src-layout-seg-0-0-30.mp4", { exists: true, content: "video" });
-    mocks.files.set("/cache/render-src-layout-seg-0-0-30.json", {
+    mocks.files.set("/cache/render-src-layout@h264_mediacodec-unknown-yuv420p-seg-0-0-30.mp4", { exists: true, content: "video" });
+    mocks.files.set("/cache/render-src-layout@h264_mediacodec-unknown-yuv420p-seg-0-0-30.json", {
       exists: true,
       content: JSON.stringify({ hasAudio: true, encoder: "c2.samsung.avc.encoder" }),
     });
@@ -301,7 +308,7 @@ describe("renderSegments", () => {
     ]);
     // The sidecar records the encoder so a later resume can re-pin.
     const sidecar = JSON.parse(
-      mocks.files.get("/cache/render-src-pin-1-seg-0-0-45.json")?.content ?? "{}",
+      mocks.files.get("/cache/render-src-pin-1@h264_mediacodec-unknown-yuv420p-seg-0-0-45.json")?.content ?? "{}",
     );
     expect(sidecar.encoder).toBe("c2.samsung.avc.encoder");
   });
@@ -309,11 +316,11 @@ describe("renderSegments", () => {
   it("re-pins a resumed run from the cached segment's sidecar encoder", async () => {
     // Simulates resume after a process restart: the in-memory pin is gone,
     // but segment 0's sidecar remembers which codec made it.
-    mocks.files.set("/cache/render-src-pin-2-seg-0-0-45.mp4", {
+    mocks.files.set("/cache/render-src-pin-2@h264_mediacodec-unknown-yuv420p-seg-0-0-45.mp4", {
       exists: true,
       content: "video",
     });
-    mocks.files.set("/cache/render-src-pin-2-seg-0-0-45.json", {
+    mocks.files.set("/cache/render-src-pin-2@h264_mediacodec-unknown-yuv420p-seg-0-0-45.json", {
       exists: true,
       content: JSON.stringify({ hasAudio: false, encoder: "c2.android.avc.encoder" }),
     });
@@ -331,14 +338,14 @@ describe("renderSegments", () => {
   });
 
   it("re-renders a cached segment recorded under a different encoder", async () => {
-    mocks.files.set("/cache/render-src-pin-3-seg-0-0-45.mp4", { exists: true, content: "video" });
+    mocks.files.set("/cache/render-src-pin-3@h264_mediacodec-unknown-yuv420p-seg-0-0-45.mp4", { exists: true, content: "video" });
     mocks.files.set(
-      "/cache/render-src-pin-3-seg-0-0-45.json",
+      "/cache/render-src-pin-3@h264_mediacodec-unknown-yuv420p-seg-0-0-45.json",
       { exists: true, content: JSON.stringify({ encoder: "c2.samsung.avc.encoder" }) },
     );
-    mocks.files.set("/cache/render-src-pin-3-seg-1-45-20.mp4", { exists: true, content: "video" });
+    mocks.files.set("/cache/render-src-pin-3@h264_mediacodec-unknown-yuv420p-seg-1-45-20.mp4", { exists: true, content: "video" });
     mocks.files.set(
-      "/cache/render-src-pin-3-seg-1-45-20.json",
+      "/cache/render-src-pin-3@h264_mediacodec-unknown-yuv420p-seg-1-45-20.json",
       { exists: true, content: JSON.stringify({ encoder: "c2.android.avc.encoder" }) },
     );
 
@@ -363,8 +370,8 @@ describe("renderSegments", () => {
   it("keeps a cached segment whose sidecar has no encoder record", async () => {
     // Pre-pin builds recorded no encoder: reuse the footage and let concat's
     // parameter check be the safety net (fail loud, never restart silently).
-    mocks.files.set("/cache/render-src-pin-4-seg-0-0-45.mp4", { exists: true, content: "video" });
-    mocks.files.set("/cache/render-src-pin-4-seg-0-0-45.json", {
+    mocks.files.set("/cache/render-src-pin-4@h264_mediacodec-unknown-yuv420p-seg-0-0-45.mp4", { exists: true, content: "video" });
+    mocks.files.set("/cache/render-src-pin-4@h264_mediacodec-unknown-yuv420p-seg-0-0-45.json", {
       exists: true,
       content: JSON.stringify({ hasAudio: true }),
     });
@@ -400,8 +407,8 @@ describe("renderSegments", () => {
     for (let i = 0; i < 2; i += 1) {
       const offset = i * 45;
       const length = Math.min(45, 65 - offset);
-      expect(mocks.files.has(`/cache/render-src-heal-seg-${i}-${offset}-${length}.mp4`)).toBe(true);
-      expect(mocks.files.has(`/cache/render-src-heal-seg-${i}-${offset}-${length}.json`)).toBe(true);
+      expect(mocks.files.has(`/cache/render-src-heal@h264_mediacodec-unknown-yuv420p-seg-${i}-${offset}-${length}.mp4`)).toBe(true);
+      expect(mocks.files.has(`/cache/render-src-heal@h264_mediacodec-unknown-yuv420p-seg-${i}-${offset}-${length}.json`)).toBe(true);
     }
     expect(Math.max(...progress)).toBe(99);
     expect(progress).not.toContain(100);
@@ -423,7 +430,7 @@ describe("renderSegments", () => {
     await expect(renderSegments({ contractDuration: 65, documentHtml: DOC, sourceFileId: "src-heal-res" })).rejects.toThrow(/resolution/);
     expect(mocks.requestVideoRender).toHaveBeenCalledTimes(2);
     expect(mocks.concatSegments).toHaveBeenCalledTimes(1);
-    expect(mocks.files.has("/cache/render-src-heal-res-seg-0-0-45.mp4")).toBe(true);
+    expect(mocks.files.has("/cache/render-src-heal-res@h264_mediacodec-unknown-yuv420p-seg-0-0-45.mp4")).toBe(true);
   });
 
   it("does not retry concat failures that are not cache mismatches", async () => {
@@ -607,7 +614,7 @@ describe("shot-aware incremental rendering", () => {
   });
 
   const segmentFile = (offset: number, length: number, keys: string[]) =>
-    `/cache/render-h-shared-${offset}-${length}-${hashSegmentKeys(keys)}.mp4`;
+    `/cache/render-h-shared@h264_mediacodec-1280x720-30-yuv420p-${offset}-${length}-${hashSegmentKeys(keys)}.mp4`;
 
   it("re-encodes only the edited shot and reuses the other segment", async () => {
     mocks.probeVideoPlan.mockResolvedValue(plan("a1", "b1"));
@@ -719,8 +726,17 @@ describe("editor package rendering", () => {
     ],
   };
 
+  // Editor exports go through the backend seam, so the cache namespace now
+  // carries the encoder profile. With no backend supplied the device runs.
+  const editorProfile = profileIdFor({
+    encoder: "h264_mediacodec",
+    width: 1280,
+    height: 720,
+    fps: 30,
+  });
+
   const editorSegmentFile = (offset: number, length: number, keys: string[]) =>
-    `/cache/render-ed-edit-shared-ed-${offset}-${length}-${hashSegmentKeys(keys)}.mp4`;
+    `/cache/render-ed-edit-shared@${editorProfile}-ed-${offset}-${length}-${hashSegmentKeys(keys)}.mp4`;
 
   it("renders one clip per shot and joins the full video separately", async () => {
     mocks.probeVideoPlan.mockResolvedValue(plan);
@@ -762,7 +778,7 @@ describe("editor package rendering", () => {
       width: 1280,
       height: 720,
     });
-    expect(out.editorPackage?.directoryUri).toContain("/editor-ed-edit-shared-");
+    expect(out.editorPackage?.directoryUri).toContain("/editor-ed-edit-shared@");
     expect(out.duration).toBe(20);
     expect(out.uri).toContain("/full.mp4");
     expect(out.incremental).toEqual({
@@ -860,5 +876,436 @@ describe("editor package rendering", () => {
       height: 720,
     });
     expect(out.clips).toHaveLength(1);
+  });
+});
+
+describe("renderSegments backend seam", () => {
+  function fakeBackend(overrides: Partial<RenderBackend> = {}) {
+    const requests: SegmentRequest[] = [];
+    const concats: { uris: string[]; outUri: string }[] = [];
+    const backend: RenderBackend = {
+      id: "test-remote",
+      label: "Test remote",
+      kind: "remote",
+      concurrency: 1,
+      supportsProbe: true,
+      profileFor: (plan) => ({
+        id: profileIdFor({
+          encoder: "h264_nvenc",
+          width: plan?.width ?? 0,
+          height: plan?.height ?? 0,
+          fps: plan?.fps ?? 0,
+        }),
+        width: plan?.width ?? 0,
+        height: plan?.height ?? 0,
+        fps: plan?.fps ?? 0,
+        codec: "h264",
+        pixelFormat: "yuv420p",
+        bitrateKbps: 8000,
+        encoder: "h264_nvenc",
+        hardware: true,
+      }),
+      probe: vi.fn(),
+      renderSegment: async (request) => {
+        requests.push(request);
+        const index = request.segment ? Math.round(request.segment.offset / 45) : 0;
+        request.onProgress?.(1);
+        return {
+          uri: `file:///cache/remote-seg-${index}.mp4`,
+          encoder: "h264_nvenc",
+          hasAudio: true,
+          audioWarnings: [],
+        };
+      },
+      concat: async (uris, outUri) => {
+        concats.push({ uris, outUri });
+      },
+      ...overrides,
+    };
+    return { backend, requests, concats };
+  }
+
+  it("routes every segment and the concat through a supplied backend", async () => {
+    const { backend, requests, concats } = fakeBackend();
+
+    const out = await renderSegments({
+      backend,
+      contractDuration: 65,
+      documentHtml: DOC,
+      sourceFileId: "src-remote",
+    });
+
+    // The device pipeline must be fully bypassed.
+    expect(mocks.requestVideoRender).not.toHaveBeenCalled();
+    expect(mocks.concatSegments).not.toHaveBeenCalled();
+
+    expect(requests.map((request) => request.segment)).toEqual([
+      { offset: 0, length: 45 },
+      { offset: 45, length: 20 },
+    ]);
+    expect(requests.every((request) => request.documentHtml === DOC)).toBe(true);
+    expect(requests.every((request) => request.duration === 65)).toBe(true);
+
+    expect(concats).toHaveLength(1);
+    expect(concats[0].outUri).toMatch(
+      /render-src-remote@h264_nvenc-unknown-yuv420p-full\.mp4$/,
+    );
+    expect(out.uri).toBe(concats[0].outUri);
+    expect(out.encoder).toBe("h264_nvenc");
+    expect(out.warnings.join(" ")).toMatch(/2 segments/);
+  });
+
+  it("keeps the on-device backend when none is supplied", async () => {
+    const out = await renderSegments({
+      contractDuration: 20,
+      documentHtml: DOC,
+      sourceFileId: "src-default",
+    });
+
+    expect(mocks.requestVideoRender).toHaveBeenCalledTimes(1);
+    expect(out.encoder).toBe("c2.samsung.avc.encoder");
+  });
+
+  it("skips the plan probe when the backend cannot probe", async () => {
+    const { backend } = fakeBackend({ supportsProbe: false });
+    const shotDoc =
+      '<script>window.MOBILE_AGENT_VIDEO = { duration: 20, fps: 30, shots: [{ id: "a", start: 0, end: 10, render: function () {} }], render: function () {} };</script>';
+
+    const out = await renderSegments({
+      backend,
+      contractDuration: 20,
+      documentHtml: shotDoc,
+      sourceFileId: "src-no-probe",
+    });
+
+    expect(backend.probe).not.toHaveBeenCalled();
+    expect(out.incremental).toBeUndefined();
+  });
+});
+
+describe("renderSegments profile isolation", () => {
+  const SEAM_SHOT_DOC =
+    '<script>window.MOBILE_AGENT_VIDEO = { duration: 20, fps: 30, shots: [{ id: "a", start: 0, end: 10, render: function () {} }, { id: "b", start: 10, end: 20, render: function () {} }], render: function () {} };</script>';
+
+  const shotPlan = () => ({
+    duration: 20,
+    fps: 30,
+    width: 1280,
+    height: 720,
+    sharedHash: "h-shared",
+    shots: [
+      { id: "a", start: 0, end: 10, hash: "a1" },
+      { id: "b", start: 10, end: 20, hash: "b1" },
+    ],
+  });
+
+  function backendWith(encoder: string) {
+    const requests: SegmentRequest[] = [];
+    const backend: RenderBackend = {
+      id: `test-${encoder}`,
+      label: encoder,
+      kind: "remote",
+      concurrency: 1,
+      supportsProbe: true,
+      profileFor: (plan) => ({
+        id: profileIdFor({
+          encoder,
+          width: plan?.width ?? 0,
+          height: plan?.height ?? 0,
+          fps: plan?.fps ?? 0,
+        }),
+        width: plan?.width ?? 0,
+        height: plan?.height ?? 0,
+        fps: plan?.fps ?? 0,
+        codec: "h264",
+        pixelFormat: "yuv420p",
+        bitrateKbps: 8000,
+        encoder,
+        hardware: true,
+      }),
+      probe: async () => shotPlan(),
+      renderSegment: async (request) => {
+        requests.push(request);
+        request.onProgress?.(1);
+        return {
+          uri: `file:///cache/out-${requests.length}.mp4`,
+          encoder,
+          hasAudio: true,
+          audioWarnings: [],
+        };
+      },
+      concat: async () => {},
+    };
+    return { backend, requests };
+  }
+
+  it("names segment files and sidecars after the encoder profile", async () => {
+    mocks.probeVideoPlan.mockResolvedValue(shotPlan());
+    const { backend } = backendWith("h264_nvenc");
+
+    await renderSegments({
+      backend,
+      contractDuration: 20,
+      documentHtml: SEAM_SHOT_DOC,
+      sourceFileId: "ignored",
+    });
+
+    const stem = `/cache/render-h-shared@h264_nvenc-1280x720-30-yuv420p-0-10-${hashSegmentKeys(["a:a1"])}`;
+    expect(mocks.files.has(`${stem}.mp4`)).toBe(true);
+    const sidecar = JSON.parse(mocks.files.get(`${stem}.json`)?.content ?? "{}");
+    expect(sidecar).toMatchObject({
+      profile: "h264_nvenc-1280x720-30-yuv420p",
+      origin: "remote",
+      encoder: "h264_nvenc",
+    });
+  });
+
+  it("never reuses footage recorded under another profile", async () => {
+    const gpu = backendWith("h264_nvenc");
+    const cpu = backendWith("libx264");
+
+    mocks.probeVideoPlan.mockResolvedValue(shotPlan());
+    await renderSegments({
+      backend: gpu.backend,
+      contractDuration: 20,
+      documentHtml: SEAM_SHOT_DOC,
+      sourceFileId: "ignored",
+    });
+    expect(gpu.requests).toHaveLength(2);
+
+    // Same scene, same shared hash, different encoder: the GPU footage is not
+    // joinable (SPS/PPS), so every segment must be encoded again.
+    mocks.probeVideoPlan.mockResolvedValue(shotPlan());
+    const out = await renderSegments({
+      backend: cpu.backend,
+      contractDuration: 20,
+      documentHtml: SEAM_SHOT_DOC,
+      sourceFileId: "ignored",
+    });
+
+    expect(cpu.requests).toHaveLength(2);
+    expect(out.incremental).toEqual({
+      shots: 2,
+      renderedSegments: 2,
+      reusedSegments: 0,
+    });
+    // The other profile's footage is kept: switching back stays instant.
+    expect(
+      mocks.files.has(
+        `/cache/render-h-shared@h264_nvenc-1280x720-30-yuv420p-0-10-${hashSegmentKeys(["a:a1"])}.mp4`,
+      ),
+    ).toBe(true);
+  });
+
+  it("treats a sidecar from another profile as a cache miss", async () => {
+    mocks.probeVideoPlan.mockResolvedValue(shotPlan());
+    const { backend, requests } = backendWith("h264_nvenc");
+    const stem = `/cache/render-h-shared@h264_nvenc-1280x720-30-yuv420p-0-10-${hashSegmentKeys(["a:a1"])}`;
+    mocks.files.set(`${stem}.mp4`, { exists: true, content: "video" });
+    mocks.files.set(`${stem}.json`, {
+      exists: true,
+      content: JSON.stringify({ profile: "libx264-1280x720-30-yuv420p", encoder: "libx264" }),
+    });
+
+    const out = await renderSegments({
+      backend,
+      contractDuration: 20,
+      documentHtml: SEAM_SHOT_DOC,
+      sourceFileId: "ignored",
+    });
+
+    // Segment A re-encoded instead of being adopted from the stale sidecar.
+    expect(requests.map((request) => request.segment?.offset)).toEqual([0, 10]);
+    expect(out.incremental?.reusedSegments).toBe(0);
+  });
+});
+
+describe("renderSegments concurrency", () => {
+  const POOL_DOC =
+    '<script>window.MOBILE_AGENT_VIDEO = { duration: 30, fps: 30, shots: [1], render: function () {} };</script>';
+
+  const planFor = (shots: number, duration = 30) => ({
+    duration,
+    fps: 30,
+    width: 1280,
+    height: 720,
+    sharedHash: "h-pool",
+    shots: Array.from({ length: shots }, (_, i) => ({
+      id: `s${i}`,
+      start: (duration / shots) * i,
+      end: (duration / shots) * (i + 1),
+      hash: `h${i}`,
+    })),
+  });
+
+  function poolBackend(options: {
+    concurrency: number;
+    plan: ReturnType<typeof planFor>;
+    renderSegment: (request: SegmentRequest) => Promise<SegmentArtifact>;
+  }) {
+    const concats: string[][] = [];
+    const backend: RenderBackend = {
+      id: "test-pool",
+      label: "pool",
+      kind: "remote",
+      concurrency: options.concurrency,
+      supportsProbe: true,
+      profileFor: (plan) => ({
+        id: profileIdFor({
+          encoder: "h264_nvenc",
+          width: plan?.width ?? 0,
+          height: plan?.height ?? 0,
+          fps: plan?.fps ?? 0,
+        }),
+        width: plan?.width ?? 0,
+        height: plan?.height ?? 0,
+        fps: plan?.fps ?? 0,
+        codec: "h264",
+        pixelFormat: "yuv420p",
+        bitrateKbps: 8000,
+        encoder: "h264_nvenc",
+        hardware: true,
+      }),
+      probe: async () => options.plan,
+      renderSegment: options.renderSegment,
+      concat: async (uris) => {
+        concats.push(uris);
+      },
+    };
+    return { backend, concats };
+  }
+
+  const artifactFor = (offset: number): SegmentArtifact => ({
+    uri: `file:///cache/pool-${offset}.mp4`,
+    encoder: "h264_nvenc",
+    hasAudio: true,
+    audioWarnings: [],
+  });
+
+  it("never runs more segments at once than the backend allows", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const { backend } = poolBackend({
+      concurrency: 3,
+      plan: planFor(6),
+      renderSegment: async (request) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        inFlight -= 1;
+        return artifactFor(request.segment?.offset ?? 0);
+      },
+    });
+
+    const out = await renderSegments({
+      backend,
+      contractDuration: 30,
+      documentHtml: POOL_DOC,
+      sourceFileId: "ignored",
+    });
+
+    expect(peak).toBe(3);
+    expect(out.incremental).toEqual({
+      shots: 6,
+      renderedSegments: 6,
+      reusedSegments: 0,
+    });
+  });
+
+  it("concatenates in timeline order even when segments finish out of order", async () => {
+    const gates = new Map<number, () => void>();
+    const { backend, concats } = poolBackend({
+      concurrency: 6,
+      plan: planFor(6),
+      renderSegment: (request) =>
+        new Promise<SegmentArtifact>((resolve) => {
+          gates.set(request.segment?.offset ?? 0, () =>
+            resolve(artifactFor(request.segment?.offset ?? 0)),
+          );
+        }),
+    });
+
+    const run = renderSegments({
+      backend,
+      contractDuration: 30,
+      documentHtml: POOL_DOC,
+      sourceFileId: "ignored",
+    });
+
+    // Wait until every segment is in flight, then release them in reverse.
+    for (let i = 0; i < 100 && gates.size < 6; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(gates.size).toBe(6);
+    for (const offset of [...gates.keys()].sort((a, b) => b - a)) {
+      gates.get(offset)?.();
+    }
+
+    await run;
+
+    expect(concats).toHaveLength(1);
+    expect(concats[0]).toEqual(
+      [0, 5, 10, 15, 20, 25].map(
+        (offset) =>
+          `file:///cache/render-h-pool@h264_nvenc-1280x720-30-yuv420p-${offset}-5-${hashSegmentKeys([
+            `s${offset / 5}:h${offset / 5}`,
+          ])}.mp4`,
+      ),
+    );
+  });
+
+  it("keeps finished footage when a pooled segment fails", async () => {
+    const { backend, concats } = poolBackend({
+      concurrency: 3,
+      plan: planFor(3),
+      renderSegment: async (request) => {
+        const offset = request.segment?.offset ?? 0;
+        if (offset === 10) throw new Error("GPU lost");
+        return artifactFor(offset);
+      },
+    });
+
+    await expect(
+      renderSegments({
+        backend,
+        contractDuration: 30,
+        documentHtml: POOL_DOC,
+        sourceFileId: "ignored",
+      }),
+    ).rejects.toThrow(/Segment 2\/3 .*GPU lost/);
+
+    const cachedNames = [...mocks.files.keys()].filter((name) => name.includes("render-h-pool@"));
+    // Segments 0 and 2 landed; segment 1 did not, and nothing was joined.
+    expect(cachedNames.some((name) => name.includes("-0-10-"))).toBe(true);
+    expect(cachedNames.some((name) => name.includes("-20-10-"))).toBe(true);
+    expect(cachedNames.some((name) => name.includes("-10-10-"))).toBe(false);
+    expect(concats).toHaveLength(0);
+  });
+
+  it("reports progress monotonically with a pool", async () => {
+    const seen: number[] = [];
+    const { backend } = poolBackend({
+      concurrency: 3,
+      plan: planFor(6),
+      renderSegment: async (request) => {
+        request.onProgress?.(0.5);
+        request.onProgress?.(1);
+        return artifactFor(request.segment?.offset ?? 0);
+      },
+    });
+
+    await renderSegments({
+      backend,
+      contractDuration: 30,
+      documentHtml: POOL_DOC,
+      sourceFileId: "ignored",
+      onProgress: (progress) => seen.push(progress.bytesWritten),
+    });
+
+    expect(seen.length).toBeGreaterThan(0);
+    for (let i = 1; i < seen.length; i += 1) {
+      expect(seen[i]).toBeGreaterThanOrEqual(seen[i - 1]);
+    }
+    expect(seen[seen.length - 1]).toBe(10000);
   });
 });

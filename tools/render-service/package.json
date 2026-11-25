@@ -1,0 +1,16 @@
+{
+  "name": "@mobile-agent/render-service",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Remote render node for the Mobile Agent video pipeline (Chrome + ffmpeg, no npm dependencies).",
+  "bin": {
+    "ma-render": "./service.mjs"
+  },
+  "scripts": {
+    "start": "node service.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

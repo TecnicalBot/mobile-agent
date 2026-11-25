@@ -6,10 +6,13 @@ import {
   readContractSize,
 } from "@/modules/preview/video-audio";
 import {
-  type VideoExportTimings,
-  type VideoRenderPlan,
-  probeVideoPlan,
-  requestVideoRender,
+  createDeviceRenderBackend,
+  type RenderBackend,
+  type SegmentArtifact,
+} from "@/modules/preview/render-backend";
+import type {
+  VideoExportTimings,
+  VideoRenderPlan,
 } from "@/modules/preview/video-render";
 
 /**
@@ -441,6 +444,12 @@ export function planEditorClips(
  */
 export async function renderSegments(options: {
   abortSignal?: AbortSignal;
+  /**
+   * Where segments are produced. Omitted = the on-device pipeline, so existing
+   * callers keep byte-identical behaviour. The segment cache, shot reuse, and
+   * concat order are owned here and must not depend on this value.
+   */
+  backend?: RenderBackend;
   conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
@@ -464,10 +473,12 @@ export async function renderSegments(options: {
   sourceFileId: string;
 }): Promise<SegmentRenderResult> {
   const { abortSignal, contractDuration, documentHtml, onProgress } = options;
+  const backend = options.backend ?? createDeviceRenderBackend();
 
   if (options.editorClips) {
     return renderEditorTimeline({
       abortSignal,
+      backend,
       conversationId: options.conversationId,
       contractDuration,
       documentHtml,
@@ -478,10 +489,10 @@ export async function renderSegments(options: {
   // A probe costs one page boot, so only scenes that look shot-structured
   // pay it. A false positive is harmless: the page reports no shots and the
   // legacy path runs unchanged.
-  if (/\bshots\s*:/.test(documentHtml)) {
+  if (backend.supportsProbe && /\bshots\s*:/.test(documentHtml)) {
     let plan: VideoRenderPlan | null = null;
     try {
-      plan = await probeVideoPlan(documentHtml, { signal: abortSignal });
+      plan = await backend.probe(documentHtml, { signal: abortSignal });
     } catch {
       // A probe is an optimization, never a gate. Fall through to the legacy
       // path; the actual render will surface any real page failure.
@@ -490,6 +501,7 @@ export async function renderSegments(options: {
     if (plan && plan.shots.length > 0) {
       return renderPlannedTimeline({
         abortSignal,
+        backend,
         conversationId: options.conversationId,
         documentHtml,
         onProgress,
@@ -500,6 +512,7 @@ export async function renderSegments(options: {
 
   return renderLegacyTimeline({
     abortSignal,
+    backend,
     conversationId: options.conversationId,
     contractDuration,
     documentHtml,
@@ -510,13 +523,15 @@ export async function renderSegments(options: {
 
 async function renderLegacyTimeline(options: {
   abortSignal?: AbortSignal;
+  backend: RenderBackend;
   conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
   sourceFileId: string;
 }): Promise<SegmentRenderResult> {
-  const { abortSignal, contractDuration, documentHtml, onProgress, sourceFileId } = options;
+  const { abortSignal, backend, contractDuration, documentHtml, onProgress, sourceFileId } =
+    options;
 
   const reportProgress = (base: number, span: number, segProgress: number) => {
     const overall = span <= 0 ? 0 : Math.max(0, Math.min(1, base + segProgress * span));
@@ -529,14 +544,15 @@ async function renderLegacyTimeline(options: {
     weight: { base: number; span: number },
     pinnedEncoder?: string,
   ) => {
-    return requestVideoRender(documentHtml, {
+    return backend.renderSegment({
+      documentHtml,
+      duration: contractDuration ?? undefined,
+      segment,
+      progress: weight,
+      pinnedEncoder,
       conversationId: options.conversationId,
       signal: abortSignal,
-      onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
-      segment: segment,
-      progressBase: weight.base,
-      progressSpan: weight.span,
-      pinnedEncoder,
+      onProgress: (fraction) => reportProgress(weight.base, weight.span, fraction),
     });
   };
 
@@ -570,8 +586,15 @@ async function renderLegacyTimeline(options: {
   // only ever satisfy that window: a segment-length change (or any future
   // one) re-renders instead of silently splicing footage rendered under a
   // different layout into the new timeline.
+  //
+  // The name also carries the encoder profile (`@h264_mediacodec-unknown-…`).
+  // Concat sample-copies under the first segment's SPS/PPS, so footage from a
+  // different encoder is never reusable — and legacy scenes have no probe, so
+  // the profile has no dimensions yet.
+  const profile = backend.profileFor(null);
+  const stem = `render-${sourceFileId}@${profile.id}`;
   const sidecar = (index: number, offset: number, length: number) =>
-    new File(Paths.cache, `render-${sourceFileId}-seg-${index}-${offset}-${length}.json`);
+    new File(Paths.cache, `${stem}-seg-${index}-${offset}-${length}.json`);
 
   const renderAll = async () => {
     const startedAt = Date.now();
@@ -585,14 +608,18 @@ async function renderLegacyTimeline(options: {
       phaseAudioPrepMs: 0,
       haveFixedCosts: false,
     };
-    let runEncoder: string | undefined;
+    // A backend that can run segments concurrently cannot wait for segment 1
+    // to reveal the encoder, so it declares it up front. The device (one job at
+    // a time) keeps the observed-encoder behaviour below, byte for byte.
+    let runEncoder: string | undefined =
+      backend.concurrency > 1 ? profile.encoder : undefined;
     let slowest: { timings?: VideoExportTimings; cost: number } | null = null;
     const uris: string[] = [];
 
     for (let i = 0; i < count; i += 1) {
       const offset = i * SEGMENT_SECONDS;
       const length = Math.min(SEGMENT_SECONDS, total - offset);
-      const segFile = new File(Paths.cache, `render-${sourceFileId}-seg-${i}-${offset}-${length}.mp4`);
+      const segFile = new File(Paths.cache, `${stem}-seg-${i}-${offset}-${length}.mp4`);
       if (segFile.exists) {
         let meta: SegmentSidecar | null = null;
         try {
@@ -603,24 +630,30 @@ async function renderLegacyTimeline(options: {
           // parameters, and a mismatch self-heals below).
           meta = null;
         }
-        const cachedEncoder =
-          meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
-        // Keep the cached segment unless it is known to have been made by a
-        // *different* encoder than this run — feeding concat a known-bad mix
-        // would only fail after every other segment finished.
-        if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
-          if (cachedEncoder) runEncoder = cachedEncoder;
-          uris.push(segFile.uri);
-          adoptSidecar(aggregated, meta);
-          continue;
-        }
-        // Made by another encoder: drop just this segment and re-render it
-        // under the run's pin.
-        try {
-          await segFile.delete();
-          await sidecar(i, offset, length).delete();
-        } catch {
-          // Best-effort; a leftover file would fail the move below loudly.
+        if (meta?.profile && meta.profile !== profile.id) {
+          // Only reachable if a file was renamed or copied by hand; the name
+          // already carries the profile. Treat it as a miss, not as footage.
+          meta = null;
+        } else {
+          const cachedEncoder =
+            meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
+          // Keep the cached segment unless it is known to have been made by a
+          // *different* encoder than this run — feeding concat a known-bad mix
+          // would only fail after every other segment finished.
+          if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
+            if (cachedEncoder) runEncoder = cachedEncoder;
+            uris.push(segFile.uri);
+            adoptSidecar(aggregated, meta);
+            continue;
+          }
+          // Made by another encoder: drop just this segment and re-render it
+          // under the run's pin.
+          try {
+            await segFile.delete();
+            await sidecar(i, offset, length).delete();
+          } catch {
+            // Best-effort; a leftover file would fail the move below loudly.
+          }
         }
       }
       let result;
@@ -650,6 +683,8 @@ async function renderLegacyTimeline(options: {
             perfWarnings: result.perfWarnings ?? [],
             visualWarnings: aggregated.visualWarnings,
             encoder: result.encoder,
+            profile: profile.id,
+            origin: backend.kind,
           }),
         );
       } catch {
@@ -658,16 +693,11 @@ async function renderLegacyTimeline(options: {
       uris.push(segFile.uri);
     }
 
-    const outFile = new File(Paths.cache, `render-${sourceFileId}-full.mp4`);
-    const { getHtmlVideoExportModule } = await import("html-video-export");
-    const module = getHtmlVideoExportModule();
-    if (!module || typeof module.concatSegments !== "function") {
-      throw new Error("Segmented rendering needs the video export module (concatSegments).");
-    }
+    const outFile = new File(Paths.cache, `${stem}-full.mp4`);
     reportProgress(0, 1, 1);
     const concatStartedAt = Date.now();
     try {
-      await module.concatSegments(uris.map(stripScheme), stripScheme(outFile.uri));
+      await backend.concat(uris, outFile.uri);
     } catch (error) {
       throw new Error(
         `Video segments finished, but joining failed. Completed segments were kept; the export did not restart automatically. ${error instanceof Error ? error.message : String(error)}`,
@@ -717,15 +747,20 @@ async function renderLegacyTimeline(options: {
  */
 async function renderPlannedTimeline(options: {
   abortSignal?: AbortSignal;
+  backend: RenderBackend;
   conversationId?: string;
   documentHtml: string;
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
   plan: VideoRenderPlan;
 }): Promise<SegmentRenderResult> {
-  const { abortSignal, documentHtml, onProgress, plan } = options;
+  const { abortSignal, backend, documentHtml, onProgress, plan } = options;
   const total = plan.duration;
   const segments = planShotSegments(total, plan.shots);
-  const namespace = plan.sharedHash;
+  // Footage is only interchangeable inside one encoder profile: concat
+  // sample-copies under the first segment's SPS/PPS, so a device encode and a
+  // remote encode of the same scene must never share a namespace.
+  const profile = backend.profileFor(plan);
+  const namespace = `${plan.sharedHash}@${profile.id}`;
   const startedAt = Date.now();
   const uris: string[] = [];
   const keepNames = new Set<string>();
@@ -739,29 +774,12 @@ async function renderPlannedTimeline(options: {
     phaseAudioPrepMs: 0,
     haveFixedCosts: false,
   };
-  let runEncoder: string | undefined;
+  // Declared up front when segments can run concurrently; see the legacy path.
+  let runEncoder: string | undefined =
+    backend.concurrency > 1 ? profile.encoder : undefined;
   let slowest: { timings?: VideoExportTimings; cost: number } | null = null;
   let renderedSegments = 0;
   let reusedSegments = 0;
-
-  const reportProgress = (base: number, span: number, segProgress: number) => {
-    const overall = span <= 0 ? 0 : Math.max(0, Math.min(1, base + segProgress * span));
-    onProgress?.({ bytesWritten: Math.min(9900, Math.floor(overall * 9900)), totalBytes: 10000 });
-  };
-  const runOne = (
-    segment: { offset: number; length: number },
-    weight: { base: number; span: number },
-    pinnedEncoder?: string,
-  ) =>
-    requestVideoRender(documentHtml, {
-      conversationId: options.conversationId,
-      signal: abortSignal,
-      onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
-      segment,
-      progressBase: weight.base,
-      progressSpan: weight.span,
-      pinnedEncoder,
-    });
 
   const baseName = (segment: SceneSegment) =>
     `render-${namespace}-${segment.offset}-${segment.length}-${hashSegmentKeys(segment.keys)}`;
@@ -774,11 +792,69 @@ async function renderPlannedTimeline(options: {
     };
   };
 
-  for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i];
-    const { video: segFile, sidecar, names } = filesFor(segment);
-    for (const name of names) keepNames.add(name);
+  // Segments are contiguous from 0, so `bases[i]` is exactly the old
+  // `offset / total`: the device's progress bar is unchanged. What changes is
+  // that progress is now a weighted sum over segments, because a pool finishes
+  // them out of order.
+  const weights = segments.map((segment) => segment.length / total);
+  const bases: number[] = [];
+  {
+    let accumulated = 0;
+    for (const weight of weights) {
+      bases.push(accumulated);
+      accumulated += weight;
+    }
+  }
+  const fractions = segments.map(() => 0);
+  const settled = segments.map(() => false);
+  let reported = 0;
+  const reportOverall = (overall: number) => {
+    // Monotonic: a segment's reported fraction can wobble, and a pool finishes
+    // out of order. The bar never walks backwards.
+    reported = Math.max(reported, Math.max(0, Math.min(1, overall)));
+    onProgress?.({
+      bytesWritten: Math.min(9900, Math.floor(reported * 9900)),
+      totalBytes: 10000,
+    });
+  };
+  const reportProgress = () => {
+    let sum = 0;
+    for (let i = 0; i < segments.length; i += 1) {
+      sum += weights[i] * (settled[i] ? 1 : fractions[i]);
+    }
+    reportOverall(sum);
+  };
 
+  const renderSegmentAt = (i: number) => {
+    const segment = segments[i];
+    return backend.renderSegment({
+      documentHtml,
+      duration: total,
+      segment: { offset: segment.offset, length: segment.length },
+      progress: { base: bases[i], span: weights[i] },
+      pinnedEncoder: runEncoder,
+      conversationId: options.conversationId,
+      signal: abortSignal,
+      onProgress: (fraction) => {
+        fractions[i] = Math.max(fractions[i], fraction);
+        reportProgress();
+      },
+    });
+  };
+
+  // ── Resolve: which segments are already on disk ────────────────────────────
+  // Cache hits are resolved before any rendering so a resumed run pins the
+  // encoder from the footage it already has, instead of re-encoding the tail
+  // of the timeline to match whatever the first fresh segment happened to use.
+  const files = segments.map((segment) => filesFor(segment));
+  for (const { names } of files) {
+    for (const name of names) keepNames.add(name);
+  }
+
+  const cached = segments.map(() => false);
+  const pending: number[] = [];
+  for (let i = 0; i < segments.length; i += 1) {
+    const { video: segFile, sidecar } = files[i];
     if (segFile.exists) {
       let meta: SegmentSidecar | null = null;
       try {
@@ -786,37 +862,109 @@ async function renderPlannedTimeline(options: {
       } catch {
         meta = null;
       }
-      const cachedEncoder =
-        meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
-      if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
-        if (cachedEncoder) runEncoder = cachedEncoder;
-        uris.push(segFile.uri);
-        adoptSidecar(aggregated, meta);
-        reusedSegments += 1;
-        continue;
-      }
-      // Footage from another encoder cannot join this output video.
-      try {
-        await segFile.delete();
-        await sidecar.delete();
-      } catch {
-        // Best-effort; the move below fails loudly if it survives.
+      if (meta?.profile && meta.profile !== profile.id) {
+        // The name already carries the profile; a mismatch means the file was
+        // moved here by hand. Treat it as a miss rather than as footage.
+        meta = null;
+      } else {
+        const cachedEncoder =
+          meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
+        if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
+          if (cachedEncoder) runEncoder = cachedEncoder;
+          adoptSidecar(aggregated, meta);
+          reusedSegments += 1;
+          cached[i] = true;
+          settled[i] = true;
+          fractions[i] = 1;
+          continue;
+        }
+        // Footage from another encoder cannot join this output video.
+        try {
+          await segFile.delete();
+          await sidecar.delete();
+        } catch {
+          // Best-effort; the move below fails loudly if it survives.
+        }
       }
     }
+    pending.push(i);
+  }
+  reportProgress();
 
-    let result;
-    try {
-      result = await runOne(
-        { offset: segment.offset, length: segment.length },
-        { base: segment.offset / total, span: segment.length / total },
-        runEncoder,
-      );
-    } catch (error) {
-      throw new Error(
-        `Segment ${i + 1}/${segments.length} (t=${segment.offset}-${Math.round((segment.offset + segment.length) * 100) / 100}s) failed: ${error instanceof Error ? error.message : String(error)}. Re-run to resume — finished segments are kept.`,
-      );
+  // ── Render: bounded pool over the pending segments ─────────────────────────
+  const artifacts = new Map<number, SegmentArtifact>();
+  const failureOf = (i: number, error: unknown) =>
+    new Error(
+      `Segment ${i + 1}/${segments.length} (t=${segments[i].offset}-${Math.round((segments[i].offset + segments[i].length) * 100) / 100}s) failed: ${error instanceof Error ? error.message : String(error)}. Re-run to resume — finished segments are kept.`,
+    );
+  const limit = Math.max(1, Math.min(backend.concurrency, pending.length));
+  let failure: Error | null = null;
+
+  try {
+    if (limit === 1) {
+      // Sequential: the encoder observed on one segment still pins the next, so
+      // device behaviour is unchanged. A backend that can run segments in
+      // parallel declares its encoder up front and takes the pool branch.
+      for (const i of pending) {
+        if (abortSignal?.aborted) throw new Error("Video render was cancelled.");
+        let result: SegmentArtifact;
+        try {
+          result = await renderSegmentAt(i);
+        } catch (error) {
+          throw failureOf(i, error);
+        }
+        artifacts.set(i, result);
+        if (result.encoder && !runEncoder) runEncoder = result.encoder;
+      }
+    } else {
+      let cursor = 0;
+      // Held in an object: TypeScript's control-flow analysis would otherwise
+      // narrow a `let` assigned inside the worker closure to `null` forever.
+      const first: { current: { index: number; error: unknown } | null } = {
+        current: null,
+      };
+      const worker = async () => {
+        for (;;) {
+          if (first.current || abortSignal?.aborted) return;
+          const next = cursor;
+          cursor += 1;
+          if (next >= pending.length) return;
+          const i = pending[next];
+          try {
+            artifacts.set(i, await renderSegmentAt(i));
+          } catch (error) {
+            // Keep the first failure and stop launching. In-flight segments are
+            // allowed to land so their footage is cached for the retry.
+            if (!first.current) first.current = { index: i, error };
+            return;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: limit }, () => worker()));
+      const failed = first.current;
+      if (failed) throw failureOf(failed.index, failed.error);
+      if (abortSignal?.aborted) throw new Error("Video render was cancelled.");
     }
-    if (result.encoder && !runEncoder) runEncoder = result.encoder;
+  } catch (error) {
+    // Assemble below still runs: a failed or cancelled run must keep every
+    // finished segment, or "re-run to resume" would be a lie.
+    failure = error instanceof Error ? error : new Error(String(error));
+  }
+
+  // ── Assemble in timeline order ─────────────────────────────────────────────
+  // Order is what makes concat correct: the first segment's SPS/PPS is the one
+  // every later segment is copied under.
+  for (let i = 0; i < segments.length; i += 1) {
+    const { video: segFile, sidecar } = files[i];
+    if (cached[i]) {
+      uris.push(segFile.uri);
+      continue;
+    }
+    const result = artifacts.get(i);
+    if (!result) {
+      if (failure) continue;
+      throw new Error(`Segment ${i + 1}/${segments.length} produced no footage.`);
+    }
     const timings = adoptResult(aggregated, result);
     if (timings) {
       const cost = timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
@@ -831,6 +979,8 @@ async function renderPlannedTimeline(options: {
           perfWarnings: result.perfWarnings ?? [],
           visualWarnings: aggregated.visualWarnings,
           encoder: result.encoder,
+          profile: profile.id,
+          origin: backend.kind,
         }),
       );
     } catch {
@@ -838,18 +988,18 @@ async function renderPlannedTimeline(options: {
     }
     uris.push(segFile.uri);
     renderedSegments += 1;
+    settled[i] = true;
+    fractions[i] = 1;
+    reportProgress();
   }
 
+  if (failure) throw failure;
+
   const outFile = new File(Paths.cache, `render-${namespace}-full.mp4`);
-  const { getHtmlVideoExportModule } = await import("html-video-export");
-  const module = getHtmlVideoExportModule();
-  if (!module || typeof module.concatSegments !== "function") {
-    throw new Error("Segmented rendering needs the video export module (concatSegments).");
-  }
-  reportProgress(0, 1, 1);
+  reportOverall(1);
   const concatStartedAt = Date.now();
   try {
-    await module.concatSegments(uris.map(stripScheme), stripScheme(outFile.uri));
+    await backend.concat(uris, outFile.uri);
   } catch (error) {
     throw new Error(
       `Video segments finished, but joining failed. Completed segments were kept; the export did not restart automatically. ${error instanceof Error ? error.message : String(error)}`,
@@ -907,6 +1057,7 @@ async function renderPlannedTimeline(options: {
  */
 async function renderEditorTimeline(options: {
   abortSignal?: AbortSignal;
+  backend: RenderBackend;
   conversationId?: string;
   contractDuration: number | null;
   documentHtml: string;
@@ -922,7 +1073,7 @@ async function renderEditorTimeline(options: {
     };
   }
 > {
-  const { abortSignal, documentHtml, onProgress } = options;
+  const { abortSignal, backend, documentHtml, onProgress } = options;
   const startedAt = Date.now();
 
   // An editor package needs fps/size for its timelines, and one boot is cheap
@@ -930,7 +1081,9 @@ async function renderEditorTimeline(options: {
   // the contract literals and a single-clip timeline.
   let plan: VideoRenderPlan | null = null;
   try {
-    plan = await probeVideoPlan(documentHtml, { signal: abortSignal });
+    plan = backend.supportsProbe
+      ? await backend.probe(documentHtml, { signal: abortSignal })
+      : null;
   } catch {
     plan = null;
   }
@@ -956,9 +1109,15 @@ async function renderEditorTimeline(options: {
       ? { width: plan.width, height: plan.height }
       : (contractSize ?? { width: 1280, height: 720 });
   const shots = plan?.shots ?? [];
+  // Encoder profile, exactly like the other paths: editor footage is cached
+  // per encoder, so a device segment and a GPU segment can never be joined.
+  // `profileFor` is backend-specific and stable even when the probe failed.
+  const profile = backend.profileFor(
+    plan && plan.width > 0 && plan.height > 0 ? plan : null,
+  );
   // Keep editor cache files in their own namespace so pruning them can never
   // delete the shot-aligned footage a `renderVideo` run is still resuming.
-  const namespace = `ed-${plan?.sharedHash || hashDocumentKey(documentHtml)}`;
+  const namespace = `ed-${plan?.sharedHash || hashDocumentKey(documentHtml)}@${profile.id}`;
   const clipPlans = planEditorClips(total, shots);
   const packageDir = new Directory(
     Paths.cache,
@@ -981,7 +1140,11 @@ async function renderEditorTimeline(options: {
     phaseAudioPrepMs: 0,
     haveFixedCosts: false,
   };
-  let runEncoder: string | undefined;
+  // A backend that runs segments concurrently declares its encoder up front;
+  // the device keeps the observed-encoder behaviour, exactly like the other
+  // two paths.
+  let runEncoder: string | undefined =
+    backend.concurrency > 1 ? profile.encoder : undefined;
   let slowest: { timings?: VideoExportTimings; cost: number } | null = null;
   let renderedSegments = 0;
   let reusedSegments = 0;
@@ -1009,14 +1172,15 @@ async function renderEditorTimeline(options: {
     weight: { base: number; span: number },
     pinnedEncoder?: string,
   ) =>
-    requestVideoRender(documentHtml, {
+    backend.renderSegment({
+      documentHtml,
+      duration: total,
+      segment,
+      progress: weight,
+      pinnedEncoder,
       conversationId: options.conversationId,
       signal: abortSignal,
       onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
-      segment,
-      progressBase: weight.base,
-      progressSpan: weight.span,
-      pinnedEncoder,
     });
 
   const filesFor = (segment: SceneSegment) => {
@@ -1028,14 +1192,6 @@ async function renderEditorTimeline(options: {
     };
   };
 
-  const { getHtmlVideoExportModule } = await import("html-video-export");
-  const module = getHtmlVideoExportModule();
-  if (!module || typeof module.concatSegments !== "function") {
-    throw new Error(
-      "Editor exports need the video export module (concatSegments).",
-    );
-  }
-
   const concatTo = async (uris: string[], outFile: File, label: string) => {
     const join = async (
       list: string[],
@@ -1046,10 +1202,9 @@ async function renderEditorTimeline(options: {
         throw new Error("No segments to join.");
       }
       if (list.length <= 32) {
-        await module.concatSegments(
-          list.map(stripScheme),
-          stripScheme(destination.uri),
-        );
+        // Always a local join: segments are on the device by now, even when a
+        // remote node rendered them.
+        await backend.concat(list, destination.uri);
         return;
       }
       // The native concatenator accepts at most 32 inputs per call. Scenes
@@ -1063,10 +1218,7 @@ async function renderEditorTimeline(options: {
             packageDir,
             `join-${depth}-${tempCounter++}.mp4`,
           );
-          await module.concatSegments(
-            chunk.map(stripScheme),
-            stripScheme(temp.uri),
-          );
+          await backend.concat(chunk, temp.uri);
           intermediates.push(temp);
         }
         await join(
@@ -1118,7 +1270,14 @@ async function renderEditorTimeline(options: {
             meta && typeof meta.encoder === "string" && meta.encoder
               ? meta.encoder
               : undefined;
-          if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
+          const cachedProfile =
+            meta && typeof meta.profile === "string" ? meta.profile : null;
+          // A sidecar without a matching profile is not footage for this run:
+          // concat would splice incompatible parameter sets.
+          if (
+            cachedProfile === profile.id &&
+            (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder)
+          ) {
             if (cachedEncoder) runEncoder = cachedEncoder;
             clipUris.push(segFile.uri);
             allSegmentUris.push(segFile.uri);
@@ -1166,6 +1325,8 @@ async function renderEditorTimeline(options: {
               perfWarnings: result.perfWarnings ?? [],
               visualWarnings: result.visualWarnings ?? [],
               encoder: result.encoder,
+              profile: profile.id,
+              origin: backend.kind,
             }),
           );
         } catch {
@@ -1279,6 +1440,10 @@ type SegmentSidecar = {
   perfWarnings?: string[];
   visualWarnings?: string[];
   encoder?: string;
+  /** Encoder profile that produced the footage; see `RenderProfile.id`. */
+  profile?: string;
+  /** Which kind of backend produced it, for diagnostics only. */
+  origin?: "device" | "remote";
 };
 
 function adoptSidecar(aggregated: Aggregated, meta: SegmentSidecar | null) {
@@ -1350,11 +1515,6 @@ function buildPhases(
 /** `id:hash` fingerprints -> one stable cache token for a segment. */
 export function hashSegmentKeys(keys: string[]): string {
   return hashDocumentKey(uniqueSorted(keys).join("\n"));
-}
-
-/** `file://` URIs -> plain paths for the native concatenator. */
-function stripScheme(uri: string) {
-  return uri.startsWith("file://") ? uri.slice("file://".length) : uri;
 }
 
 /**

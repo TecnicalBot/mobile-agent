@@ -1,9 +1,16 @@
 import type { WorkspaceRepository } from "@/core/db/database";
+import type { ConfigRepository } from "@/core/db/repositories/types";
 import type { ToolExecutionRecord } from "@/core/types/app-state";
 
 export type WorkspaceToolFactoryParams = {
   /** Owning chat, captured when the run creates its tools (not the visible chat). */
   conversationId?: string;
+  /**
+   * Read-only settings access for tools that depend on an app preference
+   * (currently video rendering's optional GPU node). Omitted in contexts with
+   * no settings store; those tools then use their default.
+   */
+  configRepository?: ConfigRepository;
   onProgress?: (progress: {
     bytesWritten: number;
     totalBytes: number;

@@ -395,6 +395,19 @@ export type NotificationSettings = {
   announcePermissions: boolean;
 };
 
+/**
+ * Optional GPU render node for video exports. Off by default: scenes and their
+ * assets leave the device, which must be an explicit choice. The bearer token
+ * is not stored here; it lives in the secret store.
+ */
+export type RemoteRenderSettings = {
+  enabled: boolean;
+  /** e.g. `http://192.168.1.20:8787`. Null until configured. */
+  baseUrl: string | null;
+  /** Simultaneous segment renders. The node may serve fewer. */
+  concurrency: number;
+};
+
 export type ScheduleFrequency =
   | "hourly"
   | "daily"
@@ -747,6 +760,7 @@ export type AppSettings = {
   schedulingEnabled: boolean;
   themeMode: ThemeMode;
   notificationSettings: NotificationSettings;
+  remoteRender: RemoteRenderSettings;
 };
 
 export type CuratedModelDefinition = {

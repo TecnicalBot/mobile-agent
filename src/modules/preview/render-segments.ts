@@ -11,7 +11,9 @@ import {
   type SegmentArtifact,
 } from "@/modules/preview/render-backend";
 import type {
+  VideoClipLayerPlan,
   VideoExportTimings,
+  VideoLayerPlan,
   VideoRenderPlan,
 } from "@/modules/preview/video-render";
 
@@ -124,6 +126,10 @@ export type SegmentRenderResult = {
     fps: number;
     width: number;
     height: number;
+    /** Declarative text/image/shape layers, for an editable Alight project. */
+    layers?: VideoLayerPlan[];
+    /** Declared video windows with their original workspace file ids. */
+    clipLayers?: VideoClipLayerPlan[];
   };
 };
 
@@ -530,14 +536,24 @@ async function renderLegacyTimeline(options: {
   onProgress?: (progress: { bytesWritten: number; totalBytes: number }) => void;
   sourceFileId: string;
 }): Promise<SegmentRenderResult> {
-  const { abortSignal, backend, contractDuration, documentHtml, onProgress, sourceFileId } =
-    options;
+  const {
+    abortSignal,
+    backend,
+    contractDuration,
+    documentHtml,
+    onProgress,
+    sourceFileId,
+  } = options;
 
   const reportProgress = (base: number, span: number, segProgress: number) => {
-    const overall = span <= 0 ? 0 : Math.max(0, Math.min(1, base + segProgress * span));
+    const overall =
+      span <= 0 ? 0 : Math.max(0, Math.min(1, base + segProgress * span));
     // Keep 100% for successful completion, not merely the last encoded frame.
     // Basis-point units preserve sub-percent progress for the decimal UI.
-    onProgress?.({ bytesWritten: Math.min(9900, Math.floor(overall * 9900)), totalBytes: 10000 });
+    onProgress?.({
+      bytesWritten: Math.min(9900, Math.floor(overall * 9900)),
+      totalBytes: 10000,
+    });
   };
   const runOne = (
     segment: { offset: number; length: number } | undefined,
@@ -552,7 +568,8 @@ async function renderLegacyTimeline(options: {
       pinnedEncoder,
       conversationId: options.conversationId,
       signal: abortSignal,
-      onProgress: (fraction) => reportProgress(weight.base, weight.span, fraction),
+      onProgress: (fraction) =>
+        reportProgress(weight.base, weight.span, fraction),
     });
   };
 
@@ -570,9 +587,15 @@ async function renderLegacyTimeline(options: {
       timings: result.timings,
       phases: {
         totalMs: Date.now() - startedAt,
-        ...(timings?.pageLoadMs == null ? {} : { pageLoadTotalMs: timings.pageLoadMs }),
-        ...(timings?.firstFrameMs == null ? {} : { firstFrameTotalMs: timings.firstFrameMs }),
-        ...(timings?.audioPrepMs == null ? {} : { audioPrepTotalMs: timings.audioPrepMs }),
+        ...(timings?.pageLoadMs == null
+          ? {}
+          : { pageLoadTotalMs: timings.pageLoadMs }),
+        ...(timings?.firstFrameMs == null
+          ? {}
+          : { firstFrameTotalMs: timings.firstFrameMs }),
+        ...(timings?.audioPrepMs == null
+          ? {}
+          : { audioPrepTotalMs: timings.audioPrepMs }),
       },
       perfWarnings: result.perfWarnings ?? [],
       visualWarnings: result.visualWarnings ?? [],
@@ -619,7 +642,10 @@ async function renderLegacyTimeline(options: {
     for (let i = 0; i < count; i += 1) {
       const offset = i * SEGMENT_SECONDS;
       const length = Math.min(SEGMENT_SECONDS, total - offset);
-      const segFile = new File(Paths.cache, `${stem}-seg-${i}-${offset}-${length}.mp4`);
+      const segFile = new File(
+        Paths.cache,
+        `${stem}-seg-${i}-${offset}-${length}.mp4`,
+      );
       if (segFile.exists) {
         let meta: SegmentSidecar | null = null;
         try {
@@ -636,7 +662,9 @@ async function renderLegacyTimeline(options: {
           meta = null;
         } else {
           const cachedEncoder =
-            meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
+            meta && typeof meta.encoder === "string" && meta.encoder
+              ? meta.encoder
+              : undefined;
           // Keep the cached segment unless it is known to have been made by a
           // *different* encoder than this run — feeding concat a known-bad mix
           // would only fail after every other segment finished.
@@ -671,7 +699,8 @@ async function renderLegacyTimeline(options: {
       if (result.encoder && !runEncoder) runEncoder = result.encoder;
       const timings = adoptResult(aggregated, result);
       if (timings) {
-        const cost = timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
+        const cost =
+          timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
         if (!slowest || cost > slowest.cost) slowest = { timings, cost };
       }
       await new File(result.uri).move(segFile, { overwrite: true });
@@ -868,7 +897,9 @@ async function renderPlannedTimeline(options: {
         meta = null;
       } else {
         const cachedEncoder =
-          meta && typeof meta.encoder === "string" && meta.encoder ? meta.encoder : undefined;
+          meta && typeof meta.encoder === "string" && meta.encoder
+            ? meta.encoder
+            : undefined;
         if (!runEncoder || !cachedEncoder || cachedEncoder === runEncoder) {
           if (cachedEncoder) runEncoder = cachedEncoder;
           adoptSidecar(aggregated, meta);
@@ -906,7 +937,8 @@ async function renderPlannedTimeline(options: {
       // device behaviour is unchanged. A backend that can run segments in
       // parallel declares its encoder up front and takes the pool branch.
       for (const i of pending) {
-        if (abortSignal?.aborted) throw new Error("Video render was cancelled.");
+        if (abortSignal?.aborted)
+          throw new Error("Video render was cancelled.");
         let result: SegmentArtifact;
         try {
           result = await renderSegmentAt(i);
@@ -963,11 +995,14 @@ async function renderPlannedTimeline(options: {
     const result = artifacts.get(i);
     if (!result) {
       if (failure) continue;
-      throw new Error(`Segment ${i + 1}/${segments.length} produced no footage.`);
+      throw new Error(
+        `Segment ${i + 1}/${segments.length} produced no footage.`,
+      );
     }
     const timings = adoptResult(aggregated, result);
     if (timings) {
-      const cost = timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
+      const cost =
+        timings.prepareAvgMs + timings.captureAvgMs + timings.bridgeAvgMs;
       if (!slowest || cost > slowest.cost) slowest = { timings, cost };
     }
     await new File(result.uri).move(segFile, { overwrite: true });
@@ -1070,6 +1105,8 @@ async function renderEditorTimeline(options: {
       fps: number;
       width: number;
       height: number;
+      layers?: VideoLayerPlan[];
+      clipLayers?: VideoClipLayerPlan[];
     };
   }
 > {
@@ -1092,9 +1129,13 @@ async function renderEditorTimeline(options: {
   // zeroed plan for a scene that has not declared them, and a zero here would
   // otherwise beat a valid contract value.
   const total =
-    [plan?.duration, options.contractDuration, readContractDuration(documentHtml)]
-      .find((value): value is number => typeof value === "number" && value > EPSILON) ??
-    0;
+    [
+      plan?.duration,
+      options.contractDuration,
+      readContractDuration(documentHtml),
+    ].find(
+      (value): value is number => typeof value === "number" && value > EPSILON,
+    ) ?? 0;
   if (!(total > EPSILON)) {
     throw new Error(
       "Cannot export an editor package: the video duration is unknown. Pass `duration` (the contract's length in seconds) and try again.",
@@ -1102,7 +1143,9 @@ async function renderEditorTimeline(options: {
   }
 
   const fps =
-    plan?.fps && plan.fps > 0 ? plan.fps : (readContractFps(documentHtml) ?? 30);
+    plan?.fps && plan.fps > 0
+      ? plan.fps
+      : (readContractFps(documentHtml) ?? 30);
   const contractSize = readContractSize(documentHtml);
   const size =
     plan != null && plan.width > 0 && plan.height > 0
@@ -1180,7 +1223,8 @@ async function renderEditorTimeline(options: {
       pinnedEncoder,
       conversationId: options.conversationId,
       signal: abortSignal,
-      onProgress: (progress) => reportProgress(weight.base, weight.span, progress),
+      onProgress: (progress) =>
+        reportProgress(weight.base, weight.span, progress),
     });
 
   const filesFor = (segment: SceneSegment) => {
@@ -1411,6 +1455,8 @@ async function renderEditorTimeline(options: {
         fps,
         width: size.width,
         height: size.height,
+        layers: plan?.layers ?? [],
+        clipLayers: plan?.clipLayers ?? [],
       },
     };
   } finally {
@@ -1448,8 +1494,10 @@ type SegmentSidecar = {
 
 function adoptSidecar(aggregated: Aggregated, meta: SegmentSidecar | null) {
   aggregated.hasAudio = aggregated.hasAudio || meta?.hasAudio === true;
-  if (Array.isArray(meta?.audioWarnings)) aggregated.audioWarnings.push(...meta.audioWarnings);
-  if (Array.isArray(meta?.perfWarnings)) aggregated.perfWarnings.push(...meta.perfWarnings);
+  if (Array.isArray(meta?.audioWarnings))
+    aggregated.audioWarnings.push(...meta.audioWarnings);
+  if (Array.isArray(meta?.perfWarnings))
+    aggregated.perfWarnings.push(...meta.perfWarnings);
   if (Array.isArray(meta?.visualWarnings)) {
     for (const note of meta.visualWarnings) addVisualWarning(aggregated, note);
   }
@@ -1470,14 +1518,20 @@ function adoptResult(
   aggregated.hasAudio = aggregated.hasAudio || result.hasAudio;
   aggregated.audioWarnings.push(...result.audioWarnings);
   aggregated.perfWarnings.push(...(result.perfWarnings ?? []));
-  for (const note of result.visualWarnings ?? []) addVisualWarning(aggregated, note);
-  if (result.encoder && !aggregated.encoder) aggregated.encoder = result.encoder;
+  for (const note of result.visualWarnings ?? [])
+    addVisualWarning(aggregated, note);
+  if (result.encoder && !aggregated.encoder)
+    aggregated.encoder = result.encoder;
   const timings = result.timings;
   if (!timings) return undefined;
   // Fixed-cost attribution: summed per fresh segment so the run's numbers
   // expose the per-segment overheads (boot, first-frame setup, whole-file
   // audio re-decode) instead of one segment's sample.
-  if (timings.pageLoadMs != null || timings.firstFrameMs != null || timings.audioPrepMs != null) {
+  if (
+    timings.pageLoadMs != null ||
+    timings.firstFrameMs != null ||
+    timings.audioPrepMs != null
+  ) {
     aggregated.haveFixedCosts = true;
     aggregated.phasePageLoadMs += timings.pageLoadMs ?? 0;
     aggregated.phaseFirstFrameMs += timings.firstFrameMs ?? 0;
@@ -1487,7 +1541,8 @@ function adoptResult(
 }
 
 function addVisualWarning(aggregated: Aggregated, note: string) {
-  if (!aggregated.visualWarnings.includes(note)) aggregated.visualWarnings.push(note);
+  if (!aggregated.visualWarnings.includes(note))
+    aggregated.visualWarnings.push(note);
 }
 
 function buildPhases(
@@ -1501,7 +1556,9 @@ function buildPhases(
   const { aggregated } = merged;
   return {
     totalMs: merged.totalMs,
-    ...(includeConcat && merged.concatMs != null ? { concatMs: merged.concatMs } : {}),
+    ...(includeConcat && merged.concatMs != null
+      ? { concatMs: merged.concatMs }
+      : {}),
     ...(aggregated.haveFixedCosts
       ? {
           pageLoadTotalMs: aggregated.phasePageLoadMs,
@@ -1529,7 +1586,12 @@ async function pruneSceneSegments(namespace: string, keep: Set<string>) {
     const prefix = `render-${namespace}-`;
     for (const entry of directory.list()) {
       const name = entry.name;
-      if (!name.startsWith(prefix) || keep.has(name) || name.endsWith("-full.mp4")) continue;
+      if (
+        !name.startsWith(prefix) ||
+        keep.has(name) ||
+        name.endsWith("-full.mp4")
+      )
+        continue;
       try {
         entry.delete();
       } catch {

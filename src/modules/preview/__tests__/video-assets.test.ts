@@ -70,7 +70,8 @@ const serverMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/modules/preview/asset-server", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/modules/preview/asset-server")>();
+  const actual =
+    await importOriginal<typeof import("@/modules/preview/asset-server")>();
   return {
     ...actual,
     ensureAssetServer: async () => serverMocks.baseUrl,
@@ -186,7 +187,9 @@ describe("resolveVideoMimeType", () => {
   });
 
   it("resolves MOV as transcode-only, never direct-playable", () => {
-    expect(resolveVideoMimeType("video/quicktime", "clip.mov")).toBe("video/quicktime");
+    expect(resolveVideoMimeType("video/quicktime", "clip.mov")).toBe(
+      "video/quicktime",
+    );
     expect(resolveVideoMimeType(null, "clip.mov")).toBe("video/quicktime");
     expect(isTranscodeOnlyVideoMimeType("video/quicktime")).toBe(true);
     expect(isTranscodeOnlyVideoMimeType("video/mp4")).toBe(false);
@@ -195,9 +198,9 @@ describe("resolveVideoMimeType", () => {
 
 describe("assertImageFileUsable", () => {
   it("rejects unsupported formats, empties, and oversized files", () => {
-    expect(() => assertImageFileUsable("art.svg", "image/svg+xml", 100)).toThrow(
-      /not a supported image/,
-    );
+    expect(() =>
+      assertImageFileUsable("art.svg", "image/svg+xml", 100),
+    ).toThrow(/not a supported image/);
     expect(() => assertImageFileUsable("a.png", "image/png", 0)).toThrow(
       /empty/,
     );
@@ -221,9 +224,9 @@ describe("assertVideoFileUsable", () => {
   });
 
   it("rejects MOV on the direct path (must convert first)", () => {
-    expect(() => assertVideoFileUsable("c.mov", "video/quicktime", 100)).toThrow(
-      /needs conversion/,
-    );
+    expect(() =>
+      assertVideoFileUsable("c.mov", "video/quicktime", 100),
+    ).toThrow(/needs conversion/);
   });
 });
 
@@ -232,11 +235,17 @@ describe("inlineImageAssets", () => {
     workspaceFile("photo.jpg", "image/jpeg");
     const html = `<img id="a" src="workspace://img-1"><img src="workspace://img-1">`;
 
-    const { html: out, imageFiles } = await inlineImageAssets(html, repository());
+    const { html: out, imageFiles } = await inlineImageAssets(
+      html,
+      repository(),
+    );
 
     expect(imageFiles).toEqual(["photo.jpg"]);
     expect(out).not.toContain("workspace://");
     expect(out).toContain("data:image/jpeg;base64,");
+    // The probe needs the original file id to copy the layer source.
+    expect(out).toContain('data-mobile-agent-file-id="img-1"');
+    expect(out).toContain('data-mobile-agent-asset="image"');
     expect(mocks.getById).toHaveBeenCalledWith("img-1");
   });
 
@@ -275,11 +284,26 @@ describe("inlineVideoAssets", () => {
     workspaceFile("clip.mp4", "video/mp4");
     const html = `<video id="bg" muted playsinline src="workspace://vid-1"></video>`;
 
-    const { html: out, videoFiles } = await inlineVideoAssets(html, repository());
+    const { html: out, videoFiles } = await inlineVideoAssets(
+      html,
+      repository(),
+    );
 
     expect(videoFiles).toEqual(["clip.mp4"]);
     expect(out).not.toContain("workspace://");
     expect(out).toContain("data:video/mp4;base64,");
+    // The probe resolves a declared clip back to its workspace file.
+    expect(out).toContain('data-mobile-agent-file-id="vid-1"');
+  });
+
+  it("stamps a nested source tag with its workspace file id", async () => {
+    workspaceFile("clip.mp4", "video/mp4");
+    const html = `<video muted playsinline><source src="workspace://vid-1"></video>`;
+
+    const { html: out } = await inlineVideoAssets(html, repository());
+
+    expect(out).toContain('<source data-mobile-agent-file-id="vid-1"');
+    expect(out).not.toContain("workspace://");
   });
 
   it("fails clearly for an audio file in a video tag", async () => {
@@ -290,7 +314,11 @@ describe("inlineVideoAssets", () => {
   });
 });
 
-function bigWorkspaceFile(displayName: string, mimeType: string | null, sizeBytes: number) {
+function bigWorkspaceFile(
+  displayName: string,
+  mimeType: string | null,
+  sizeBytes: number,
+) {
   mocks.getById.mockImplementation(async (id: string) => ({
     id,
     displayName,
@@ -327,13 +355,18 @@ describe("inlineVideoAssets over-cap transcoding", () => {
 
   it("compresses over-cap clips and warns instead of throwing", async () => {
     bigWorkspaceFile("big-clip.mp4", "video/mp4", FIFTY_MB);
-    const { html: out, videoFiles, warnings } = await inlineVideoAssets(
+    const {
+      html: out,
+      videoFiles,
+      warnings,
+    } = await inlineVideoAssets(
       `<video src="workspace://vid-1">`,
       repository(),
     );
 
     expect(nativeMocks.transcodeClip).toHaveBeenCalledTimes(1);
-    const [inPath, outPath, maxBytes, maxDim] = nativeMocks.transcodeClip.mock.calls[0] as [string, string, number, number];
+    const [inPath, outPath, maxBytes, maxDim] = nativeMocks.transcodeClip.mock
+      .calls[0] as [string, string, number, number];
     expect(inPath).toBe("/workspace/big-clip.mp4");
     expect(outPath).toContain("clip-vid-1");
     expect(maxBytes).toBe(12 * 1024 * 1024);
@@ -347,7 +380,10 @@ describe("inlineVideoAssets over-cap transcoding", () => {
   it("reuses an existing transcoded file without re-running the native op", async () => {
     bigWorkspaceFile("big-clip.mp4", "video/mp4", FIFTY_MB);
     nativeMocks.outExists = true;
-    const { warnings } = await inlineVideoAssets(`<video src="workspace://vid-1">`, repository());
+    const { warnings } = await inlineVideoAssets(
+      `<video src="workspace://vid-1">`,
+      repository(),
+    );
     // Cached hit: bytes inlined, warning still reported, no native call.
     expect(nativeMocks.transcodeClip).not.toHaveBeenCalled();
     expect(warnings).toHaveLength(1);
@@ -387,7 +423,11 @@ describe("inlineVideoAssets over-cap transcoding", () => {
         throw new Error("MOV bytes must never inline directly");
       },
     });
-    const { html: out, videoFiles, warnings } = await inlineVideoAssets(
+    const {
+      html: out,
+      videoFiles,
+      warnings,
+    } = await inlineVideoAssets(
       `<video src="workspace://vid-1">`,
       repository(),
     );
@@ -398,7 +438,8 @@ describe("inlineVideoAssets over-cap transcoding", () => {
     expect(warnings[0]).toMatch(/MOV.*converted to MP4/);
   });
 
-  it("still rejects containers nothing can play", async () => {    mocks.getById.mockImplementation(async (id: string) => ({
+  it("still rejects containers nothing can play", async () => {
+    mocks.getById.mockImplementation(async (id: string) => ({
       id,
       displayName: "clip.avi",
       mimeType: "video/avi",
@@ -561,9 +602,7 @@ describe("inlineAudioAssets", () => {
     // Written partial, renamed only after the decode reports success.
     expect(outPath.endsWith(".wav.part")).toBe(true);
     expect(maxSeconds).toBe(300);
-    expect(nativeMocks.moved).toEqual([
-      "audio-pcm-song-1-4194304-300.wav",
-    ]);
+    expect(nativeMocks.moved).toEqual(["audio-pcm-song-1-4194304-300.wav"]);
     expect(out).toContain(
       "http://127.0.0.1:9999/cache/audio-pcm-song-1-4194304-300.wav",
     );
@@ -664,9 +703,9 @@ describe("hasWorkspaceRefs", () => {
   it("detects image, clip, and audio-track references", () => {
     expect(hasWorkspaceRefs("<p>silent</p>")).toBe(false);
     expect(hasWorkspaceRefs(`<img src="workspace://pic-1">`)).toBe(true);
-    expect(
-      hasWorkspaceRefs(`<video src="workspace://clip-1"></video>`),
-    ).toBe(true);
+    expect(hasWorkspaceRefs(`<video src="workspace://clip-1"></video>`)).toBe(
+      true,
+    );
     expect(
       hasWorkspaceRefs(
         `<script>var s = { file: "workspace://song-1" };</script>`,
@@ -724,7 +763,11 @@ describe("inlineVideoAssets served URLs", () => {
         return new Uint8Array([1, 2, 3]);
       },
     });
-    const { html: out, videoFiles, warnings } = await inlineVideoAssets(
+    const {
+      html: out,
+      videoFiles,
+      warnings,
+    } = await inlineVideoAssets(
       `<video src="workspace://vid-1">`,
       repository(),
     );
@@ -849,9 +892,7 @@ describe("inlineVideoAssets served URLs", () => {
     expect(out).toContain("http://127.0.0.1:9999/files/vid-1/clip.mp4");
     expect(out).not.toContain("/cache/proxy-");
     // The verified-failed partial must not linger for a later run.
-    expect(nativeMocks.deleted).toContain(
-      "proxy-vid-1-8388608-1280.mp4.part",
-    );
+    expect(nativeMocks.deleted).toContain("proxy-vid-1-8388608-1280.mp4.part");
     expect(nativeMocks.moved).toEqual([]);
   });
 

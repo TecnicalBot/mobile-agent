@@ -395,6 +395,143 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
     return null;
   }
 
+  // Declarative editor layers are plain data (no functions), so the probe can
+  // hand them to native. An 'el' reference resolves to the workspace file id
+  // the asset pass stamped on the tag, which is what the export copies to the
+  // gallery and points Alight Motion at.
+  function layerNumber(value, fallback) {
+    return typeof value === 'number' && isFinite(value) ? value : fallback;
+  }
+
+  function layerTime(value) {
+    return typeof value === 'number' && isFinite(value) ? value : null;
+  }
+
+  function resolveLayerFileId(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    if (typeof entry.fileId === 'string' && entry.fileId) return entry.fileId;
+    var el = entry.el;
+    if (typeof el === 'string') {
+      if (typeof document.querySelector !== 'function') return null;
+      try { el = document.querySelector(el); } catch (_) { el = null; }
+    }
+    if (!el || !el.getAttribute) return null;
+    try {
+      var id = el.getAttribute('data-mobile-agent-file-id');
+      if (id) return id;
+      if (typeof el.querySelector !== 'function') return null;
+      var source = el.querySelector('source[data-mobile-agent-file-id]');
+      return source && source.getAttribute ? source.getAttribute('data-mobile-agent-file-id') : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function sanitizeKeys(raw) {
+    if (Object.prototype.toString.call(raw) !== '[object Array]') return null;
+    var keys = [];
+    for (var i = 0; i < raw.length && keys.length < 40; i += 1) {
+      var key = raw[i];
+      if (!key || typeof key !== 'object') continue;
+      if (typeof key.t !== 'number' || !isFinite(key.t)) continue;
+      var t = key.t;
+      var next = { t: t };
+      var fields = ['x', 'y', 'w', 'h', 'rotation', 'opacity'];
+      for (var f = 0; f < fields.length; f += 1) {
+        var value = key[fields[f]];
+        if (typeof value === 'number' && isFinite(value)) next[fields[f]] = value;
+      }
+      keys.push(next);
+    }
+    keys.sort(function (a, b) { return a.t - b.t; });
+    return keys.length ? keys : null;
+  }
+
+  function contractLayers(contract) {
+    var raw = contract && contract.layers;
+    if (Object.prototype.toString.call(raw) !== '[object Array]') return [];
+    var out = [];
+    for (var i = 0; i < raw.length && out.length < 80; i += 1) {
+      var layer = raw[i];
+      if (!layer || typeof layer !== 'object') continue;
+      var type = layer.type;
+      if (type !== 'text' && type !== 'image' && type !== 'shape') continue;
+      var start = layerTime(layer.start);
+      var end = layerTime(layer.end);
+      if (start === null || end === null || end <= start) continue;
+      var entry = {
+        id: typeof layer.id === 'string' && layer.id ? layer.id : type + '-' + (out.length + 1),
+        type: type,
+        label: typeof layer.label === 'string' && layer.label
+          ? layer.label
+          : (type === 'text' && typeof layer.text === 'string' && layer.text
+            ? layer.text.slice(0, 48)
+            : type + ' ' + (out.length + 1)),
+        start: start,
+        end: end,
+        x: layerNumber(layer.x, 0),
+        y: layerNumber(layer.y, 0),
+        w: layerNumber(layer.w, 0),
+        h: layerNumber(layer.h, 0),
+        rotation: layerNumber(layer.rotation, 0),
+        opacity: layerNumber(layer.opacity, 1),
+        z: layerNumber(layer.z, out.length + 1)
+      };
+      if (type === 'text') {
+        entry.text = typeof layer.text === 'string' ? layer.text : '';
+        entry.fontSize = layerNumber(layer.fontSize, 48);
+        entry.fontWeight = layerNumber(layer.fontWeight, 400);
+        if (typeof layer.fontFamily === 'string' && layer.fontFamily) entry.fontFamily = layer.fontFamily;
+        if (typeof layer.color === 'string' && layer.color) entry.color = layer.color;
+        if (layer.align === 'left' || layer.align === 'center' || layer.align === 'right') entry.align = layer.align;
+      } else if (type === 'image') {
+        var fileId = resolveLayerFileId(layer);
+        if (!fileId) continue;
+        entry.fileId = fileId;
+        if (layer.fit === 'fill' || layer.fit === 'fit') entry.fit = layer.fit;
+      } else {
+        if (typeof layer.fill === 'string' && layer.fill) entry.fill = layer.fill;
+        entry.radius = layerNumber(layer.radius, 0);
+      }
+      var keys = sanitizeKeys(layer.keys);
+      if (keys) entry.keys = keys;
+      out.push(entry);
+    }
+    return out;
+  }
+
+  function contractClipLayers(contract) {
+    var raw = contract && contract.clips;
+    if (Object.prototype.toString.call(raw) !== '[object Array]') return [];
+    var out = [];
+    for (var i = 0; i < raw.length && out.length < 60; i += 1) {
+      var clip = raw[i];
+      if (!clip || typeof clip !== 'object') continue;
+      var start = layerTime(clip.start);
+      var end = layerTime(clip.end);
+      if (start === null || end === null || end <= start) continue;
+      var entry = {
+        id: typeof clip.id === 'string' && clip.id ? clip.id : 'clip-' + (i + 1),
+        label: typeof clip.label === 'string' && clip.label ? clip.label : 'clip ' + (i + 1),
+        start: start,
+        end: end,
+        from: Math.max(0, layerNumber(clip.from, 0))
+      };
+      var fileId = resolveLayerFileId(clip);
+      if (fileId) entry.fileId = fileId;
+      if (clip.x !== undefined || clip.y !== undefined || clip.w !== undefined || clip.h !== undefined) {
+        entry.x = layerNumber(clip.x, 0);
+        entry.y = layerNumber(clip.y, 0);
+        entry.w = layerNumber(clip.w, 0);
+        entry.h = layerNumber(clip.h, 0);
+      }
+      if (clip.alpha !== undefined) entry.opacity = layerNumber(clip.alpha, 1);
+      if (clip.fit === 'fill' || clip.fit === 'fit') entry.fit = clip.fit;
+      out.push(entry);
+    }
+    return out;
+  }
+
   function resolveCanvas(contract) {
     var canvas = null;
     if (contract.canvasId) {
@@ -1725,7 +1862,9 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
       width: width,
       height: height,
       sharedHash: fnv1a(documentText),
-      shots: planShots
+      shots: planShots,
+      layers: contractLayers(contract),
+      clipLayers: contractClipLayers(contract)
     };
   }
 
@@ -1743,7 +1882,9 @@ export const VIDEO_EXPORT_SCRIPT = `(function () {
       width: plan.width,
       height: plan.height,
       sharedHash: plan.sharedHash,
-      shots: plan.shots
+      shots: plan.shots,
+      layers: plan.layers,
+      clipLayers: plan.clipLayers
     });
   };
 

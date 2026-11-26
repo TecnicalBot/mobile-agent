@@ -96,6 +96,7 @@ const IMG_SRC_PATTERN =
   /<img\b[^>]*\bsrc\s*=\s*["']workspace:\/\/([A-Za-z0-9][A-Za-z0-9_-]*)/gi;
 const VIDEO_SRC_PATTERN =
   /<(?:video|source)\b[^>]*\bsrc\s*=\s*["']workspace:\/\/([A-Za-z0-9][A-Za-z0-9_-]*)/gi;
+const VIDEO_TAG_PATTERN = /<(video|source)\b[^>]*>/gi;
 
 function extractScopedIds(html: string, pattern: RegExp): string[] {
   const ids: string[] = [];
@@ -275,14 +276,23 @@ async function inlineAssetUris(
     // on the stat alone.
     const statSize = typeof file.size === "number" ? file.size : null;
     const clipMime =
-      kind === "clip" ? resolveVideoMimeType(record.mimeType, record.displayName) : null;
+      kind === "clip"
+        ? resolveVideoMimeType(record.mimeType, record.displayName)
+        : null;
     const needsTranscode =
       kind === "clip" &&
       clipMime !== null &&
       (isTranscodeOnlyVideoMimeType(clipMime) ||
         (statSize != null && statSize > MAX_VIDEO_FILE_BYTES));
     if (needsTranscode) {
-      const prepared = await prepareClipBytes(record.id, record.displayName, record.mimeType, file, statSize ?? 0, true);
+      const prepared = await prepareClipBytes(
+        record.id,
+        record.displayName,
+        record.mimeType,
+        file,
+        statSize ?? 0,
+        true,
+      );
       if (!prepared.bytes) {
         throw new Error(
           `File "${record.displayName}" is too large. Keep scene clips under ${formatClipBytes(MAX_VIDEO_FILE_BYTES)}.`,
@@ -307,12 +317,17 @@ async function inlineAssetUris(
       assertUsable(record.displayName, record.mimeType, null);
     }
     const bytes = await file.bytes();
-    const mimeType = assertUsable(record.displayName, record.mimeType, bytes.length);
+    const mimeType = assertUsable(
+      record.displayName,
+      record.mimeType,
+      bytes.length,
+    );
     files.push(record.displayName);
     const uri = buildAudioDataUri(mimeType, bytes);
-    next = kind === "audio"
-      ? replaceWorkspaceAudioRef(next, id, uri)
-      : next.split(`workspace://${id}`).join(uri);
+    next =
+      kind === "audio"
+        ? replaceWorkspaceAudioRef(next, id, uri)
+        : next.split(`workspace://${id}`).join(uri);
   }
   return { html: next, files };
 }
@@ -362,8 +377,38 @@ function markWorkspaceImageTags(html: string, ids: string[]): string {
     if (!match) return tag;
     const id = workspaceIdFromSrc(match[2]);
     if (!id || !wanted.has(id)) return tag;
-    if (/\bdata-mobile-agent-asset\b/i.test(tag)) return tag;
-    return tag.replace(/^<img\b/i, '<img data-mobile-agent-asset="image"');
+    let next = tag;
+    if (!/\bdata-mobile-agent-asset\b/i.test(next)) {
+      next = next.replace(/^<img\b/i, '<img data-mobile-agent-asset="image"');
+    }
+    // The probe reads this id to hand the exporter the original workspace
+    // file, so a declared image layer can point Alight Motion at a gallery
+    // copy instead of a path the editor cannot read.
+    if (!/\bdata-mobile-agent-file-id\b/i.test(next)) {
+      next = next.replace(/^<img\b/i, `<img data-mobile-agent-file-id="${id}"`);
+    }
+    return next;
+  });
+}
+
+/**
+ * Stamps each workspace-backed `<video>`/`<source>` with its workspace file id
+ * before the src is rewritten. The editor export probe resolves a declared
+ * clip's element back to this id, so the Alight project can use the original
+ * clip rather than the flattened shot render.
+ */
+function markWorkspaceVideoTags(html: string, ids: string[]): string {
+  if (ids.length === 0) return html;
+  const wanted = new Set(ids);
+  return html.replace(VIDEO_TAG_PATTERN, (tag) => {
+    if (/\bdata-mobile-agent-file-id\b/i.test(tag)) return tag;
+    const src =
+      /\bsrc\s*=\s*["']workspace:\/\/([A-Za-z0-9][A-Za-z0-9_-]*)/i.exec(tag);
+    if (!src || !wanted.has(src[1])) return tag;
+    return tag.replace(
+      /^<(video|source)\b/i,
+      `<$1 data-mobile-agent-file-id="${src[1]}"`,
+    );
   });
 }
 
@@ -380,7 +425,9 @@ function serveImageTags(html: string, servedById: Map<string, string>): string {
     if (!id) return tag;
     const served = servedById.get(id);
     if (!served) return tag;
-    return withCrossOrigin(tag.replace(match[0], `src=${match[1]}${served}${match[1]}`));
+    return withCrossOrigin(
+      tag.replace(match[0], `src=${match[1]}${served}${match[1]}`),
+    );
   });
 }
 
@@ -391,7 +438,8 @@ function serveImageTags(html: string, servedById: Map<string, string>): string {
  */
 function serveVideoCrossOrigin(html: string, servedUrls: string[]): string {
   if (servedUrls.length === 0) return html;
-  const touches = (chunk: string) => servedUrls.some((url) => chunk.includes(url));
+  const touches = (chunk: string) =>
+    servedUrls.some((url) => chunk.includes(url));
   const blocks = html.replace(/<video\b[^>]*>[\s\S]*?<\/video>/gi, (block) =>
     touches(block) ? withCrossOrigin(block) : block,
   );
@@ -420,14 +468,20 @@ export async function inlineImageAssets(
   }
   const marked = markWorkspaceImageTags(html, ids);
 
-  const { ensureAssetServer, workspaceFileUrl } = await import(
-    "@/modules/preview/asset-server"
-  );
+  const { ensureAssetServer, workspaceFileUrl } =
+    await import("@/modules/preview/asset-server");
   const baseUrl = await ensureAssetServer().catch(() => null);
   if (!baseUrl) {
-    return inlineAssetUris(marked, repository, ids, "image", assertImageFileUsable).then(
-      ({ html: inlined, files }) => ({ html: inlined, imageFiles: files }),
-    );
+    return inlineAssetUris(
+      marked,
+      repository,
+      ids,
+      "image",
+      assertImageFileUsable,
+    ).then(({ html: inlined, files }) => ({
+      html: inlined,
+      imageFiles: files,
+    }));
   }
 
   const servedById = new Map<string, string>();
@@ -472,7 +526,12 @@ async function prepareClipBytes(
   file: File,
   statSize: number,
   readBytes: boolean,
-): Promise<{ bytes: Uint8Array | null; mimeType: string; warning?: string; cacheName: string }> {
+): Promise<{
+  bytes: Uint8Array | null;
+  mimeType: string;
+  warning?: string;
+  cacheName: string;
+}> {
   const resolved = resolveVideoMimeType(mimeType, displayName);
   if (!resolved) {
     throw new Error(
@@ -485,8 +544,28 @@ async function prepareClipBytes(
   );
   // Lazy: expo-file-system and the native module pull react-native, which
   // cannot even parse in unit tests. Only the over-cap path pays for it.
-  let transcodeClip: ((inputPath: string, outputPath: string, maxBytes: number, maxDimension: number) => Promise<{ path: string; width: number; height: number; sizeBytes: number }>) | null = null;
-  let cacheFileFor: ((name: string) => { uri: string; exists: boolean; size: number | null; bytes: () => Promise<Uint8Array>; delete: () => void }) | null = null;
+  let transcodeClip:
+    | ((
+        inputPath: string,
+        outputPath: string,
+        maxBytes: number,
+        maxDimension: number,
+      ) => Promise<{
+        path: string;
+        width: number;
+        height: number;
+        sizeBytes: number;
+      }>)
+    | null = null;
+  let cacheFileFor:
+    | ((name: string) => {
+        uri: string;
+        exists: boolean;
+        size: number | null;
+        bytes: () => Promise<Uint8Array>;
+        delete: () => void;
+      })
+    | null = null;
   try {
     const [fs, native] = await Promise.all([
       import("expo-file-system"),
@@ -495,9 +574,14 @@ async function prepareClipBytes(
     const module = native.getHtmlVideoExportModule();
     if (module && typeof module.transcodeClip === "function") {
       transcodeClip = module.transcodeClip.bind(module);
-      cacheFileFor = (name: string) => new fs.File(fs.Paths.cache, name) as unknown as {
-        uri: string; exists: boolean; size: number | null; bytes: () => Promise<Uint8Array>; delete: () => void;
-      };
+      cacheFileFor = (name: string) =>
+        new fs.File(fs.Paths.cache, name) as unknown as {
+          uri: string;
+          exists: boolean;
+          size: number | null;
+          bytes: () => Promise<Uint8Array>;
+          delete: () => void;
+        };
     }
   } catch {
     transcodeClip = null;
@@ -506,7 +590,9 @@ async function prepareClipBytes(
     throw tooLarge;
   }
   const inputUri = file.uri;
-  const inputPath = inputUri.startsWith("file://") ? inputUri.slice("file://".length) : inputUri;
+  const inputPath = inputUri.startsWith("file://")
+    ? inputUri.slice("file://".length)
+    : inputUri;
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_");
   const cacheName = `clip-${safeId}-${statSize}.mp4`;
   const outFile = cacheFileFor(cacheName);
@@ -516,15 +602,30 @@ async function prepareClipBytes(
       const outPath = outFile.uri.startsWith("file://")
         ? outFile.uri.slice("file://".length)
         : outFile.uri;
-      const done = await transcodeClip(inputPath, outPath, TRANSCODE_TARGET_BYTES, TRANSCODE_MAX_DIMENSION);
-      if (done && typeof done.sizeBytes === "number") transcodedSize = done.sizeBytes;
+      const done = await transcodeClip(
+        inputPath,
+        outPath,
+        TRANSCODE_TARGET_BYTES,
+        TRANSCODE_MAX_DIMENSION,
+      );
+      if (done && typeof done.sizeBytes === "number")
+        transcodedSize = done.sizeBytes;
     }
     const bytes = readBytes ? await outFile.bytes() : null;
-    if (readBytes && (!bytes || bytes.length === 0 || bytes.length > MAX_VIDEO_FILE_BYTES)) {
-      try { outFile.delete(); } catch { /* best effort */ }
+    if (
+      readBytes &&
+      (!bytes || bytes.length === 0 || bytes.length > MAX_VIDEO_FILE_BYTES)
+    ) {
+      try {
+        outFile.delete();
+      } catch {
+        /* best effort */
+      }
       throw tooLarge;
     }
-    const outSize = bytes ? bytes.length : (transcodedSize ?? outFile.size ?? statSize);
+    const outSize = bytes
+      ? bytes.length
+      : (transcodedSize ?? outFile.size ?? statSize);
     const sizeText = outSize > 0 ? formatClipBytes(outSize) : "unknown size";
     return {
       bytes,
@@ -600,7 +701,10 @@ async function audioPcmUrl(
         uri: string;
         exists: boolean;
         delete: () => void;
-        move: (dest: unknown, options?: { overwrite?: boolean }) => Promise<void>;
+        move: (
+          dest: unknown,
+          options?: { overwrite?: boolean },
+        ) => Promise<void>;
       })
     | null = null;
   try {
@@ -618,7 +722,10 @@ async function audioPcmUrl(
           uri: string;
           exists: boolean;
           delete: () => void;
-          move: (dest: unknown, options?: { overwrite?: boolean }) => Promise<void>;
+          move: (
+            dest: unknown,
+            options?: { overwrite?: boolean },
+          ) => Promise<void>;
         };
     }
   } catch {
@@ -636,12 +743,25 @@ async function audioPcmUrl(
       const partFile = cacheFileFor(partName);
       if (partFile.exists) {
         // Stale partial from an interrupted run; overwrite below anyway.
-        try { partFile.delete(); } catch { /* best effort */ }
+        try {
+          partFile.delete();
+        } catch {
+          /* best effort */
+        }
       }
-      const strip = (uri: string) => (uri.startsWith("file://") ? uri.slice("file://".length) : uri);
-      const done = await decodeAudioWav(strip(inputUri), strip(partFile.uri), maxSeconds);
+      const strip = (uri: string) =>
+        uri.startsWith("file://") ? uri.slice("file://".length) : uri;
+      const done = await decodeAudioWav(
+        strip(inputUri),
+        strip(partFile.uri),
+        maxSeconds,
+      );
       if (!done || typeof done.bytes !== "number" || done.bytes <= 0) {
-        try { partFile.delete(); } catch { /* best effort */ }
+        try {
+          partFile.delete();
+        } catch {
+          /* best effort */
+        }
         return null;
       }
       await partFile.move(outFile, { overwrite: true });
@@ -652,7 +772,9 @@ async function audioPcmUrl(
     try {
       const partFile = cacheFileFor(partName);
       if (partFile.exists) partFile.delete();
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     return null;
   }
 }
@@ -695,7 +817,10 @@ async function seekProxyUrl(
         uri: string;
         exists: boolean;
         delete: () => void;
-        move: (dest: unknown, options?: { overwrite?: boolean }) => Promise<void>;
+        move: (
+          dest: unknown,
+          options?: { overwrite?: boolean },
+        ) => Promise<void>;
       })
     | null = null;
   try {
@@ -713,7 +838,10 @@ async function seekProxyUrl(
           uri: string;
           exists: boolean;
           delete: () => void;
-          move: (dest: unknown, options?: { overwrite?: boolean }) => Promise<void>;
+          move: (
+            dest: unknown,
+            options?: { overwrite?: boolean },
+          ) => Promise<void>;
         };
     }
   } catch {
@@ -729,13 +857,26 @@ async function seekProxyUrl(
       const partFile = cacheFileFor(partName);
       if (partFile.exists) {
         // Stale partial from an interrupted run; overwrite below anyway.
-        try { partFile.delete(); } catch { /* best effort */ }
+        try {
+          partFile.delete();
+        } catch {
+          /* best effort */
+        }
       }
-      const strip = (uri: string) => (uri.startsWith("file://") ? uri.slice("file://".length) : uri);
-      const done = await makeSeekProxy(strip(inputUri), strip(partFile.uri), maxDimension);
+      const strip = (uri: string) =>
+        uri.startsWith("file://") ? uri.slice("file://".length) : uri;
+      const done = await makeSeekProxy(
+        strip(inputUri),
+        strip(partFile.uri),
+        maxDimension,
+      );
       if (!done || done.allIntra !== true) {
         // Not all-intra (or op failed): no proxy, no half-written leftovers.
-        try { partFile.delete(); } catch { /* best effort */ }
+        try {
+          partFile.delete();
+        } catch {
+          /* best effort */
+        }
         return null;
       }
       await partFile.move(outFile, { overwrite: true });
@@ -746,7 +887,9 @@ async function seekProxyUrl(
     try {
       const partFile = cacheFileFor(`${cacheName}.part`);
       if (partFile.exists) partFile.delete();
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     return null;
   }
 }
@@ -795,16 +938,23 @@ async function inlineClipRefs(
   warnings: string[],
   mode: MediaPrepMode,
 ): Promise<{ html: string; files: string[] }> {
-  const { ensureAssetServer, workspaceFileUrl, cacheFileUrl } = await import(
-    "@/modules/preview/asset-server"
-  );
+  const marked = markWorkspaceVideoTags(html, ids);
+  const { ensureAssetServer, workspaceFileUrl, cacheFileUrl } =
+    await import("@/modules/preview/asset-server");
   const baseUrl = await ensureAssetServer().catch(() => null);
   if (!baseUrl) {
-    return inlineAssetUris(html, repository, ids, "clip", assertVideoFileUsable, warnings);
+    return inlineAssetUris(
+      marked,
+      repository,
+      ids,
+      "clip",
+      assertVideoFileUsable,
+      warnings,
+    );
   }
   const files: string[] = [];
   const servedUrls: string[] = [];
-  let next = html;
+  let next = marked;
   // One canvas ceiling for every clip of this document — a proxy larger
   // than the export canvas never shows its extra pixels.
   const proxyMaxDim = seekProxyMaxDimension(html);
@@ -844,12 +994,20 @@ async function inlineClipRefs(
         mode === "export"
           ? await seekProxyUrl(baseUrl, record, file, statSize, proxyMaxDim)
           : null;
-      const servedUrl = proxyUrl ?? workspaceFileUrl(baseUrl, record.relativePath);
+      const servedUrl =
+        proxyUrl ?? workspaceFileUrl(baseUrl, record.relativePath);
       next = next.split(`workspace://${id}`).join(servedUrl);
       servedUrls.push(servedUrl);
       continue;
     }
-    const prepared = await prepareClipBytes(record.id, record.displayName, record.mimeType, file, statSize ?? 0, false);
+    const prepared = await prepareClipBytes(
+      record.id,
+      record.displayName,
+      record.mimeType,
+      file,
+      statSize ?? 0,
+      false,
+    );
     const cacheUrl = cacheFileUrl(baseUrl, prepared.cacheName);
     next = next.split(`workspace://${id}`).join(cacheUrl);
     servedUrls.push(cacheUrl);
@@ -885,14 +1043,20 @@ export async function inlineAudioAssets(
     return { html, audioFiles: [] };
   }
 
-  const { ensureAssetServer, workspaceFileUrl } = await import(
-    "@/modules/preview/asset-server"
-  );
+  const { ensureAssetServer, workspaceFileUrl } =
+    await import("@/modules/preview/asset-server");
   const baseUrl = await ensureAssetServer().catch(() => null);
   if (!baseUrl) {
-    return inlineAssetUris(html, repository, ids, "audio", assertAudioFileUsable).then(
-      ({ html: inlined, files }) => ({ html: inlined, audioFiles: files }),
-    );
+    return inlineAssetUris(
+      html,
+      repository,
+      ids,
+      "audio",
+      assertAudioFileUsable,
+    ).then(({ html: inlined, files }) => ({
+      html: inlined,
+      audioFiles: files,
+    }));
   }
 
   const files: string[] = [];

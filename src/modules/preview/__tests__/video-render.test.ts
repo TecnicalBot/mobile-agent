@@ -15,7 +15,7 @@ import {
 } from "@/modules/preview/video-render";
 
 const CONTRACT_HTML =
-  '<html><script>window.MOBILE_AGENT_VIDEO = { duration: 1, render: function () {} };</script></html>';
+  "<html><script>window.MOBILE_AGENT_VIDEO = { duration: 1, render: function () {} };</script></html>";
 
 describe("requestVideoRender", () => {
   it("rejects documents that do not implement the contract", async () => {
@@ -36,14 +36,24 @@ describe("requestVideoRender", () => {
   it("hands the job to a subscriber and resolves with its result", async () => {
     const listener = vi.fn((job: VideoJob) => {
       if (job.kind !== "render") throw new Error("expected a render job");
-      job.resolve({ uri: "file:///cache/v.mp4", sizeBytes: 42, hasAudio: false, audioWarnings: [] });
+      job.resolve({
+        uri: "file:///cache/v.mp4",
+        sizeBytes: 42,
+        hasAudio: false,
+        audioWarnings: [],
+      });
     });
     const unsubscribe = subscribeVideoRender(listener);
 
     const result = await requestVideoRender(CONTRACT_HTML);
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ uri: "file:///cache/v.mp4", sizeBytes: 42, hasAudio: false, audioWarnings: [] });
+    expect(result).toEqual({
+      uri: "file:///cache/v.mp4",
+      sizeBytes: 42,
+      hasAudio: false,
+      audioWarnings: [],
+    });
 
     unsubscribe();
   });
@@ -52,7 +62,12 @@ describe("requestVideoRender", () => {
     const unsubscribe = subscribeVideoRender((job) => {
       if (job.kind !== "render") throw new Error("expected a render job");
       expect(job.conversationId).toBe("chat-a");
-      job.resolve({ uri: "file:///cache/v.mp4", sizeBytes: 42, hasAudio: false, audioWarnings: [] });
+      job.resolve({
+        uri: "file:///cache/v.mp4",
+        sizeBytes: 42,
+        hasAudio: false,
+        audioWarnings: [],
+      });
     });
     try {
       await requestVideoRender(CONTRACT_HTML, { conversationId: "chat-a" });
@@ -89,7 +104,11 @@ describe("conversation-scoped video progress", () => {
   afterEach(() => setVideoRenderStatus(null));
 
   it("shows progress only in the owning chat while preserving the global lock", () => {
-    const status = { conversationId: "chat-a", progress: 0.42, finishing: false };
+    const status = {
+      conversationId: "chat-a",
+      progress: 0.42,
+      finishing: false,
+    };
     setVideoRenderStatus(status);
     expect(getVideoRenderStatusForConversation("chat-a")).toBe(status);
     expect(getVideoRenderStatusForConversation("chat-b")).toBeNull();
@@ -115,10 +134,22 @@ describe("conversation-scoped video progress", () => {
       observed.push(getVideoRenderStatusForConversation("chat-b")?.progress);
     });
     try {
-      setVideoRenderStatus({ conversationId: "chat-a", progress: 0.5, finishing: false });
+      setVideoRenderStatus({
+        conversationId: "chat-a",
+        progress: 0.5,
+        finishing: false,
+      });
       setVideoRenderStatus(null);
-      setVideoRenderStatus({ conversationId: "chat-b", progress: 0, finishing: false });
-      setVideoRenderStatus({ conversationId: "chat-b", progress: 0.25, finishing: false });
+      setVideoRenderStatus({
+        conversationId: "chat-b",
+        progress: 0,
+        finishing: false,
+      });
+      setVideoRenderStatus({
+        conversationId: "chat-b",
+        progress: 0.25,
+        finishing: false,
+      });
       setVideoRenderStatus(null);
       expect(observed).toEqual([undefined, undefined, 0, 0.25, undefined]);
     } finally {
@@ -132,7 +163,9 @@ describe("conversation-scoped video progress", () => {
       "utf8",
     );
     expect(source).toContain("conversationId={message.conversationId}");
-    expect(source).toContain("getVideoRenderStatusForConversation(conversationId)");
+    expect(source).toContain(
+      "getVideoRenderStatusForConversation(conversationId)",
+    );
   });
 });
 
@@ -204,9 +237,17 @@ describe("normalizeVideoPlan", () => {
 
   it("rejects plans missing the shared hash or timing", () => {
     expect(normalizeVideoPlan(null)).toBeNull();
-    expect(normalizeVideoPlan({ duration: 20, fps: 30, width: 1280, height: 720 })).toBeNull();
     expect(
-      normalizeVideoPlan({ duration: 0, fps: 30, width: 1280, height: 720, sharedHash: "h" }),
+      normalizeVideoPlan({ duration: 20, fps: 30, width: 1280, height: 720 }),
+    ).toBeNull();
+    expect(
+      normalizeVideoPlan({
+        duration: 0,
+        fps: 30,
+        width: 1280,
+        height: 720,
+        sharedHash: "h",
+      }),
     ).toBeNull();
   });
 
@@ -225,5 +266,125 @@ describe("normalizeVideoPlan", () => {
         ],
       })?.shots,
     ).toEqual([{ id: "ok", start: 0, end: 5, hash: "h1" }]);
+  });
+
+  it("normalizes declared editor layers and clip windows", () => {
+    const plan = normalizeVideoPlan({
+      duration: 10,
+      fps: 30,
+      width: 1280,
+      height: 720,
+      sharedHash: "h",
+      shots: [{ id: "only", start: 0, end: 10, hash: "h1" }],
+      layers: [
+        {
+          type: "text",
+          text: "Hello",
+          start: 0,
+          end: 4,
+          x: 10,
+          y: 20,
+          w: 300,
+          h: 80,
+          fontSize: 72,
+          color: "#fff",
+          align: "center",
+          z: 3,
+          keys: [
+            { t: 0.5, opacity: 0.2 },
+            { t: 0, opacity: 0 },
+          ],
+        },
+        {
+          type: "image",
+          start: 4,
+          end: 9,
+          x: 0,
+          y: 0,
+          w: 100,
+          h: 100,
+          fileId: "img-1",
+          fit: "fit",
+        },
+        // Dropped: an image layer without a source file.
+        { type: "image", start: 0, end: 1, x: 0, y: 0, w: 10, h: 10 },
+        // Dropped: inverted window.
+        { type: "shape", start: 5, end: 2, x: 0, y: 0, w: 10, h: 10 },
+        // Dropped: unknown type.
+        { type: "audio", start: 0, end: 1 },
+      ],
+      clipLayers: [
+        { id: "a", label: "A", start: 0, end: 5, from: 1, fileId: "vid-a" },
+        {
+          id: "b",
+          start: 6,
+          end: 9,
+          from: 0,
+          x: 10,
+          y: 20,
+          w: 100,
+          h: 50,
+          alpha: 0.5,
+        },
+        // Dropped: inverted window.
+        { id: "bad", start: 8, end: 4 },
+      ],
+    });
+
+    expect(plan?.layers).toHaveLength(2);
+    const text = plan!.layers![0];
+    expect(text).toMatchObject({
+      type: "text",
+      text: "Hello",
+      start: 0,
+      end: 4,
+      x: 10,
+      y: 20,
+      w: 300,
+      h: 80,
+      fontSize: 72,
+      align: "center",
+      z: 3,
+      opacity: 1,
+    });
+    expect(text.keys).toEqual([
+      { t: 0, opacity: 0 },
+      { t: 0.5, opacity: 0.2 },
+    ]);
+    expect(plan!.layers![1]).toMatchObject({
+      type: "image",
+      fileId: "img-1",
+      fit: "fit",
+    });
+
+    expect(plan?.clipLayers).toHaveLength(2);
+    expect(plan!.clipLayers![0]).toMatchObject({
+      id: "a",
+      start: 0,
+      end: 5,
+      from: 1,
+      fileId: "vid-a",
+    });
+    expect(plan!.clipLayers![1]).toMatchObject({
+      id: "b",
+      x: 10,
+      y: 20,
+      w: 100,
+      h: 50,
+      opacity: 0.5,
+    });
+  });
+
+  it("omits layer arrays when the scene declares none", () => {
+    const plan = normalizeVideoPlan({
+      duration: 10,
+      fps: 30,
+      width: 1280,
+      height: 720,
+      sharedHash: "h",
+      shots: [{ id: "only", start: 0, end: 10, hash: "h1" }],
+    });
+    expect(plan?.layers).toEqual([]);
+    expect(plan?.clipLayers).toEqual([]);
   });
 });

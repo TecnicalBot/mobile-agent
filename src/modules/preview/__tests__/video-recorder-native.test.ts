@@ -5,27 +5,38 @@ import { VIDEO_AUDIO_ANALYSIS_SCRIPT } from "@/modules/preview/video-audio-analy
 
 type Posted = { type: string; [key: string]: unknown };
 
-function installStubs(options: {
-  withWebCodecs?: boolean;
-  autoConsume?: boolean;
-  withAudio?: boolean;
-  video?: object;
-  videos?: object[];
-  audio?: false | object;
-  render?: () => void;
-  clipApi?: object;
-  image?: object;
-  duration?: number;
-  shots?: object[];
-  documentHtml?: string;
-} = {}) {
+function installStubs(
+  options: {
+    withWebCodecs?: boolean;
+    autoConsume?: boolean;
+    withAudio?: boolean;
+    video?: object;
+    videos?: object[];
+    audio?: false | object;
+    render?: () => void;
+    clipApi?: object;
+    image?: object;
+    duration?: number;
+    shots?: object[];
+    layers?: object[];
+    clips?: object[];
+    elements?: Record<string, object>;
+    documentHtml?: string;
+  } = {},
+) {
   const messages: Posted[] = [];
-  const createVideoEncoder = vi.fn(() => { throw new Error("Native export must not construct a WebCodecs encoder."); });
+  const createVideoEncoder = vi.fn(() => {
+    throw new Error("Native export must not construct a WebCodecs encoder.");
+  });
   const g = globalThis as Record<string, unknown>;
   class FakeOfflineAudioContext {
     sampleRate = 48000;
     destination = {};
-    constructor(_channels: number, private frames: number, _rate: number) {}
+    constructor(
+      _channels: number,
+      private frames: number,
+      _rate: number,
+    ) {}
     createGain() {
       return {
         gain: { value: 1, setValueAtTime() {}, linearRampToValueAtTime() {} },
@@ -43,12 +54,19 @@ function installStubs(options: {
         length: this.frames,
         numberOfChannels: 2,
         sampleRate: 48000,
-        getChannelData: (channel: number) => new Float32Array(this.frames).fill(channel === 0 ? 0.25 : -0.25),
+        getChannelData: (channel: number) =>
+          new Float32Array(this.frames).fill(channel === 0 ? 0.25 : -0.25),
       });
     }
   }
   if (options.withAudio) {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })),
+    );
   }
 
   const canvas = {
@@ -72,30 +90,41 @@ function installStubs(options: {
       height: 240,
       render: options.render ?? (() => {}),
       audio: options.audio ?? false,
-      ...(options.withAudio ? { audio: { tracks: [{ file: "data:audio/wav;base64,AAAA" }] } } : {}),
+      ...(options.withAudio
+        ? { audio: { tracks: [{ file: "data:audio/wav;base64,AAAA" }] } }
+        : {}),
       ...(options.shots ? { shots: options.shots } : {}),
+      ...(options.layers ? { layers: options.layers } : {}),
+      ...(options.clips ? { clips: options.clips } : {}),
     },
     ReactNativeWebView: {
       postMessage: (data: string) => {
         const message = JSON.parse(data);
         messages.push(message);
         if (options.autoConsume !== false && message.requestId !== undefined) {
-          (g.window as Record<string, (id: number) => void>).__mobileAgentExportConsumed(message.requestId);
+          (
+            g.window as Record<string, (id: number) => void>
+          ).__mobileAgentExportConsumed(message.requestId);
         }
       },
     },
-    ...(options.withWebCodecs !== false ? { VideoEncoder: createVideoEncoder, VideoFrame: class {} } : {}),
+    ...(options.withWebCodecs !== false
+      ? { VideoEncoder: createVideoEncoder, VideoFrame: class {} }
+      : {}),
     OfflineAudioContext: FakeOfflineAudioContext,
     __mobileAgentClips: options.clipApi,
   };
   g.document = {
     documentElement: { outerHTML: options.documentHtml ?? "" },
     getElementById: () => null,
+    querySelector: (selector: string) => options.elements?.[selector] ?? null,
     querySelectorAll: (selector: string) =>
       selector === "video"
-         ? (options.videos ?? (options.video ? [options.video] : []))
+        ? (options.videos ?? (options.video ? [options.video] : []))
         : selector === "img[data-mobile-agent-asset]"
-          ? (options.image ? [options.image] : [])
+          ? options.image
+            ? [options.image]
+            : []
           : [canvas],
     createElement: () => ({ setAttribute: () => {}, appendChild: () => {} }),
     body: { appendChild: () => {} },
@@ -114,9 +143,15 @@ function installStubs(options: {
     createVideoEncoder,
     start: () => w.__startMobileAgentVideoExport(),
     startAt: (offset: number, length: number) =>
-      (w.__startMobileAgentVideoExport as (o: number, l: number) => void)(offset, length),
+      (w.__startMobileAgentVideoExport as (o: number, l: number) => void)(
+        offset,
+        length,
+      ),
     probe: () => (w.__probeMobileAgentVideo as () => void)(),
-    consume: (id: number) => (g.window as Record<string, (id: number) => void>).__mobileAgentExportConsumed(id),
+    consume: (id: number) =>
+      (
+        g.window as Record<string, (id: number) => void>
+      ).__mobileAgentExportConsumed(id),
     cancel: () => w.__cancelMobileAgentVideoExport(),
   };
 }
@@ -134,47 +169,94 @@ afterEach(() => {
 describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
   it("rejects accidental silent composites before capturing any frames", async () => {
     const { messages, start } = installStubs({ video: {} });
-    delete (globalThis as unknown as { window: { MOBILE_AGENT_VIDEO: { audio?: unknown } } }).window.MOBILE_AGENT_VIDEO.audio;
+    delete (
+      globalThis as unknown as {
+        window: { MOBILE_AGENT_VIDEO: { audio?: unknown } };
+      }
+    ).window.MOBILE_AGENT_VIDEO.audio;
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(true));
-    expect(messages.find((m) => m.type === "mobileAgentVideoError")?.message).toMatch(/main video soundtrack/);
-    expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(false);
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(
+        true,
+      ),
+    );
+    expect(
+      messages.find((m) => m.type === "mobileAgentVideoError")?.message,
+    ).toMatch(/main video soundtrack/);
+    expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(
+      false,
+    );
   });
 
   it("allows explicitly silent video scenes", async () => {
     const { messages, start } = installStubs({ video: {}, audio: false });
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true));
-    expect(messages.some((m) => m.type === "mobileAgentVideoAudioConfig")).toBe(false);
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+        true,
+      ),
+    );
+    expect(messages.some((m) => m.type === "mobileAgentVideoAudioConfig")).toBe(
+      false,
+    );
   });
 
   it("rejects empty audio schedules rather than exporting silence", async () => {
     const { messages, start } = installStubs({ audio: { tracks: [] } });
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(true));
-    expect(messages.find((m) => m.type === "mobileAgentVideoError")?.message).toMatch(/no usable tracks/);
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(
+        true,
+      ),
+    );
+    expect(
+      messages.find((m) => m.type === "mobileAgentVideoError")?.message,
+    ).toMatch(/no usable tracks/);
   });
 
   it("fails before capture when render starts a second async seek", async () => {
     const video = {
-      duration: 30.421, readyState: 2, seeking: false, currentTime: 0, loop: false,
-      pause() {}, addEventListener() {}, removeEventListener() {},
+      duration: 30.421,
+      readyState: 2,
+      seeking: false,
+      currentTime: 0,
+      loop: false,
+      pause() {},
+      addEventListener() {},
+      removeEventListener() {},
     };
-    const { messages, start } = installStubs({ video, render: () => {
-      video.currentTime = 0.5;
-      video.seeking = true;
-      video.readyState = 1;
-    } });
+    const { messages, start } = installStubs({
+      video,
+      render: () => {
+        video.currentTime = 0.5;
+        video.seeking = true;
+        video.readyState = 1;
+      },
+    });
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(true));
-    expect(messages.find((m) => m.type === "mobileAgentVideoError")?.message).toMatch(/render\(\).*changed.*source video frame/);
-    expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(false);
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(
+        true,
+      ),
+    );
+    expect(
+      messages.find((m) => m.type === "mobileAgentVideoError")?.message,
+    ).toMatch(/render\(\).*changed.*source video frame/);
+    expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(
+      false,
+    );
   });
 
   it("still seeks an undeclared video when another video is timeline-owned", async () => {
     const makeVideo = () => ({
-      duration: 2, readyState: 2, seeking: false, currentTime: 0, loop: false,
-      pause() {}, addEventListener() {}, removeEventListener() {},
+      duration: 2,
+      readyState: 2,
+      seeking: false,
+      currentTime: 0,
+      loop: false,
+      pause() {},
+      addEventListener() {},
+      removeEventListener() {},
       toString: () => "[object HTMLVideoElement]",
     });
     const owned = makeVideo();
@@ -182,13 +264,21 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     const prepareFrame = vi.fn(async () => {});
     const { messages, start } = installStubs({
       videos: [owned, unowned],
-      clipApi: { attach: () => ({ prepareFrame, ownedElements: () => [owned] }) },
+      clipApi: {
+        attach: () => ({ prepareFrame, ownedElements: () => [owned] }),
+      },
     });
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true));
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+        true,
+      ),
+    );
     expect(owned.currentTime).toBe(0);
     expect(unowned.currentTime).toBeCloseTo(0.8);
-    expect(messages.find((m) => m.type === "mobileAgentVideoDone")?.visualWarnings).toEqual([
+    expect(
+      messages.find((m) => m.type === "mobileAgentVideoDone")?.visualWarnings,
+    ).toEqual([
       expect.stringContaining("1 of 2 video elements are not declared"),
     ]);
   });
@@ -198,66 +288,98 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
 
     await vi.waitFor(
       () =>
-        expect(
-          messages.some((m) => m.type === "mobileAgentVideoDone"),
-        ).toBe(true),
+        expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+          true,
+        ),
       { timeout: 8000 },
     );
 
     expect(createVideoEncoder).not.toHaveBeenCalled();
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(5);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(5);
     expect(messages.some((m) => m.type === "mobileAgentVideoCsd")).toBe(false);
     // Silent scenes run no soundtrack prep; the field is present and zero.
     const done = messages.find((m) => m.type === "mobileAgentVideoDone");
-    expect((done?.timings as { audioPrepMs?: number } | undefined)?.audioPrepMs).toBe(0);
+    expect(
+      (done?.timings as { audioPrepMs?: number } | undefined)?.audioPrepMs,
+    ).toBe(0);
   }, 15000);
 
   it("works when WebCodecs is unavailable", async () => {
-    const { messages, createVideoEncoder, start } = installStubs({ withWebCodecs: false });
+    const { messages, createVideoEncoder, start } = installStubs({
+      withWebCodecs: false,
+    });
     start();
 
     await vi.waitFor(
       () =>
-        expect(
-          messages.some((m) => m.type === "mobileAgentVideoDone"),
-        ).toBe(true),
+        expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+          true,
+        ),
       { timeout: 8000 },
     );
 
     expect(createVideoEncoder).not.toHaveBeenCalled();
-    expect(messages.some((m) => m.type === "mobileAgentVideoEncodedChunk")).toBe(false);
+    expect(
+      messages.some((m) => m.type === "mobileAgentVideoEncodedChunk"),
+    ).toBe(false);
   }, 15000);
 
   it("never produces a second frame before native acknowledges the first", async () => {
-    const { messages, start, consume, cancel } = installStubs({ autoConsume: false });
+    const { messages, start, consume, cancel } = installStubs({
+      autoConsume: false,
+    });
     start();
-    await vi.waitFor(() => expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(
+        messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+      ).toHaveLength(1),
+    );
     const first = messages.find((m) => m.type === "mobileAgentVideoFrame")!;
     consume(Number(first.requestId) + 100); // Stale/unrelated ACK cannot release it.
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(1);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(1);
     consume(Number(first.requestId));
-    await vi.waitFor(() => expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(
+        messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+      ).toHaveLength(2),
+    );
     cancel();
   });
 
   it("exports the complete offline soundtrack with sample-derived timestamps", async () => {
     const { messages, start } = installStubs({ withAudio: true });
     start();
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true), { timeout: 8000 });
-    expect(messages.find((m) => m.type === "mobileAgentVideoAudioConfig")).toMatchObject({ encoding: "pcm16", sampleRate: 48000, channels: 2 });
-    const pcm = messages.filter((m) => m.type === "mobileAgentVideoAudioPcmChunk");
+    await vi.waitFor(
+      () =>
+        expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+          true,
+        ),
+      { timeout: 8000 },
+    );
+    expect(
+      messages.find((m) => m.type === "mobileAgentVideoAudioConfig"),
+    ).toMatchObject({ encoding: "pcm16", sampleRate: 48000, channels: 2 });
+    const pcm = messages.filter(
+      (m) => m.type === "mobileAgentVideoAudioPcmChunk",
+    );
     expect(pcm.length).toBeGreaterThan(1);
     let bytesSent = 0;
     for (const chunk of pcm) {
-      expect(chunk.pts).toBe(Math.round(bytesSent / 4 * 1_000_000 / 48000));
+      expect(chunk.pts).toBe(Math.round(((bytesSent / 4) * 1_000_000) / 48000));
       const bytes = Buffer.from(String(chunk.base64), "base64");
       expect(bytes.readInt16LE(0)).toBe(8192);
       expect(bytes.readInt16LE(2)).toBe(-8192);
       bytesSent += bytes.length;
     }
     expect(bytesSent).toBe(48000 * 2 * 2);
-    expect(messages.findIndex((m) => m.type === "mobileAgentVideoAudioPcmChunk")).toBeGreaterThan(
+    expect(
+      messages.findIndex((m) => m.type === "mobileAgentVideoAudioPcmChunk"),
+    ).toBeGreaterThan(
       messages.findLastIndex((m) => m.type === "mobileAgentVideoFrame"),
     );
   });
@@ -268,14 +390,22 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     // native encoder's from-zero sample-count clock ("Non-contiguous PCM
     // soundtrack") on every audio render past the first 30 s segment — and
     // would have misplaced the track inside the segment MP4 besides.
-    const { messages, startAt } = installStubs({ withAudio: true, duration: 60 });
+    const { messages, startAt } = installStubs({
+      withAudio: true,
+      duration: 60,
+    });
     startAt(30, 30);
 
     await vi.waitFor(
-      () => expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true),
+      () =>
+        expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+          true,
+        ),
       { timeout: 15000 },
     );
-    const pcm = messages.filter((m) => m.type === "mobileAgentVideoAudioPcmChunk");
+    const pcm = messages.filter(
+      (m) => m.type === "mobileAgentVideoAudioPcmChunk",
+    );
     expect(pcm.length).toBeGreaterThan(1);
     // Each segment file re-serves a fresh native encoder whose clock starts
     // at zero, so the first chunk must land there…
@@ -284,7 +414,7 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     // …and stay contiguous on that clock within the encoder's ±2µs guard.
     let bytesSent = 0;
     for (const chunk of pcm) {
-      const native = Math.trunc(bytesSent / 4 * 1_000_000 / 48000);
+      const native = Math.trunc(((bytesSent / 4) * 1_000_000) / 48000);
       expect(Math.abs(Number(chunk.pts) - native)).toBeLessThanOrEqual(2);
       bytesSent += Buffer.from(String(chunk.base64), "base64").length;
     }
@@ -297,24 +427,42 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     let time = 0.5;
     let finishSeek: (() => void) | undefined;
     const video = {
-      duration: 1, readyState: 2, seeking: false, loop: false,
+      duration: 1,
+      readyState: 2,
+      seeking: false,
+      loop: false,
       pause() {},
-      get currentTime() { return time; },
+      get currentTime() {
+        return time;
+      },
       set currentTime(value: number) {
         time = value;
         video.seeking = true;
-        finishSeek = () => { video.seeking = false; events.get("seeked")?.(); };
+        finishSeek = () => {
+          video.seeking = false;
+          events.get("seeked")?.();
+        };
       },
-      addEventListener(name: string, listener: () => void) { events.set(name, listener); },
-      removeEventListener(name: string) { events.delete(name); },
+      addEventListener(name: string, listener: () => void) {
+        events.set(name, listener);
+      },
+      removeEventListener(name: string) {
+        events.delete(name);
+      },
     };
     const { messages, start, cancel } = installStubs({ video });
     start();
     await vi.waitFor(() => expect(finishSeek).toBeDefined());
     expect(time).toBe(0);
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(0);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(0);
     finishSeek!();
-    await vi.waitFor(() => expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(
+        messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+      ).toHaveLength(1),
+    );
     cancel();
     finishSeek?.(); // Release any second-frame seek started before cancellation.
   });
@@ -328,13 +476,27 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     // stays un-decodable — the exact stall that used to kill the export at
     // the 15 s watchdog.
     const video = {
-      duration: 1, readyState: 1, seeking: false, loop: false,
+      duration: 1,
+      readyState: 1,
+      seeking: false,
+      loop: false,
       pause() {},
-      load() { loadCalls += 1; video.readyState = 2; },
-      get currentTime() { return time; },
-      set currentTime(value: number) { time = value; },
-      addEventListener(name: string, listener: () => void) { events.set(name, listener); },
-      removeEventListener(name: string) { events.delete(name); },
+      load() {
+        loadCalls += 1;
+        video.readyState = 2;
+      },
+      get currentTime() {
+        return time;
+      },
+      set currentTime(value: number) {
+        time = value;
+      },
+      addEventListener(name: string, listener: () => void) {
+        events.set(name, listener);
+      },
+      removeEventListener(name: string) {
+        events.delete(name);
+      },
     };
     const { messages, start, cancel } = installStubs({ video });
     start();
@@ -346,18 +508,28 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
 
     // The reload decoded the frame — the export continues and posts.
     await vi.advanceTimersByTimeAsync(0);
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame").length).toBeGreaterThan(0);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame").length,
+    ).toBeGreaterThan(0);
     cancel();
   });
 
-  function fakeImage(init: { complete: boolean; naturalWidth?: number; src?: string }) {
+  function fakeImage(init: {
+    complete: boolean;
+    naturalWidth?: number;
+    src?: string;
+  }) {
     const events = new Map<string, () => void>();
     const img: Record<string, unknown> = {
       src: init.src ?? "http://127.0.0.1:9999/files/img-1/photo.png",
       complete: init.complete,
       naturalWidth: init.complete ? (init.naturalWidth ?? 0) : 0,
-      addEventListener: (name: string, listener: () => void) => { events.set(name, listener); },
-      removeEventListener: (name: string) => { events.delete(name); },
+      addEventListener: (name: string, listener: () => void) => {
+        events.set(name, listener);
+      },
+      removeEventListener: (name: string) => {
+        events.delete(name);
+      },
     };
     return { img, fire: (name: string) => events.get(name)?.() };
   }
@@ -367,11 +539,17 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     const { messages, start } = installStubs({ image: img });
     start();
 
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(true));
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(
+        true,
+      ),
+    );
     const error = messages.find((m) => m.type === "mobileAgentVideoError");
     expect(error?.message).toMatch(/scene image could not be decoded/);
     expect(error?.message).toContain("photo.png");
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(0);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(0);
   });
 
   it("waits for a still-loading workspace image before capturing frames", async () => {
@@ -381,23 +559,36 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     // Not complete yet: the pipeline holds off on frame capture instead of
     // silently recording without the visual.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(0);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(0);
 
     img.complete = true;
     img.naturalWidth = 5;
     fire("load");
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(true));
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoFrame")).toBe(
+        true,
+      ),
+    );
     cancel();
   });
 
   it("fails loud when a loading workspace image errors", async () => {
-    const { img, fire } = fakeImage({ complete: false, src: "http://127.0.0.1:9999/files/img-1/gone.png" });
+    const { img, fire } = fakeImage({
+      complete: false,
+      src: "http://127.0.0.1:9999/files/img-1/gone.png",
+    });
     const { messages, start } = installStubs({ image: img });
     start();
     await new Promise((resolve) => setTimeout(resolve, 20));
     fire("error");
 
-    await vi.waitFor(() => expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(true));
+    await vi.waitFor(() =>
+      expect(messages.some((m) => m.type === "mobileAgentVideoError")).toBe(
+        true,
+      ),
+    );
     const error = messages.find((m) => m.type === "mobileAgentVideoError");
     expect(error?.message).toMatch(/scene image could not be decoded/);
     expect(error?.message).toContain("gone.png");
@@ -409,31 +600,60 @@ describe("VIDEO_EXPORT_SCRIPT native encoding", () => {
     let time = 0.5;
     let finishSeek: (() => void) | undefined;
     const video = {
-      duration: 1, readyState: 2, seeking: false, loop: false,
+      duration: 1,
+      readyState: 2,
+      seeking: false,
+      loop: false,
       pause() {},
-      get currentTime() { return time; },
+      get currentTime() {
+        return time;
+      },
       set currentTime(value: number) {
         time = value;
         seeks.push(value);
         video.seeking = true;
-        finishSeek = () => { video.seeking = false; events.get("seeked")?.(); };
+        finishSeek = () => {
+          video.seeking = false;
+          events.get("seeked")?.();
+        };
       },
-      addEventListener(name: string, listener: () => void) { events.set(name, listener); },
-      removeEventListener(name: string) { events.delete(name); },
+      addEventListener(name: string, listener: () => void) {
+        events.set(name, listener);
+      },
+      removeEventListener(name: string) {
+        events.delete(name);
+      },
     };
-    const { messages, start, consume, cancel } = installStubs({ video, autoConsume: false });
+    const { messages, start, consume, cancel } = installStubs({
+      video,
+      autoConsume: false,
+    });
     start();
     await vi.waitFor(() => expect(finishSeek).toBeDefined());
     finishSeek!(); // Frame 0 seek done -> frame 0 posts, still unacked.
-    await vi.waitFor(() => expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(
+        messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+      ).toHaveLength(1),
+    );
     // Frame 0 is unacknowledged, yet the pipeline must already seek frame 1.
     await vi.waitFor(() => expect(seeks).toEqual([0, 0.2]));
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(1);
+    expect(
+      messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+    ).toHaveLength(1);
     const first = messages.find((m) => m.type === "mobileAgentVideoFrame")!;
     consume(Number(first.requestId)); // Ack frame 0.
     finishSeek!(); // Frame 1 seek done -> posts immediately, already prepared.
-    await vi.waitFor(() => expect(messages.filter((m) => m.type === "mobileAgentVideoFrame")).toHaveLength(2));
-    expect(messages.filter((m) => m.type === "mobileAgentVideoFrame").map((m) => m.index)).toEqual([0, 1]);
+    await vi.waitFor(() =>
+      expect(
+        messages.filter((m) => m.type === "mobileAgentVideoFrame"),
+      ).toHaveLength(2),
+    );
+    expect(
+      messages
+        .filter((m) => m.type === "mobileAgentVideoFrame")
+        .map((m) => m.index),
+    ).toEqual([0, 1]);
     cancel();
     finishSeek?.(); // Release any frame-2 seek started before cancellation.
   });
@@ -444,20 +664,28 @@ describe("VIDEO_EXPORT_SCRIPT shots", () => {
     const a: number[] = [];
     const b: number[] = [];
     const top: number[] = [];
-    const shotA = function shotA(t: number) { a.push(t); };
-    const shotB = function shotB(t: number) { b.push(t); };
+    const shotA = function shotA(t: number) {
+      a.push(t);
+    };
+    const shotB = function shotB(t: number) {
+      b.push(t);
+    };
     const { messages, start } = installStubs({
       shots: [
         { id: "a", start: 0, end: 0.5, render: shotA },
         { id: "b", start: 0.5, end: 1, render: shotB },
       ],
-      render: () => { top.push(1); },
+      render: () => {
+        top.push(1);
+      },
       documentHtml: `<script>${shotA.toString()}${shotB.toString()}</script>`,
     });
 
     start();
     await vi.waitFor(() =>
-      expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(true),
+      expect(messages.some((m) => m.type === "mobileAgentVideoDone")).toBe(
+        true,
+      ),
     );
 
     expect(top).toHaveLength(0);
@@ -469,9 +697,18 @@ describe("VIDEO_EXPORT_SCRIPT shots", () => {
   });
 
   it("fingerprints shots independently and shared code together", () => {
-    const a1 = function shotA(t: number) { void t; /* one */ };
-    const a2 = function shotA(t: number) { void t; /* two */ };
-    const b = function shotB(t: number) { void t; /* fixed */ };
+    const a1 = function shotA(t: number) {
+      void t;
+      return 1;
+    };
+    const a2 = function shotA(t: number) {
+      void t;
+      return 2;
+    };
+    const b = function shotB(t: number) {
+      void t;
+      return 0;
+    };
     const { messages, probe } = installStubs({
       shots: [
         { id: "a", start: 0, end: 0.5, render: a1 },
@@ -487,12 +724,18 @@ describe("VIDEO_EXPORT_SCRIPT shots", () => {
     expect(planShots(first)).toHaveLength(2);
 
     // Edit only shot A: its hash moves, the shared code and shot B do not.
-    const windowRef = (globalThis as unknown as {
-      window: { MOBILE_AGENT_VIDEO: { shots: { render: unknown }[] } };
-    }).window;
+    const windowRef = (
+      globalThis as unknown as {
+        window: { MOBILE_AGENT_VIDEO: { shots: { render: unknown }[] } };
+      }
+    ).window;
     windowRef.MOBILE_AGENT_VIDEO.shots[0].render = a2;
-    (globalThis as unknown as { document: { documentElement: { outerHTML: string } } })
-      .document.documentElement.outerHTML = `<script>${a2.toString()}${b.toString()}</script>`;
+    (
+      globalThis as unknown as {
+        document: { documentElement: { outerHTML: string } };
+      }
+    ).document.documentElement.outerHTML =
+      `<script>${a2.toString()}${b.toString()}</script>`;
 
     probe();
     const second = messages.filter((m) => m.type === "mobileAgentVideoPlan")[1];
@@ -500,5 +743,145 @@ describe("VIDEO_EXPORT_SCRIPT shots", () => {
     expect(second.sharedHash).toBe(first.sharedHash);
     expect(planShots(second)[0].hash).not.toBe(planShots(first)[0].hash);
     expect(planShots(second)[1].hash).toBe(planShots(first)[1].hash);
+  });
+});
+
+describe("VIDEO_EXPORT_SCRIPT declared layers", () => {
+  it("reports sanitized layers and resolves media file ids from elements", () => {
+    const image = { getAttribute: () => "img-file" };
+    const video = { getAttribute: () => "clip-file" };
+    const { messages, probe } = installStubs({
+      elements: { "#photo": image, "#presenter": video },
+      layers: [
+        {
+          type: "text",
+          id: "title",
+          label: "Title",
+          start: 0,
+          end: 1,
+          x: 10,
+          y: 20,
+          w: 200,
+          h: 60,
+          text: "Hello",
+          fontSize: 48,
+          color: "#fff",
+          align: "left",
+          z: 4,
+          keys: [
+            { t: 1, opacity: 1 },
+            { t: 0, opacity: 0, nonsense: 2 },
+            { t: null },
+          ],
+        },
+        {
+          type: "image",
+          el: "#photo",
+          start: 0.2,
+          end: 1,
+          x: 0,
+          y: 0,
+          w: 100,
+          h: 80,
+          fit: "fit",
+        },
+        // Dropped: an image with no resolvable source.
+        {
+          type: "image",
+          el: "#missing",
+          start: 0,
+          end: 1,
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 10,
+        },
+        // Dropped: inverted window.
+        { type: "shape", start: 1, end: 0.5, x: 0, y: 0, w: 10, h: 10 },
+      ],
+      clips: [
+        {
+          el: "#presenter",
+          label: "Presenter",
+          start: 0,
+          end: 1,
+          from: 2,
+          x: 0,
+          y: 0,
+          w: 320,
+          h: 240,
+          alpha: 0.8,
+        },
+        { id: "unresolved", start: 0, end: 1, from: 0 },
+      ],
+    });
+
+    probe();
+    const plan = messages.find((m) => m.type === "mobileAgentVideoPlan")!;
+
+    expect(plan.layers).toEqual([
+      {
+        id: "title",
+        type: "text",
+        label: "Title",
+        start: 0,
+        end: 1,
+        x: 10,
+        y: 20,
+        w: 200,
+        h: 60,
+        rotation: 0,
+        opacity: 1,
+        z: 4,
+        text: "Hello",
+        fontSize: 48,
+        fontWeight: 400,
+        color: "#fff",
+        align: "left",
+        keys: [
+          { t: 0, opacity: 0 },
+          { t: 1, opacity: 1 },
+        ],
+      },
+      {
+        id: "image-2",
+        type: "image",
+        label: "image 2",
+        start: 0.2,
+        end: 1,
+        x: 0,
+        y: 0,
+        w: 100,
+        h: 80,
+        rotation: 0,
+        opacity: 1,
+        z: 2,
+        fileId: "img-file",
+        fit: "fit",
+      },
+    ]);
+
+    expect(plan.clipLayers).toEqual([
+      {
+        id: "clip-1",
+        label: "Presenter",
+        start: 0,
+        end: 1,
+        from: 2,
+        fileId: "clip-file",
+        x: 0,
+        y: 0,
+        w: 320,
+        h: 240,
+        opacity: 0.8,
+      },
+      {
+        id: "unresolved",
+        label: "clip 2",
+        start: 0,
+        end: 1,
+        from: 0,
+      },
+    ]);
   });
 });

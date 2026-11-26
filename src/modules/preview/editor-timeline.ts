@@ -1,12 +1,19 @@
 import type { EditorClipRenderResult } from "@/modules/preview/render-segments";
+import type {
+  VideoClipLayerPlan,
+  VideoLayerPlan,
+} from "@/modules/preview/video-render";
 
 /**
  * Portable timeline files for an editor export package.
  *
- * Mobile editors (CapCut, KineMaster, VN/InShot) import media only, so their
- * path is the gallery album. Desktop NLEs additionally accept cut lists; this
- * module writes the formats that cover the common ones:
+ * Alight Motion is the one mobile editor that imports an editable project: it
+ * reads its own `<scene>` XML. When the scene declares `layers` and `clips`,
+ * each text/image/shape and each video window becomes its own editable layer;
+ * otherwise the export falls back to one flattened video layer per shot, which
+ * still opens as a correctly timed project but cannot be un-baked.
  *
+ *  - Alight XML   Alight Motion project (editable layers)
  *  - FCPXML       Final Cut Pro, DaVinci Resolve
  *  - FCP7 XML     Premiere Pro, DaVinci Resolve
  *  - OTIO         Resolve, newer Premiere versions
@@ -15,8 +22,29 @@ import type { EditorClipRenderResult } from "@/modules/preview/render-segments";
  *
  * Every media reference is relative (`clips/...`) so the package survives a
  * move; NLEs that cannot resolve relative paths prompt for relinking, which
- * the README explains.
+ * the README explains. The Alight timeline prefers the gallery URIs because
+ * Alight Motion cannot read media out of the package ZIP.
  */
+
+export type EditorTimelineClip = EditorClipRenderResult & {
+  /** Device media-store URI of the gallery copy, when the album save succeeded. */
+  mediaUri?: string | null;
+  /** Byte size of the rendered clip, when known. */
+  mediaSize?: number | null;
+};
+
+/** A source file copied to the gallery for an editable Alight layer. */
+export type EditorAlightMedia = {
+  fileId?: string | null;
+  uri: string;
+  name: string;
+  mimeType: string;
+  size?: number | null;
+  width?: number | null;
+  height?: number | null;
+  /** Source length in seconds, when known. */
+  duration?: number | null;
+};
 
 export type EditorTimelineInput = {
   name: string;
@@ -24,12 +52,19 @@ export type EditorTimelineInput = {
   width: number;
   height: number;
   duration: number;
-  clips: EditorClipRenderResult[];
+  clips: EditorTimelineClip[];
+  /** Declarative text/image/shape layers, rendered as editable Alight layers. */
+  alightLayers?: VideoLayerPlan[];
+  /** Declared video windows; replaces the flattened shot layers when resolved. */
+  alightClips?: VideoClipLayerPlan[];
+  /** Gallery copies of the original clips/images referenced above. */
+  alightMedia?: EditorAlightMedia[];
   /** Album the clips were copied into, when the gallery save succeeded. */
   galleryAlbum?: string | null;
 };
 
 export type EditorTimelineFiles = {
+  alightXml: string;
   fcpxml: string;
   fcp7Xml: string;
   otio: string;
@@ -108,6 +143,416 @@ function xml(value: string) {
 function csvCell(value: string | number | boolean) {
   const text = String(value);
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** Alight Motion reads its own `<scene>` XML, not FCPXML/FCP7 XML. */
+const ALIGHT_APP = "com.alightcreative.motion/5.0.273.1028425";
+
+function coord(value: number) {
+  return value.toFixed(6);
+}
+
+/**
+ * The gallery copy is the only clip location Alight Motion can read: files
+ * inside the delivered ZIP are not on the device, and app-internal paths are
+ * outside its storage scope. Fall back to the package-relative path so the
+ * import still shows correctly timed placeholder layers the user can relink.
+ */
+function alightMediaUri(clip: EditorTimelineClip) {
+  return clip.mediaUri?.trim() || `clips/${clip.fileName}`;
+}
+
+type AlightKey = {
+  t: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  opacity: number;
+};
+
+/** Alight wants `#AARRGGBB`; accept `#RRGGBB` and default to opaque white. */
+function alightColor(value: string | undefined, fallback = "#FFFFFFFF") {
+  const match = /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.exec((value ?? "").trim());
+  if (!match) return fallback;
+  return match[1].length === 6
+    ? `#FF${match[1].toUpperCase()}`
+    : `#${match[1].toUpperCase()}`;
+}
+
+/** A bare family name becomes an Alight Google-Fonts descriptor. */
+function alightFont(family: string | undefined, weight: number | undefined) {
+  const name = (family ?? "").trim();
+  if (!name) return null;
+  if (/[?&]/.test(name)) return name;
+  const value = Number.isFinite(weight) ? Math.round(weight ?? 400) : 400;
+  return `googlefonts?name=${encodeURIComponent(name)}&weight=${value}`;
+}
+
+/**
+ * Expands a layer's transform keys, anchoring the animation to the layer
+ * window. Missing fields fall back to the layer's static value, and the first
+ * and last frames are always present so Alight interpolates the full window.
+ */
+function alightKeys(layer: VideoLayerPlan): AlightKey[] {
+  const base: AlightKey = {
+    t: 0,
+    x: layer.x,
+    y: layer.y,
+    w: layer.w,
+    h: layer.h,
+    rotation: layer.rotation,
+    opacity: layer.opacity,
+  };
+  const raw = (layer.keys ?? []).map((key) => {
+    const next: AlightKey = { ...base, t: key.t };
+    if (key.x != null) next.x = key.x;
+    if (key.y != null) next.y = key.y;
+    if (key.w != null) next.w = key.w;
+    if (key.h != null) next.h = key.h;
+    if (key.rotation != null) next.rotation = key.rotation;
+    if (key.opacity != null) next.opacity = key.opacity;
+    return next;
+  });
+  if (raw.length === 0) return [];
+  const keys = raw.sort((a, b) => a.t - b.t);
+  if (keys[0].t > 0) keys.unshift({ ...base, t: 0 });
+  if (keys[keys.length - 1].t < 1) {
+    keys.push({ ...keys[keys.length - 1], t: 1 });
+  }
+  const out: AlightKey[] = [];
+  for (const key of keys) {
+    const t = Math.min(1, Math.max(0, key.t));
+    if (out.length > 0 && Math.abs(t - out[out.length - 1].t) < 1e-6) {
+      out[out.length - 1] = { ...key, t };
+    } else {
+      out.push({ ...key, t });
+    }
+  }
+  return out.length > 1 ? out : [];
+}
+
+/** A keyable Alight value: one static attribute, or `<kf>` children. */
+function alightKeyed(
+  tag: string,
+  values: { t: number; v: string }[],
+  indent: string,
+  attributes = "",
+) {
+  const distinct = new Set(values.map((value) => value.v));
+  if (distinct.size <= 1) {
+    return `${indent}<${tag}${attributes} value="${values[0]?.v ?? ""}"/>`;
+  }
+  return [
+    `${indent}<${tag}${attributes}>`,
+    ...values.map(
+      (value) => `${indent}  <kf t="${coord(value.t)}" v="${value.v}"/>`,
+    ),
+    `${indent}</${tag}>`,
+  ].join("\n");
+}
+
+function alightTransform(layer: VideoLayerPlan, indent: string) {
+  const keys = alightKeys(layer);
+  const values: AlightKey[] =
+    keys.length > 0
+      ? keys
+      : [
+          {
+            t: 0,
+            x: layer.x,
+            y: layer.y,
+            w: layer.w,
+            h: layer.h,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+          },
+        ];
+  return [
+    `${indent}<transform>`,
+    alightKeyed(
+      "location",
+      values.map((key) => ({
+        t: key.t,
+        v: `${coord(key.x + key.w / 2)},${coord(key.y + key.h / 2)},0.000000`,
+      })),
+      `${indent}  `,
+    ),
+    alightKeyed(
+      "rotation",
+      values.map((key) => ({ t: key.t, v: coord(key.rotation) })),
+      `${indent}  `,
+    ),
+    alightKeyed(
+      "opacity",
+      values.map((key) => ({ t: key.t, v: coord(key.opacity) })),
+      `${indent}  `,
+    ),
+    `${indent}</transform>`,
+  ].join("\n");
+}
+
+/** `.rect` spans ±size, so half the box in each axis is the layer's size. */
+function alightSizeProperty(layer: VideoLayerPlan, indent: string) {
+  const keys = alightKeys(layer);
+  const values =
+    keys.length > 0
+      ? keys
+      : [
+          {
+            t: 0,
+            x: layer.x,
+            y: layer.y,
+            w: layer.w,
+            h: layer.h,
+            rotation: layer.rotation,
+            opacity: layer.opacity,
+          },
+        ];
+  return alightKeyed(
+    "property",
+    values.map((key) => ({
+      t: key.t,
+      v: `${coord(key.w / 2)},${coord(key.h / 2)}`,
+    })),
+    indent,
+    ' name="size" type="vec2"',
+  );
+}
+
+function alightMediaElement(media: {
+  uri: string;
+  name: string;
+  title?: string;
+  mimeType: string;
+  size?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+}) {
+  const attributes = [
+    `uri="${xml(media.uri)}"`,
+    `filename="${xml(media.name)}"`,
+    `title="${xml(media.title ?? media.name)}"`,
+    `type="${xml(media.mimeType)}"`,
+  ];
+  if (typeof media.size === "number" && media.size > 0) {
+    attributes.push(`size="${Math.round(media.size)}"`);
+  }
+  if (typeof media.duration === "number" && media.duration > 0) {
+    attributes.push(`duration="${Math.round(media.duration * 1000)}"`);
+  }
+  if (typeof media.width === "number" && media.width > 0) {
+    attributes.push(`width="${Math.round(media.width)}"`);
+  }
+  if (typeof media.height === "number" && media.height > 0) {
+    attributes.push(`height="${Math.round(media.height)}"`);
+  }
+  return `  <media ${attributes.join(" ")}/>`;
+}
+
+function alightXml(input: EditorTimelineInput) {
+  const {
+    alightClips,
+    alightLayers,
+    alightMedia,
+    clips,
+    duration,
+    fps,
+    height,
+    name,
+    width,
+  } = input;
+  const totalTime = Math.max(0, Math.round(duration * 1000));
+  const mediaByFileId = new Map<string, EditorAlightMedia>();
+  for (const media of alightMedia ?? []) {
+    if (media.fileId) mediaByFileId.set(media.fileId, media);
+  }
+
+  // Original clips replace the flattened shot renders only when every declared
+  // window resolved to a gallery copy; a partial set would silently drop
+  // footage, so fall back to the complete shot list instead.
+  const declaredClips = (alightClips ?? []).filter(
+    (clip) => clip.fileId && mediaByFileId.has(clip.fileId),
+  );
+  const useDeclaredClips =
+    declaredClips.length > 0 &&
+    declaredClips.length === (alightClips ?? []).length;
+
+  const mediaDeclarations: string[] = [];
+  const seenMedia = new Set<string>();
+  const pushMedia = (media: EditorAlightMedia) => {
+    if (seenMedia.has(media.uri)) return;
+    seenMedia.add(media.uri);
+    mediaDeclarations.push(alightMediaElement(media));
+  };
+
+  const elements: { z: number; order: number; xml: string }[] = [];
+  let order = 0;
+  let id = 1;
+
+  if (useDeclaredClips) {
+    for (const clip of declaredClips) {
+      const media = mediaByFileId.get(clip.fileId!)!;
+      pushMedia(media);
+      const start = Math.min(
+        totalTime,
+        Math.max(0, Math.round(clip.start * 1000)),
+      );
+      const end = Math.min(
+        totalTime,
+        Math.max(start, Math.round(clip.end * 1000)),
+      );
+      if (end <= start) continue;
+      const rect =
+        clip.x != null && clip.y != null && clip.w != null && clip.h != null
+          ? { x: clip.x, y: clip.y, w: clip.w, h: clip.h }
+          : { x: 0, y: 0, w: width, h: height };
+      const inTime = Math.max(0, Math.round(clip.from * 1000));
+      const outTime = inTime + (end - start);
+      elements.push({
+        z: 0,
+        order: order++,
+        xml: [
+          `  <shape id="${id++}" label="${xml(clip.label)}" startTime="${start}" endTime="${end}" fillType="media" fillVideo="${xml(media.uri)}" inTime="${inTime}" outTime="${outTime}" mediaFillMode="${clip.fit === "fit" ? "fit" : "fill"}" s=".rect">`,
+          "    <transform>",
+          `      <location value="${coord(rect.x + rect.w / 2)},${coord(rect.y + rect.h / 2)},0.000000"/>`,
+          `      <opacity value="${coord(clip.opacity ?? 1)}"/>`,
+          "    </transform>",
+          `    <property name="size" type="vec2" value="${coord(rect.w / 2)},${coord(rect.h / 2)}"/>`,
+          "  </shape>",
+        ].join("\n"),
+      });
+    }
+  } else {
+    // Flattened fallback: one full-frame video layer per shot/gap.
+    for (const clip of clips) {
+      const start = Math.min(
+        totalTime,
+        Math.max(0, Math.round(clip.start * 1000)),
+      );
+      const end = Math.min(
+        totalTime,
+        Math.max(start, Math.round(clip.end * 1000)),
+      );
+      if (end <= start) continue;
+      const uri = alightMediaUri(clip);
+      if (!seenMedia.has(uri)) {
+        seenMedia.add(uri);
+        mediaDeclarations.push(
+          alightMediaElement({
+            uri,
+            name: clip.fileName,
+            title: clip.label,
+            mimeType: "video/mp4",
+            size: clip.mediaSize,
+            width,
+            height,
+            duration: clip.duration,
+          }),
+        );
+      }
+      elements.push({
+        z: 0,
+        order: order++,
+        xml: [
+          `  <shape id="${id++}" label="${xml(clip.label)}" startTime="${start}" endTime="${end}" fillType="media" fillVideo="${xml(uri)}" inTime="0" mediaFillMode="fill" s=".rect">`,
+          "    <transform>",
+          `      <location value="${coord(width / 2)},${coord(height / 2)},0.000000"/>`,
+          "    </transform>",
+          `    <property name="size" type="vec2" value="${coord(width / 2)},${coord(height / 2)}"/>`,
+          "  </shape>",
+        ].join("\n"),
+      });
+    }
+  }
+
+  for (const layer of alightLayers ?? []) {
+    const start = Math.min(
+      totalTime,
+      Math.max(0, Math.round(layer.start * 1000)),
+    );
+    const end = Math.min(
+      totalTime,
+      Math.max(start, Math.round(layer.end * 1000)),
+    );
+    if (end <= start) continue;
+    const z = Number.isFinite(layer.z) ? layer.z : order + 1;
+
+    if (layer.type === "text") {
+      const font = alightFont(layer.fontFamily, layer.fontWeight);
+      const attributes = [
+        `id="${id++}"`,
+        `label="${xml(layer.label)}"`,
+        `startTime="${start}"`,
+        `endTime="${end}"`,
+        'fillType="color"',
+        `size="${Math.round(layer.fontSize ?? 48)}"`,
+        ...(font ? [`font="${xml(font)}"`] : []),
+        `wrapWidth="${Math.round(layer.w)}"`,
+        `align="${layer.align ?? "center"}"`,
+      ];
+      elements.push({
+        z,
+        order: order++,
+        xml: [
+          `  <text ${attributes.join(" ")}>`,
+          alightTransform(layer, "    "),
+          `    <fillColor value="${alightColor(layer.color)}"/>`,
+          `    <content>${xml(layer.text ?? "")}</content>`,
+          "  </text>",
+        ].join("\n"),
+      });
+      continue;
+    }
+
+    if (layer.type === "image") {
+      const media = layer.fileId ? mediaByFileId.get(layer.fileId) : null;
+      if (!media) continue;
+      pushMedia(media);
+      elements.push({
+        z,
+        order: order++,
+        xml: [
+          `  <shape id="${id++}" label="${xml(layer.label)}" startTime="${start}" endTime="${end}" fillType="media" fillImage="${xml(media.uri)}" mediaFillMode="${layer.fit === "fit" ? "fit" : "fill"}" s=".rect">`,
+          alightTransform(layer, "    "),
+          alightSizeProperty(layer, "    "),
+          "  </shape>",
+        ].join("\n"),
+      });
+      continue;
+    }
+
+    elements.push({
+      z,
+      order: order++,
+      xml: [
+        `  <shape id="${id++}" label="${xml(layer.label)}" startTime="${start}" endTime="${end}" fillType="color" s=".rect">`,
+        alightTransform(layer, "    "),
+        `    <fillColor value="${alightColor(layer.fill)}"/>`,
+        alightSizeProperty(layer, "    "),
+        ...(layer.radius && layer.radius > 0
+          ? [
+              `    <property name="cornerRadius" type="float" value="${coord(layer.radius)}"/>`,
+            ]
+          : []),
+        "  </shape>",
+      ].join("\n"),
+    });
+  }
+
+  // Alight paints elements back-to-front in document order.
+  elements.sort((a, b) => a.z - b.z || a.order - b.order);
+
+  return [
+    "<?xml version='1.0' encoding='UTF-8' ?>",
+    `<scene title="${xml(name)}" width="${width}" height="${height}" exportWidth="${width}" exportHeight="${height}" bgcolor="#FF000000" totalTime="${totalTime}" fps="${fps}" modifiedTime="${Date.now()}" amver="106" ffver="106" am="${ALIGHT_APP}" amplatform="android">`,
+    ...mediaDeclarations,
+    ...elements.map((element) => element.xml),
+    "</scene>",
+    "",
+  ].join("\n");
 }
 
 function rateBlock(fps: number, indent: string) {
@@ -388,7 +833,9 @@ function edl(input: EditorTimelineInput) {
     lines.push("");
   });
 
-  lines.push(`* TOTAL TIMELINE: ${timecode(fcp7Frames(duration, fps), timebase)}`);
+  lines.push(
+    `* TOTAL TIMELINE: ${timecode(fcp7Frames(duration, fps), timebase)}`,
+  );
   return `${lines.join("\n")}\n`;
 }
 
@@ -424,9 +871,11 @@ function shotsCsv(input: EditorTimelineInput) {
 
 function readme(input: EditorTimelineInput) {
   const { clips, duration, fps, galleryAlbum, height, name, width } = input;
+  const hasLayers = (input.alightLayers?.length ?? 0) > 0;
+  const hasClips = (input.alightClips?.length ?? 0) > 0;
   const albumLine = galleryAlbum
-    ? `The finished video and every clip were also copied into the gallery album "${galleryAlbum}". Mobile editors import straight from there.`
-    : "The clips were not copied to a gallery album (permission or export unavailable). Extract this package and import the `clips/` files from your file browser instead.";
+    ? `The finished video, every clip, and any original layer images/videos were also copied into the gallery album "${galleryAlbum}". Alight Motion's timeline and the other mobile editors read the media from there.`
+    : "The media was not copied to a gallery album (permission or export unavailable). Extract this package and import the `clips/` files from your file browser instead; timeline-alight.xml will need its media relinked.";
 
   return [
     `${name} — editor package`,
@@ -439,6 +888,7 @@ function readme(input: EditorTimelineInput) {
     "",
     "WHAT IS IN THIS PACKAGE",
     "  clips/            One MP4 per shot (or gap between shots), in timeline order.",
+    "  timeline-alight.xml Alight Motion project (editable layers when declared).",
     "  timeline.fcpxml  FCPXML 1.11 (Final Cut Pro, DaVinci Resolve).",
     "  timeline-fcp7.xml FCP7 XML / xmeml v4 (Premiere Pro, DaVinci Resolve).",
     "  timeline.otio    OpenTimelineIO timeline (Resolve, newer Premiere).",
@@ -449,10 +899,32 @@ function readme(input: EditorTimelineInput) {
     "the gallery album) so it is not duplicated inside this ZIP. Rebuild it on",
     "your editor timeline from clips/, or use the separate full video as-is.",
     "",
-    "MOBILE EDITORS (CapCut, KineMaster, VN, InShot, ...)",
-    "  Mobile editors import media, not XML/EDL/OTIO. Open the gallery album",
-    "  above (or import the extracted clips/ files), then add the clips to a new",
-    "  project in order. The full video is the ready-to-share version.",
+    "ALIGHT MOTION",
+    "  Import timeline-alight.xml: open Alight Motion, go to Templates > Upload,",
+    "  then pick the XML (or share the file to Alight Motion from your file",
+    "  manager).",
+    ...(hasLayers || hasClips
+      ? [
+          "  It opens as an editable project: text, image, and shape layers are",
+          "  separate, and each declared video clip keeps its own window and",
+          "  trim. The layers point at the files in the gallery album above, so",
+          "  keep that album intact. If a layer shows as missing media, tap it",
+          "  and replace it with the matching album or clips/ file.",
+        ]
+      : [
+          "  It opens as a correctly timed project with one full-frame video",
+          "  layer per shot. Those layers are flattened renders, not separate",
+          "  text/image overlays: declare `layers` in the MOBILE_AGENT_VIDEO",
+          "  contract to export editable elements. The layers point at the clips",
+          "  in the gallery album above, so keep that album intact.",
+        ]),
+    `  A standalone copy is saved to Downloads as "${name}-alight.xml", so it`,
+    "  can be imported without extracting this ZIP.",
+    "",
+    "OTHER MOBILE EDITORS (CapCut, KineMaster, VN, InShot, ...)",
+    "  These import media, not project XML. Open the gallery album above (or",
+    "  import the extracted clips/ files), then add the clips to a new project",
+    "  in order. The full video is the ready-to-share version.",
     "",
     "CAPCUT DESKTOP",
     "  Import the clips/ files (or the finished video) from Media > Import.",
@@ -498,6 +970,7 @@ export function buildEditorTimelineFiles(
     throw new Error("An editor package needs a positive timeline duration.");
   }
   return {
+    alightXml: alightXml(safe),
     fcpxml: fcpxml(safe),
     fcp7Xml: fcp7Xml(safe),
     otio: otio(safe),

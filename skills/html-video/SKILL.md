@@ -1,6 +1,6 @@
 ---
 name: html-video
-description: Make videos, animations, and MP4s by writing a self-contained HTML canvas scene, then render it with the renderVideo tool or export an editable clip package for CapCut, KineMaster, Premiere Pro, DaVinci Resolve, and Final Cut Pro. Supports optional soundtracks from audio files or synthesized cues.
+description: Make videos, animations, and MP4s by writing a self-contained HTML canvas scene, then render it with the renderVideo tool or export an editable clip package for Alight Motion, CapCut, KineMaster, Premiere Pro, DaVinci Resolve, and Final Cut Pro. Supports optional soundtracks from audio files or synthesized cues.
 keywords:
   - video
   - mp4
@@ -11,6 +11,8 @@ keywords:
   - make a video
   - capcut
   - kinemaster
+  - alight motion
+  - alight
   - premiere
   - davinci resolve
   - final cut
@@ -70,10 +72,10 @@ Define this before the body finishes loading:
 ```html
 <script>
   window.MOBILE_AGENT_VIDEO = {
-    duration: 10,      // seconds, 1–600, default 10 (over 45 s renders in 45 s segments, concatenated)
-    fps: 30,           // 5–60, default 30
-    width: 1280,       // export width, even number, ≤ 1920, default 1280
-    height: 720,       // export height, even number, ≤ 1920, default 720
+    duration: 10, // seconds, 1–600, default 10 (over 45 s renders in 45 s segments, concatenated)
+    fps: 30, // 5–60, default 30
+    width: 1280, // export width, even number, ≤ 1920, default 1280
+    height: 720, // export height, even number, ≤ 1920, default 720
     canvasId: "scene", // optional: id of the canvas to record
     render: function (t, canvas, ctx, audio, speech) {
       // Draw the frame at time t (seconds). Must be deterministic and
@@ -83,19 +85,23 @@ Define this before the body finishes loading:
       // captions). Both are always objects; check .ready first.
       // When `shots` is present, this render draws the GAPS between shots.
     },
-    shots: [           // optional: story beats, each independently reusable
+    shots: [
+      // optional: story beats, each independently reusable
       // { id: "intro", start: 0, end: 4,
       //   render: function (t, canvas, ctx, audio, speech) { ... } },
       // { id: "orbit", start: 4, end: 10,
       //   render: function (t, canvas, ctx, audio, speech) { ... } }
     ],
-    audio: {           // video edits: preserve source audio, or audio: false for intentional silence
+    audio: {
+      // video edits: preserve source audio, or audio: false for intentional silence
       master: 0.9,
-      tracks: []
+      tracks: [],
     },
-    speech: {          // optional: transcript for captions (see Speech below)
-      segments: []     // the `segments` returned by the transcribeAudio tool
-    }
+    speech: {
+      // optional: transcript for captions (see Speech below)
+      segments: [], // the `segments` returned by the transcribeAudio tool
+    },
+    layers: [], // optional: text/image/shape elements for editable exports
   };
 </script>
 ```
@@ -196,26 +202,141 @@ The result also returns `sourceFileId` / `sourceLink`: the exact HTML you
 rendered, saved as `<name>.source.html` in the workspace. You do not need to
 keep the HTML yourself.
 
-## Delivering an editable package (CapCut, KineMaster, Premiere, Resolve, FCP)
+## Editable layers (for Alight Motion and other editor exports)
+
+**Required for an editable Alight Motion project:** declare every visible photo,
+text/caption, solid overlay, and title as its own `MOBILE_AGENT_VIDEO.layers`
+entry, and every original video window in `clips`. `shots` only splits the
+rendered MP4; it does NOT separate the elements inside a shot. A package with
+only shot MP4 layers does not satisfy a request for editable text/images.
+
+For an existing scene, read and revise its saved `.source.html` before exporting.
+Reusing the same canvas-only source or passing its `fileId` unchanged just exports
+flattened clips again. Rebuild the declarations from the original photos,
+captions, and timing; never use the rendered montage as replacement source media.
+Use plain workspace ids in `fileId`, not `workspace://` URLs in that field.
+Image-and-text-only scenes need `layers` but no artificial video `clips`.
+If an effect cannot be represented by supported layers, explain that limitation;
+do not claim a fully editable reconstruction. Do not claim separate layers were
+delivered merely because `exportEditorPackage` returned successfully.
+
+`render()` paints pixels, so an editor cannot recover text or image overlays
+from the finished MP4. When the user may want to **edit the video elsewhere**
+(especially Alight Motion) declare the composition as data next to `render`:
+
+```js
+layers: [
+  // Text layer: box is x/y/w/h in canvas pixels, top-left origin.
+  {
+    type: "text",
+    id: "title",
+    start: 0,
+    end: 4,
+    x: 80,
+    y: 460,
+    w: 1120,
+    h: 140,
+    text: "Black holes",
+    fontSize: 72,
+    fontFamily: "Archivo Black",
+    fontWeight: 700,
+    color: "#FFFFFFFF",
+    align: "center",
+  },
+
+  // Image layer: the export copies the original file to the gallery.
+  {
+    type: "image",
+    id: "photo",
+    el: "#photo",
+    start: 4,
+    end: 9,
+    x: 160,
+    y: 120,
+    w: 960,
+    h: 540,
+    fit: "fit",
+    opacity: 0.9,
+  },
+
+  // Solid layer: useful for bars, cards, and backgrounds.
+  {
+    type: "shape",
+    id: "bar",
+    start: 0,
+    end: 10,
+    x: 0,
+    y: 620,
+    w: 1280,
+    h: 100,
+    fill: "#FF101820",
+    radius: 24,
+  },
+];
+```
+
+- `start`/`end` are seconds on the scene timeline. The export keeps the same
+  windows in the editor project.
+- `x`, `y`, `w`, `h` are a canvas-pixel box with a top-left origin. They map to
+  an Alight text/shape transform and wrap width.
+- `type: "image"` resolves its file from `fileId` or from the `el` selector's
+  `<img src="workspace://<id>">` tag. Either way the original image is copied
+  to the gallery; `render` still paints it itself.
+- Optional `keys` animate the layer inside its own window:
+  `[{ t: 0, opacity: 0 }, { t: 0.25, opacity: 1 }, …]`. `t` is normalized
+  0–1 (0 = layer start, 1 = layer end). Animatable fields: `x`, `y`, `w`, `h`,
+  `rotation`, `opacity`. Keep keys sorted and inside 0–1.
+- `rotation` is degrees, `opacity` is 0–1, `z` sets stacking (higher is in
+  front; video clips default to the back).
+- Text `fontFamily` becomes a Google-Fonts descriptor, so use a real family
+  name. `align` is `left`, `center`, or `right`.
+- Declared video clips can keep their original media too:
+  `{ el: "#presenter", start: 0, end: 5, from: 0, x: 0, y: 0, w: 1280, h: 720 }`
+  with `<video src="workspace://<id>">`. The exporter stamps the element with
+  its workspace id automatically. When every declared clip resolves, the
+  Alight project gets one trimmed video layer per window; otherwise it falls
+  back to one flattened layer per shot.
+
+Use the same `layers` array as the source of truth inside `render` (loop over it
+and draw each item at `t`), so the MP4 and the editor project cannot drift. The
+MP4 remains the reference — Alight fonts and effects can differ slightly from
+the canvas. Declaring layers is optional for MP4/media-only delivery, but required
+when the user requests editable Alight text, images, or overlays.
+
+## Delivering an editable package (Alight Motion, CapCut, KineMaster, Premiere, Resolve, FCP)
 
 When the user wants to **edit the video elsewhere** — "make it importable into
 CapCut", "give me something KineMaster can use", "I want to edit this in
-Premiere" — call **`exportEditorPackage`** instead of `renderVideo`. It runs
-the same HTML contract but produces an editor-ready package:
+Premiere", "give me an Alight Motion project" — call **`exportEditorPackage`**
+instead of `renderVideo`. It runs the same HTML contract but produces an
+editor-ready package:
 
 - one MP4 per `shots` entry (and per gap between shots), in timeline order;
-- `timeline.fcpxml` (Final Cut Pro, DaVinci Resolve), `timeline-fcp7.xml`
+- `timeline-alight.xml` (Alight Motion project). Declared `layers` become
+  separate text/image/shape layers, and declared `clips` become trimmed video
+  layers that keep their original media. A scene that declares neither falls
+  back to one flattened full-frame video layer per shot. The package also has
+  `timeline.fcpxml` (Final Cut Pro, DaVinci Resolve), `timeline-fcp7.xml`
   (Premiere Pro, Resolve), `timeline.otio`, `timeline.edl`, `shots.csv`, and
   a `README.txt`;
-- every clip plus the finished full video copied into a gallery album
-  (default `Mobile Agent Edits`) for mobile editors, which import media only;
+- every clip, the original layer images/videos, and the finished full video
+  copied into a gallery album (default `Mobile Agent Edits`). Alight Motion's
+  project reads those copies, and the other mobile editors import the media
+  only;
 - a ZIP saved to the workspace and the device Downloads folder, plus the
-  finished full video saved as a separate playable workspace file.
+  finished full video saved as a separate playable workspace file;
+- a standalone `<name>-alight.xml` project saved to the workspace and the
+  device Downloads folder (`alightFileId`/`alightLink` in the result), so it
+  can be shared or imported on the phone without extracting the ZIP.
 
 Declare `shots` in the contract so each story beat becomes its own clip. A
 scene without shots exports as one clip equal to the full video — valid, but
 it gives the user nothing to rearrange. Keep shot windows and ids stable across
 revisions; unchanged shots are cached and reused exactly like `renderVideo`.
+When the user wants to edit **text, images, or overlays** in the project, also
+declare `layers` (and keep the video clips declared) as described above;
+otherwise those elements are baked into each shot's MP4 and cannot be moved in
+the editor.
 
 ```
 exportEditorPackage({ html: "<!doctype html>…", name: "black-hole", duration: 10 })
@@ -223,11 +344,15 @@ exportEditorPackage({ html: "<!doctype html>…", name: "black-hole", duration: 
 
 After it returns, embed the finished video inline with
 `![name](workspace://<videoFileId>)` and mention the ZIP (`fileId`/`link`) and
-the gallery album named in `galleryAlbum`. Do not embed the ZIP. If
+the gallery album named in `galleryAlbum`. When the user wants Alight Motion
+(or a mobile project), also mention the standalone XML (`alightFileId`) and how
+to import it. Do not embed the ZIP. If
 `galleryAlbum` is null, the README explains how to import the extracted clips;
-say that gallery access was denied rather than claiming the clips are there.
-The export is slower than `renderVideo` because each clip is joined separately,
-so run it once on a finished scene and do not retry blindly.
+say that gallery access was denied rather than claiming the clips are there —
+and note that `timeline-alight.xml` will then open with placeholder layers to
+relink, because it references the gallery copies. The export is slower than
+`renderVideo` because each clip is joined separately, so run it once on a
+finished scene and do not retry blindly.
 
 ## Previewing a scene before rendering (storyboard first)
 
@@ -333,17 +458,48 @@ Set the track duration to the actual scene length. To add other sound, attach a 
 ```html
 <script>
   window.MOBILE_AGENT_VIDEO = {
-    duration: 12, fps: 30, width: 1280, height: 720,
-    render: function (t) { /* ... */ },
+    duration: 12,
+    fps: 30,
+    width: 1280,
+    height: 720,
+    render: function (t) {
+      /* ... */
+    },
     audio: {
-      master: 0.9,               // overall gain 0–1, default 1
+      master: 0.9, // overall gain 0–1, default 1
       tracks: [
-        { file: "workspace://<audio-file-id>", start: 0, loop: true, volume: 0.5, fadeOut: 2 },
-        { synth: { kind: "pad", notes: ["C3", "G3", "Bb3"], attack: 2 }, start: 0, duration: 12, volume: 0.3 },
-        { synth: { kind: "tone", notes: [60, 64, 67, 72], noteDur: 0.5, wave: "triangle" }, start: 4, duration: 4, volume: 0.4 },
-        { synth: { kind: "noise", filterFreq: 400, filterEnd: 6000 }, start: 10, duration: 2, volume: 0.5 }
-      ]
-    }
+        {
+          file: "workspace://<audio-file-id>",
+          start: 0,
+          loop: true,
+          volume: 0.5,
+          fadeOut: 2,
+        },
+        {
+          synth: { kind: "pad", notes: ["C3", "G3", "Bb3"], attack: 2 },
+          start: 0,
+          duration: 12,
+          volume: 0.3,
+        },
+        {
+          synth: {
+            kind: "tone",
+            notes: [60, 64, 67, 72],
+            noteDur: 0.5,
+            wave: "triangle",
+          },
+          start: 4,
+          duration: 4,
+          volume: 0.4,
+        },
+        {
+          synth: { kind: "noise", filterFreq: 400, filterEnd: 6000 },
+          start: 10,
+          duration: 2,
+          volume: 0.5,
+        },
+      ],
+    },
   };
 </script>
 ```
@@ -413,12 +569,12 @@ Images and video clips in scenes (user-provided visuals):
   workspace.
 - Images: hide an `<img src="workspace://<id>">` and paint it with
   `drawImage` in `render`. Guard every draw — `if (img.complete &&
-  img.naturalWidth) { ... }` — so a still-loading image never throws.
+img.naturalWidth) { ... }` — so a still-loading image never throws.
   The exporter itself awaits workspace images: one that fails to decode
   (corrupt data, or too large for the device) fails the render loudly
   with its source named rather than silently leaving a blank visual.
   Cover-fit recipe: `var s = Math.max(canvas.width / img.naturalWidth,
-  canvas.height / img.naturalHeight);` then draw centered at that scale.
+canvas.height / img.naturalHeight);` then draw centered at that scale.
   Transparent PNG/GIF alpha composites in-scene — but the MP4 itself is
   opaque, so always paint a background first (unpainted regions read as
   black).
@@ -428,7 +584,7 @@ Images and video clips in scenes (user-provided visuals):
   crops `<video>` frames. Crops apply at draw time; the source file is
   never modified.
 - Clips: `<video muted playsinline preload="auto"
-  src="workspace://<id>">`, painted with `drawImage(video, ...)` once
+src="workspace://<id>">`, painted with `drawImage(video, ...)` once
   `video.readyState >= 2`. `muted` is mandatory: the recorder captures its
   own audio graph, never page audio, so an unmuted clip would play sound
   you hear in preview but lose in the render (and the autoplay policy
@@ -458,7 +614,7 @@ Images and video clips in scenes (user-provided visuals):
      seek (full-timeline clips), the declarative clip timeline (anything
      else), or a scene `prepareFrame`. Your job in `render` is only to paint
      what is already there: `if (video.readyState >= 2 && video.videoWidth)
-     drawImage(video, ...)`, else paint the poster/background — so the frame
+drawImage(video, ...)`, else paint the poster/background — so the frame
      after a slow seek is a background frame, not knowledge the clip never
      existed.
   3. One clip filling the whole timeline? Then the recorder's seek **is** the
@@ -470,15 +626,15 @@ Images and video clips in scenes (user-provided visuals):
      contract as data** — the runtime maps, seeks, and decodes their frames
      identically in the preview, in stills, and in the export:
      `window.MOBILE_AGENT_VIDEO.clips = [{ el: '#presenter', start: 4,
-     end: 165, from: 0, loop: false, hold: true }, { el: 'video.overlay-a',
-     start: 30, end: 45, from: 0, x: 700, y: 40, w: 480, h: 270 }]`.
-      - Windows are half-open `[start, end)`, so a segment seam at a clip's
-        `end` paints it on exactly one side — never both, never neither.
-      - Repeated appearances may reuse one element in non-overlapping windows:
-        `{ el: '#person', start: 18, end: 33, from: 0 }`, then
-        `{ el: '#person', start: 63, end: 78, from: 0 }`. Each restarts the
-        source from zero. Do not use global `t % sourceDuration` in `render`.
-        Overlapping windows require separate video elements.
+end: 165, from: 0, loop: false, hold: true }, { el: 'video.overlay-a',
+start: 30, end: 45, from: 0, x: 700, y: 40, w: 480, h: 270 }]`.
+     - Windows are half-open `[start, end)`, so a segment seam at a clip's
+       `end` paints it on exactly one side — never both, never neither.
+     - Repeated appearances may reuse one element in non-overlapping windows:
+       `{ el: '#person', start: 18, end: 33, from: 0 }`, then
+       `{ el: '#person', start: 63, end: 78, from: 0 }`. Each restarts the
+       source from zero. Do not use global `t % sourceDuration` in `render`.
+       Overlapping windows require separate video elements.
      - `from` is the source position mapped to `start`; `hold: true`
        (default) parks the clip on its last decoded frame when the source
        runs out inside its window, `loop: true` repeats it instead — both
@@ -490,12 +646,12 @@ Images and video clips in scenes (user-provided visuals):
      - Anything not declared still gets the recorder's default global seek,
        correct only for clips that fill the whole video time; the render
        result warns when that fires on undeclared clips. Declare every clip.
-     Escape hatch kept, with its catch stated plainly: `prepareFrame:
-     function (t) { /* seek clips and return a Promise resolved on
-     'seeked' */ }` takes over clip frames ENTIRELY — every clip it does
-     not seek shows a stale frame in the render and in stills, and the
-     render result says so. Use it only when data cannot express the
-     mapping; prefer declaring clips.
+       Escape hatch kept, with its catch stated plainly: `prepareFrame:
+function (t) { /* seek clips and return a Promise resolved on
+'seeked' */ }` takes over clip frames ENTIRELY — every clip it does
+       not seek shows a stale frame in the render and in stills, and the
+       render result says so. Use it only when data cannot express the
+       mapping; prefer declaring clips.
   5. Verify with stills: `previewScene` at each clip's start, middle, and
      end times — and at segment seams of long scenes (29 s and 31 s
      multiples of 30 s). Stills prepare clip frames exactly like the export
@@ -510,7 +666,7 @@ Images and video clips in scenes (user-provided visuals):
   readback, ~4 ms/frame at 720p) and falls back to an exact CPU loop per
   draw where WebGL is missing — same call, same pixels either way:
   `window.__mobileAgentChromaKey.drawKeyed(ctx, video, dx, dy, dw, dh,
-  opts)` paints the keyed frame onto the scene canvas and returns true;
+opts)` paints the keyed frame onto the scene canvas and returns true;
   on false (video not ready, bad key color) fall back to a plain
   `drawImage` so the scene never blanks. `window.__mobileAgentChromaKey.backend`
   (`'webgl'` | `'cpu'`) tells you which path the last draw took. Two modes:
@@ -524,23 +680,23 @@ Images and video clips in scenes (user-provided visuals):
     pixel-identical on the CPU path and GPU-accelerated. Prefer it when
     the footage keys by green dominance rather than a precise screen
     color.
-  Key straight from the video element with a source rect (`sx, sy, sw,
-  sh` in source pixels, e.g. `{ mode: "excess", sx: 0, sy: 0, sw: 1660,
-  sh: 1000 }`) — never pre-blit the frame into a temp canvas first: an
-  extra canvas generation resamples edge pixels and the key input
-  silently changes (fringe/halo no parameter can fix). The helper
-  replaces the target region (it clears before drawing), so never draw
-  the raw video into that target canvas first — the raw frame would show
-  through transparent pixels. Tune from stills: sample the screen color
-  with `getVideoFrame`, render `previewScene` stills, then adjust
-  (raised `similarity` eats screen shadows, raised `smoothness` softens
-  halos, raised `spill` kills fringe on hair/edges) and re-check after
-  every change. Limits: wrinkled/shadowed screens key unevenly, heavy
-  compression fringes (push `spill` up), and a subject wearing the screen
-  color is unkeyable — detect it from the stills and say so instead of
-  shipping holes. One keyed clip per scene unless a device measurement
-  clears more (measure GPU vs CPU via sustained-frame cost on a real
-  render, not a still).
+    Key straight from the video element with a source rect (`sx, sy, sw,
+sh` in source pixels, e.g. `{ mode: "excess", sx: 0, sy: 0, sw: 1660,
+sh: 1000 }`) — never pre-blit the frame into a temp canvas first: an
+    extra canvas generation resamples edge pixels and the key input
+    silently changes (fringe/halo no parameter can fix). The helper
+    replaces the target region (it clears before drawing), so never draw
+    the raw video into that target canvas first — the raw frame would show
+    through transparent pixels. Tune from stills: sample the screen color
+    with `getVideoFrame`, render `previewScene` stills, then adjust
+    (raised `similarity` eats screen shadows, raised `smoothness` softens
+    halos, raised `spill` kills fringe on hair/edges) and re-check after
+    every change. Limits: wrinkled/shadowed screens key unevenly, heavy
+    compression fringes (push `spill` up), and a subject wearing the screen
+    color is unkeyable — detect it from the stills and say so instead of
+    shipping holes. One keyed clip per scene unless a device measurement
+    clears more (measure GPU vs CPU via sustained-frame cost on a real
+    render, not a still).
 
 Synth cues (`synth.kind`):
 
@@ -711,12 +867,12 @@ normalized — so captions need no manual lookup and no render-time audio access
 ```js
 window.MOBILE_AGENT_VIDEO = {
   /* ...duration, fps, canvas, audio... */
-  speech: { segments: [ /* paste the tool's segments here */ ] },
+  speech: { segments: [/* paste the tool's segments here */] },
   render: function (t, canvas, ctx, audio, speech) {
-    var line    = speech.ready ? speech.activeText(t) : "";  // text at time t
-    var karaoke = speech.ready ? speech.progress(t)   : 0;   // 0..1 through the line
+    var line = speech.ready ? speech.activeText(t) : ""; // text at time t
+    var karaoke = speech.ready ? speech.progress(t) : 0; // 0..1 through the line
     // ...draw the caption; size it to the line, wipe it with karaoke...
-  }
+  },
 };
 ```
 
@@ -794,9 +950,14 @@ Rules:
 <script>
   var ctx = document.getElementById("scene").getContext("2d");
   window.MOBILE_AGENT_VIDEO = {
-    duration: 10, fps: 30, width: 1280, height: 720, canvasId: "scene",
+    duration: 10,
+    fps: 30,
+    width: 1280,
+    height: 720,
+    canvasId: "scene",
     render: function (t) {
-      var w = 1280, h = 720;
+      var w = 1280,
+        h = 720;
       ctx.fillStyle = "#0b0b0c";
       ctx.fillRect(0, 0, w, h);
       var x = w / 2 + Math.cos(t * 2) * w * 0.3;
@@ -879,7 +1040,11 @@ inside one canvas scene.
       `exportEditorPackage` (not `renderVideo`), declared `shots` so the clips
       are per story beat, embedded the returned `videoFileId`, and reported
       the ZIP plus the gallery album (or explained that gallery access was
-      denied)
+      denied). Declared `layers` for text/image/shape elements the user wants
+      to move in the editor, and declared video clips with `workspace://`
+      sources. Mention `timeline-alight.xml` when the user named Alight Motion
+      (or wants a mobile project), and the media-only route for other mobile
+      editors
 - [ ] if audio was requested: every `file:` id exists in the workspace
       (MP3/WAV/M4A/AAC/OGG/WebM), cues fit inside `duration`, volumes
       sum near 1, and `hasAudio` came back true (otherwise told the user why
@@ -916,7 +1081,7 @@ inside one canvas scene.
       `preload="auto"`, nothing calls `video.play()` or gates draws on its own
       `currentTime` bookkeeping (the exporter owns seeks — see the clip
       recipe), draws are guarded (`img.complete`, `readyState >= 2 &&
-      videoWidth`), and the result reports them in `imageFiles`/`videoFiles`
+    videoWidth`), and the result reports them in `imageFiles`/`videoFiles`
 - [ ] if the scene has sound: ran `previewMix` and cleared its warning
       (volumes near 1, no clipping, ducking lands on the voice)
 - [ ] if the scene is new or complex: reviewed a `previewScene` storyboard
